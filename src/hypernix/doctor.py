@@ -13,8 +13,9 @@ from .quantize import _detect_distro_id, _find_llama_quantize  # noqa: PLC2701
 
 def _check_python() -> Tuple[bool, str]:
     v = sys.version_info
-    ok = (v.major, v.minor) == (3, 12)
-    return ok, f"python {v.major}.{v.minor}.{v.micro} ({'ok' if ok else 'needs 3.12'})"
+    ok = (v.major == 3) and (10 <= v.minor <= 13)
+    recommended = "3.12 recommended" if v.minor != 12 else "ok"
+    return ok, f"python {v.major}.{v.minor}.{v.micro} ({recommended})"
 
 
 def _check_os() -> Tuple[bool, str]:
@@ -38,8 +39,9 @@ def _check_torch_version() -> Tuple[bool, str]:
         import torch
     except Exception as exc:
         return False, f"torch import failed: {exc}"
-    ok = torch.__version__.startswith("2.7.1")
-    return ok, f"torch {torch.__version__} ({'ok' if ok else 'expected 2.7.1'})"
+    # Accept 2.7.x (any patch / local tag like +cpu / +cu121).
+    ok = torch.__version__.split("+", 1)[0].startswith("2.7.")
+    return ok, f"torch {torch.__version__} ({'ok' if ok else 'expected 2.7.x'})"
 
 
 def _check_llama_quantize() -> Tuple[bool, str]:

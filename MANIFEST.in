@@ -1,0 +1,23 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+include setup.cfg
+include MANIFEST.in
+include ruff.toml
+include pytest.ini
+
+recursive-include src/hypernix *.py py.typed
+recursive-include tests *.py
+recursive-include examples *.py
+recursive-include scripts *.sh
+recursive-include .github/workflows *.yml
+
+# Noise we never want in the sdist.
+global-exclude __pycache__ *.pyc *.pyo *.swp .DS_Store
+prune dist
+prune build
+prune .venv
+prune hypernix-gguf
+prune src/*.egg-info
+prune *.egg-info
