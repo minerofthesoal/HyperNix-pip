@@ -61,7 +61,12 @@ Requires:
 - Python **3.10 – 3.13** (3.12 recommended)
 - PyTorch **2.7.1**
 - `llama-quantize` — shipped via the `[llama-cpp]` extra, or from
-  `pacman -S llama.cpp` / `dnf install llama-cpp` / a source build.
+  `pacman -S llama.cpp` / `dnf install llama-cpp` / a source build. If none
+  of those are available, hypernix auto-downloads a prebuilt CPU binary
+  from the upstream [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp/releases)
+  GitHub release and caches it under `~/.cache/hypernix/bin/`. Disable with
+  `--no-auto-fetch`, or pre-seed the cache with
+  `hypernix fetch-llama-quantize`.
 
 ## Quickstart
 
@@ -128,9 +133,11 @@ intermediate on disk.
 ```
 hypernix [--repo-id REPO_ID] [--output-dir DIR] [--quants QUANT ...]
          [--model-dir DIR] [--n-head N] [--context-length N]
-         [--threads N] [--llama-quantize BIN] [--keep-intermediate]
+         [--threads N] [--llama-quantize BIN] [--no-auto-fetch]
+         [--keep-intermediate]
          [--upload-to REPO_ID] [--upload-private] [--token TOKEN]
 hypernix doctor
+hypernix fetch-llama-quantize [--force] [--quiet]
 ```
 
 | Quant alias | llama.cpp enum |

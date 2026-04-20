@@ -114,6 +114,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the llama-quantize binary (defaults to PATH / llama_cpp).",
     )
     p.add_argument(
+        "--no-auto-fetch",
+        dest="auto_fetch",
+        action="store_false",
+        default=True,
+        help="Disable auto-download of a prebuilt llama-quantize from GitHub "
+        "releases when none is found locally.",
+    )
+    p.add_argument(
         "--keep-intermediate",
         action="store_true",
         help="Keep the fp16 GGUF used as the source for k-quants.",
@@ -145,12 +153,40 @@ def _pick_source_for(q: str, produced: dict[str, Path]) -> Path:
     )
 
 
+def _run_fetch_llama_quantize(raw: list[str]) -> int:
+    """`hypernix fetch-llama-quantize [--force]` subcommand handler."""
+    from .fetcher import cache_dir, cached_binary, fetch_llama_quantize
+
+    sub = argparse.ArgumentParser(
+        prog="hypernix fetch-llama-quantize",
+        description="Download a prebuilt CPU llama-quantize into the user cache.",
+    )
+    sub.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore any cached binary and re-download.",
+    )
+    sub.add_argument("--quiet", action="store_true", help="Suppress progress output.")
+    ns = sub.parse_args(raw)
+
+    existing = cached_binary()
+    if existing and not ns.force:
+        print(f"[hypernix] already cached: {existing}", file=sys.stderr)
+        return 0
+    path = fetch_llama_quantize(force=ns.force, quiet=ns.quiet)
+    print(f"[hypernix] {path}", file=sys.stderr)
+    print(f"[hypernix] cache dir: {cache_dir()}", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     if raw and raw[0] == "doctor":
         from .doctor import run
 
         return run()
+    if raw and raw[0] == "fetch-llama-quantize":
+        return _run_fetch_llama_quantize(raw[1:])
     args = _build_parser().parse_args(raw)
     plan = _plan(args.quants)
     output_dir = Path(args.output_dir).resolve()
@@ -211,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             quant_type=q,
             threads=args.threads,
             llama_quantize_bin=args.llama_quantize,
+            auto_fetch=args.auto_fetch,
         )
         produced[q] = out
 

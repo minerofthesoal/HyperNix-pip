@@ -7,6 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .fetcher import cache_dir, cached_binary
 from .quantize import _detect_distro_id, _find_llama_quantize  # noqa: PLC2701
 
 
@@ -45,10 +46,20 @@ def _check_torch_version() -> tuple[bool, str]:
 
 def _check_llama_quantize() -> tuple[bool, str]:
     try:
-        path = _find_llama_quantize()
+        # Don't trigger an auto-fetch inside `doctor`; just report what's
+        # already resolvable.
+        path = _find_llama_quantize(auto_fetch=False)
         return True, f"llama-quantize: {path}"
     except Exception as exc:
         return False, f"llama-quantize: not found\n    {exc}"
+
+
+def _check_fetch_cache() -> tuple[bool, str]:
+    cached = cached_binary()
+    cdir = cache_dir()
+    if cached is not None:
+        return True, f"cache: {cached}"
+    return True, f"cache: (empty) -> {cdir}"
 
 
 def _check_tool(name: str) -> tuple[bool, str]:
@@ -66,6 +77,7 @@ def run() -> int:
         ("safetensors", _check_import("safetensors")),
         ("sentencepiece", _check_import("sentencepiece")),
         ("llama-quantize", _check_llama_quantize()),
+        ("auto-fetch cache", _check_fetch_cache()),
         ("nice (optional)", _check_tool("nice")),
         ("ionice (optional)", _check_tool("ionice")),
     ]
