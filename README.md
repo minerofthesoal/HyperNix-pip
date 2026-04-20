@@ -136,20 +136,50 @@ k-quant in the plan.
 
 ## Build / release
 
+Local build:
+
 ```bash
 pip install build twine
 python -m build              # produces dist/*.whl and dist/*.tar.gz
-twine check dist/*
+twine check --strict dist/*
 ```
 
-GitHub Actions workflows (`.github/workflows/`):
+### GitHub Actions
 
-- `ci.yml` — pytest + CLI smoke tests on Ubuntu 22.04 / 24.04 (Python 3.12).
-- `release.yml` — on a `vX.Y.Z` tag, builds sdist + wheel, attaches
-  them to a GitHub Release, and publishes to PyPI via Trusted
-  Publishing (no API token needed; configure the PyPI project with
-  GitHub publisher = `minerofthesoal/hypernix-pip`, workflow =
-  `release.yml`, environment = `pypi`).
+Three workflows live under `.github/workflows/`:
+
+| Workflow | Trigger | Does |
+|---|---|---|
+| **`ci.yml`** | push / PR | ruff lint, pytest across Python **3.10–3.13** on `ubuntu-latest` + `ubuntu-22.04`, editable install, `setup.py --version` compat, plus a `build-check` job that verifies the sdist really contains `tests/`, `examples/`, `scripts/`, `.github/workflows/`, `MANIFEST.in`, `setup.py`, `setup.cfg`. |
+| **`build.yml`** | reusable (`workflow_call`) + manual `workflow_dispatch` + push to `main` touching packaging | Builds sdist + wheel, runs `twine check --strict`, test-installs **both** the wheel *and* the sdist in clean venvs, bundles `scripts/ + examples/ + README + LICENSE` into an extra tarball for non-pip users, generates `SHA256SUMS`, and uploads a single 90-day-retention artifact containing all four files (`*.whl`, `*.tar.gz`, `*-scripts-examples.tar.gz`, `SHA256SUMS`). |
+| **`release.yml`** | tag `vX.Y.Z` (or `vX.Y.Z-rc1` / `-pre` / `aN` / `bN`) | Calls `build.yml` for a single source of truth, verifies the tag matches `pyproject.toml`, classifies stable vs prerelease, creates a GitHub Release with all artifacts attached (prerelease flag set automatically), then publishes to **PyPI** (stable tags) or **TestPyPI** (prerelease tags) via Trusted Publishing — no API token needed. Manual `workflow_dispatch` can also push to TestPyPI for smoke-testing. |
+
+Trusted Publishing setup (one-time, per registry):
+
+- On **PyPI** → add publisher: repo `minerofthesoal/hypernix-pip`, workflow `release.yml`, environment `pypi`.
+- On **TestPyPI** → same repo, workflow `release.yml`, environment `testpypi`.
+
+Cutting a release:
+
+```bash
+# bump version in pyproject.toml AND setup.cfg -> e.g. 0.2.0
+git commit -am "hypernix 0.2.0"
+git tag -a v0.2.0 -m "hypernix 0.2.0"
+git push origin main v0.2.0          # triggers release.yml
+```
+
+For a prerelease:
+
+```bash
+git tag -a v0.2.0-rc1 -m "hypernix 0.2.0-rc1"
+git push origin v0.2.0-rc1           # -> TestPyPI + prerelease GitHub Release
+```
+
+Users can verify downloads with the attached `SHA256SUMS`:
+
+```bash
+sha256sum --check SHA256SUMS
+```
 
 ## License
 

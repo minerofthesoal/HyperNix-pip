@@ -6,38 +6,82 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    name: ruff lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install "ruff>=0.5"
+      - run: ruff check src tests
+
   test:
-    name: test (python ${{ matrix.python-version }} / ${{ matrix.os }})
+    name: test (py${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-22.04]
-        python-version: ["3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install package + test deps
+      - name: Install torch (CPU wheels)
         run: |
           python -m pip install --upgrade pip
-          # torch wheels take a while; install with CPU-only index to save time.
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1
-          pip install -e ".[dev]"
 
-      - name: Ruff lint
-        run: ruff check src tests || true  # non-blocking for now
+      - name: Editable install + dev extras
+        run: pip install -e ".[dev]"
 
-      - name: Pytest
+      - name: pytest
         run: pytest -q
 
-      - name: CLI smoke test
+      - name: CLI smoke tests
         run: |
           hypernix --help
-          hypernix doctor || true   # llama-quantize may be absent in CI
+          python -m hypernix --help
+          hypernix doctor || true
+
+      - name: setup.py compatibility
+        run: |
+          python setup.py --name
+          python setup.py --version
+
+  build-check:
+    name: build sdist + wheel (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --upgrade pip build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+      - name: Verify extras are present in sdist
+        run: |
+          tar tzf dist/*.tar.gz | tee /tmp/sdist-listing
+          for required in tests examples scripts .github/workflows MANIFEST.in setup.py setup.cfg; do
+            if ! grep -q "/$required" /tmp/sdist-listing; then
+              echo "::error::sdist missing $required"
+              exit 1
+            fi
+          done

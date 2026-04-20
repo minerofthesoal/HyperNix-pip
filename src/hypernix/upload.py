@@ -1,8 +1,8 @@
 """Push generated GGUF files to a HuggingFace repo."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional
 
 from huggingface_hub import HfApi, create_repo
 
@@ -10,7 +10,7 @@ from huggingface_hub import HfApi, create_repo
 def upload_gguf(
     files: Iterable[Path | str],
     repo_id: str = "ray0rf1re/HyperNix.1-gguf",
-    token: Optional[str] = None,
+    token: str | None = None,
     commit_message: str = "Add HyperNix GGUF quantizations",
     private: bool = False,
     create_if_missing: bool = True,

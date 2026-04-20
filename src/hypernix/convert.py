@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -13,17 +14,16 @@ from tqdm import tqdm
 
 from .arch import ArchInfo, infer_arch, iter_state_dict_names, map_tensor_name
 
-
 _SUPPORTED_BASE = {"fp32", "f32", "fp16", "f16"}
 
 
-def _collect_state_dict(model_dir: Path) -> Dict[str, torch.Tensor]:
+def _collect_state_dict(model_dir: Path) -> dict[str, torch.Tensor]:
     """Load tensors from a HuggingFace-style snapshot directory.
 
     Supports safetensors (sharded or single), pytorch_model.bin (sharded or
     single), and a plain ``*.pt`` / ``*.pth`` checkpoint at the repo root.
     """
-    state: Dict[str, torch.Tensor] = {}
+    state: dict[str, torch.Tensor] = {}
 
     st_index = model_dir / "model.safetensors.index.json"
     if st_index.exists():
@@ -79,7 +79,7 @@ def _collect_state_dict(model_dir: Path) -> Dict[str, torch.Tensor]:
     )
 
 
-def _load_config(model_dir: Path) -> Dict[str, Any]:
+def _load_config(model_dir: Path) -> dict[str, Any]:
     cfg = model_dir / "config.json"
     if cfg.exists():
         try:
@@ -89,7 +89,7 @@ def _load_config(model_dir: Path) -> Dict[str, Any]:
     return {}
 
 
-def _load_tokenizer_tokens(model_dir: Path) -> Optional[Dict[str, Any]]:
+def _load_tokenizer_tokens(model_dir: Path) -> dict[str, Any] | None:
     """Best-effort extraction of vocab / merges so the GGUF is self-contained."""
     tok_json = model_dir / "tokenizer.json"
     if tok_json.exists():
@@ -145,7 +145,7 @@ def _tensor_to_numpy(tensor: torch.Tensor, dtype: str) -> tuple[np.ndarray, GGML
     return t.to(torch.float32).numpy(), GGMLQuantizationType.F32
 
 
-def _iter_named_tensors(state_dict: Dict[str, torch.Tensor]) -> Iterable[tuple[str, str, torch.Tensor]]:
+def _iter_named_tensors(state_dict: dict[str, torch.Tensor]) -> Iterable[tuple[str, str, torch.Tensor]]:
     for key in iter_state_dict_names(state_dict.keys()):
         tensor = state_dict[key]
         if not isinstance(tensor, torch.Tensor):
@@ -160,8 +160,8 @@ def convert_to_gguf(
     dtype: str = "fp16",
     arch_name: str = "hypernix",
     name: str = "HyperNix",
-    n_head_hint: Optional[int] = None,
-    context_length: Optional[int] = None,
+    n_head_hint: int | None = None,
+    context_length: int | None = None,
 ) -> Path:
     """Write an uncompressed GGUF file at fp32 or fp16 precision.
 
@@ -243,7 +243,7 @@ def convert_to_gguf(
         if isinstance(unk, int):
             writer.add_unk_token_id(unk)
 
-    for original, mapped, tensor in tqdm(list(_iter_named_tensors(state)), desc=f"writing {dtype} gguf"):
+    for _original, mapped, tensor in tqdm(list(_iter_named_tensors(state)), desc=f"writing {dtype} gguf"):
         # Token/output embeddings and norms stay in F32 even in F16 mode
         # so we preserve accuracy on the rarely-referenced tables.
         force_f32 = (

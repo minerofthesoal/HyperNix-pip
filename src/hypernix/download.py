@@ -2,17 +2,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from huggingface_hub import snapshot_download
 
 
 def download_model(
     repo_id: str = "ray0rf1re/hyper-nix.1",
-    revision: Optional[str] = None,
-    cache_dir: Optional[str] = None,
-    local_dir: Optional[str] = None,
-    token: Optional[str] = None,
+    revision: str | None = None,
+    cache_dir: str | None = None,
+    local_dir: str | None = None,
+    token: str | None = None,
 ) -> Path:
     """Download the full model snapshot and return the local directory path.
 

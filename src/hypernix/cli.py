@@ -4,15 +4,15 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
 
 from .convert import convert_to_gguf
 from .download import download_model
-from .quantize import QUANT_TYPES, quantize_gguf
+from .quantize import quantize_gguf
 
 # Preferred user-facing quant labels (one per file).
-DEFAULT_QUANTS: List[str] = ["fp32", "fp16", "q8_0", "q6_k", "q4_k_m"]
+DEFAULT_QUANTS: list[str] = ["fp32", "fp16", "q8_0", "q6_k", "q4_k_m"]
 
 # Normalize aliases -> canonical label used in output filenames.
 _ALIAS = {
@@ -40,8 +40,8 @@ def _canonical(quant: str) -> str:
     return _ALIAS[key]
 
 
-def _plan(quants: Iterable[str]) -> List[str]:
-    seen: List[str] = []
+def _plan(quants: Iterable[str]) -> list[str]:
+    seen: list[str] = []
     for q in quants:
         c = _canonical(q)
         if c not in seen:

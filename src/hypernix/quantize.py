@@ -6,9 +6,8 @@ import platform
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Optional
-
 
 # Distro-specific install hints surfaced when llama-quantize is missing.
 # Detected by reading ``ID`` / ``ID_LIKE`` from /etc/os-release.
@@ -26,7 +25,7 @@ _DISTRO_HINTS: dict[str, str] = {
 }
 
 
-def _detect_distro_id() -> Optional[str]:
+def _detect_distro_id() -> str | None:
     try:
         with open("/etc/os-release", encoding="utf-8") as fh:
             data = dict(
@@ -77,7 +76,7 @@ class QuantizerNotFoundError(RuntimeError):
     pass
 
 
-def _candidate_binary_names() -> List[str]:
+def _candidate_binary_names() -> list[str]:
     # llama.cpp renamed `quantize` -> `llama-quantize` in mid-2024; keep both
     # for compatibility with older distro packages. Some Arch/Fedora builds
     # also suffix architecture (e.g. `llama-quantize-x86_64`).
@@ -90,7 +89,7 @@ def _candidate_binary_names() -> List[str]:
     ]
 
 
-def _system_search_paths() -> List[Path]:
+def _system_search_paths() -> list[Path]:
     home = Path.home()
     paths = [
         Path("/usr/local/bin"),
@@ -112,7 +111,7 @@ def _system_search_paths() -> List[Path]:
     return paths
 
 
-def _iter_candidates(explicit: Optional[str]) -> Iterable[str]:
+def _iter_candidates(explicit: str | None) -> Iterable[str]:
     if explicit:
         yield explicit
     env = os.environ.get("LLAMA_QUANTIZE")
@@ -146,7 +145,7 @@ def _iter_candidates(explicit: Optional[str]) -> Iterable[str]:
         pass
 
 
-def _find_llama_quantize(explicit: Optional[str] = None) -> str:
+def _find_llama_quantize(explicit: str | None = None) -> str:
     """Locate the llama-quantize binary across common Linux layouts.
 
     Search order (first match wins):
@@ -170,9 +169,9 @@ def quantize_gguf(
     source_gguf: Path | str,
     output_gguf: Path | str,
     quant_type: str,
-    threads: Optional[int] = None,
-    llama_quantize_bin: Optional[str] = None,
-    extra_args: Optional[list[str]] = None,
+    threads: int | None = None,
+    llama_quantize_bin: str | None = None,
+    extra_args: list[str] | None = None,
 ) -> Path:
     """Run llama-quantize to produce ``output_gguf`` from ``source_gguf``.
 

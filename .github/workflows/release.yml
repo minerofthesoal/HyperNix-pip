@@ -1,106 +1,201 @@
 name: release
 
-# Build an sdist + universal wheel, attach them to a GitHub Release, and
-# optionally publish to PyPI. Triggers:
-#   - pushing a tag matching v*.*.*  -> build + release + (PyPI if secret set)
-#   - manual `workflow_dispatch`      -> build only, upload as artifact
+# Triggers:
+#   - Tag push (vX.Y.Z)           -> build + GitHub Release + PyPI publish.
+#   - Tag push (vX.Y.Z-rcN / -pre) -> build + GitHub Release (prerelease) + TestPyPI publish.
+#   - Manual workflow_dispatch    -> build only (no publish), unless you opt in.
 on:
   push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      publish_pypi:
+        description: "Publish to real PyPI (ignored unless triggered from a tag)."
+        type: boolean
+        default: false
+      publish_testpypi:
+        description: "Publish to TestPyPI."
+        type: boolean
+        default: false
 
 permissions:
-  contents: write   # needed to create a GitHub Release
-  id-token: write   # needed for PyPI trusted publishing
+  contents: write   # create GitHub Releases
+  id-token: write   # OIDC for PyPI trusted publishing
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Build the artifacts via the reusable workflow.
+  # ---------------------------------------------------------------------------
   build:
-    name: build sdist + wheel
+    name: build
+    uses: ./.github/workflows/build.yml
+
+  # ---------------------------------------------------------------------------
+  # Verify the git tag matches pyproject.toml before any publish step.
+  # ---------------------------------------------------------------------------
+  verify-tag:
+    name: verify tag == pyproject version
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install build backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install build twine
-
-      - name: Verify version matches tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Compare
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pyver=$(python -c 'import tomllib,sys; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
-          if [ "$tag" != "$pyver" ]; then
-            echo "::error::tag v$tag does not match pyproject version $pyver" >&2
+          pkg="${{ needs.build.outputs.version }}"
+          echo "git tag   : v$tag"
+          echo "pyproject : $pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match pyproject.toml version $pkg"
             exit 1
           fi
 
-      - name: Build sdist + wheel
-        run: python -m build
-
-      - name: Check distributions
-        run: twine check dist/*
-
-      - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hypernix-dist
-          path: dist/*
-          if-no-files-found: error
-
-  github-release:
-    name: attach to GitHub Release
-    needs: build
+  # ---------------------------------------------------------------------------
+  # Classify the tag so we can route pre-releases to TestPyPI.
+  # A tag like v1.0.0-rc1 / v1.0.0-pre / v1.0.0a1 is treated as a prerelease.
+  # ---------------------------------------------------------------------------
+  classify:
+    name: classify release
     if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - id: check
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "$tag" =~ (rc|pre|alpha|beta|a|b)[0-9]*$ ]]; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is a prerelease (-> TestPyPI)"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is a stable release (-> PyPI)"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Attach artifacts to a GitHub Release.
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, verify-tag, classify]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
         with:
-          name: hypernix-dist
+          name: ${{ needs.build.outputs.artifact_name }}
           path: dist
 
-      - name: Create / update release
+      - name: Show artifacts
+        run: ls -lah dist/
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          prerelease: ${{ needs.classify.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
           body: |
-            Automated release for `hypernix` ${{ github.ref_name }}.
+            ## hypernix ${{ github.ref_name }}
 
-            Install:
+            **Install:**
             ```bash
-            pip install "hypernix[llama-cpp]==${{ github.ref_name }}"
+            pip install "hypernix[llama-cpp]==${{ needs.build.outputs.version }}"
             ```
-            The sdist and wheel attached below are the same artifacts published to PyPI.
 
+            Quantize `ray0rf1re/hyper-nix.1` to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M):
+            ```bash
+            hypernix --repo-id ray0rf1re/hyper-nix.1 \
+                     --output-dir ./hypernix-gguf \
+                     --quants fp32 fp16 q8_0 q6_k q4_k_m
+            ```
+
+            Verify downloads with `sha256sum --check SHA256SUMS` against the
+            attached `SHA256SUMS` file.
+
+            Changelog: see the auto-generated notes below.
+
+  # ---------------------------------------------------------------------------
+  # Publish stable tags to real PyPI via trusted publishing (OIDC).
+  # Requires configuring the PyPI project with:
+  #   publisher = GitHub
+  #   repo      = minerofthesoal/hypernix-pip
+  #   workflow  = release.yml
+  #   environment = pypi
+  # ---------------------------------------------------------------------------
   pypi-publish:
     name: publish to PyPI
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.classify.outputs.prerelease == 'false'
+    needs: [build, verify-tag, classify]
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/project/hypernix/
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
         with:
-          name: hypernix-dist
+          name: ${{ needs.build.outputs.artifact_name }}
           path: dist
 
-      # Uses PyPI Trusted Publishing (OIDC). Configure the project on PyPI
-      # with publisher = GitHub, repo = minerofthesoal/hypernix-pip,
-      # workflow = release.yml, environment = pypi. No API token needed.
-      - name: Publish to PyPI
+      - name: Strip non-PyPI files
+        run: |
+          cd dist
+          # PyPI only accepts .whl and .tar.gz (the sdist). Drop the extras tarball
+          # and the checksum file, which we don't want on the index.
+          rm -f SHA256SUMS
+          rm -f *-scripts-examples.tar.gz
+          ls -lah
+
+      - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          skip-existing: true
+
+  # ---------------------------------------------------------------------------
+  # Publish prereleases (or manual dispatch) to TestPyPI.
+  # Requires a separate `testpypi` environment with trusted publishing.
+  # ---------------------------------------------------------------------------
+  testpypi-publish:
+    name: publish to TestPyPI
+    if: >-
+      (startsWith(github.ref, 'refs/tags/v') && needs.classify.outputs.prerelease == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_testpypi)
+    needs: [build, verify-tag, classify]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/hypernix/
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: dist
+
+      - name: Strip non-PyPI files
+        run: |
+          cd dist
+          rm -f SHA256SUMS
+          rm -f *-scripts-examples.tar.gz
+          ls -lah
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: https://test.pypi.org/legacy/
           skip-existing: true

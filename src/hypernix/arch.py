@@ -12,8 +12,8 @@ original name so downstream tooling can round-trip arbitrarily shaped models.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
 
 # Canonical GGUF tensor names (see gguf.constants.MODEL_TENSOR).
 TOK_EMBD = "token_embd.weight"
@@ -46,7 +46,7 @@ _LAYER_PREFIXES = [
 ]
 
 # Tail regex (without layer prefix) -> canonical template.
-_PER_BLOCK_RULES: List[Tuple[str, str]] = [
+_PER_BLOCK_RULES: list[tuple[str, str]] = [
     # norms
     (r"input_layernorm\.weight$", ATTN_NORM),
     (r"attention_norm\.weight$", ATTN_NORM),
@@ -75,7 +75,7 @@ _PER_BLOCK_RULES: List[Tuple[str, str]] = [
 ]
 
 # Top-level (non-per-block) rules.
-_TOP_LEVEL_RULES: List[Tuple[str, str]] = [
+_TOP_LEVEL_RULES: list[tuple[str, str]] = [
     (r"^(?:model\.)?(?:tok_embeddings|embed_tokens|wte|embeddings?\.word_embeddings)\.weight$", TOK_EMBD),
     (r"^(?:model\.)?(?:norm|ln_f|final_layernorm|output_norm)\.weight$", OUTPUT_NORM),
     (r"^(?:lm_head|output|embed_out)\.weight$", OUTPUT),
@@ -92,11 +92,11 @@ class ArchInfo:
     n_head_kv: int = 0
     n_ff: int = 0
     vocab_size: int = 0
-    layer_indices: List[int] = field(default_factory=list)
+    layer_indices: list[int] = field(default_factory=list)
     tied_embeddings: bool = False
 
 
-def _match_layer_index(name: str) -> Optional[Tuple[int, str]]:
+def _match_layer_index(name: str) -> tuple[int, str] | None:
     for pat in _LAYER_PREFIXES:
         m = re.match(pat, name)
         if m:
@@ -104,7 +104,7 @@ def _match_layer_index(name: str) -> Optional[Tuple[int, str]]:
     return None
 
 
-def map_tensor_name(name: str) -> Optional[str]:
+def map_tensor_name(name: str) -> str | None:
     """Map a PyTorch parameter name to a GGUF tensor name.
 
     Returns ``None`` if no canonical mapping applies — the caller may still
@@ -124,21 +124,20 @@ def map_tensor_name(name: str) -> Optional[str]:
 
 
 def infer_arch(
-    state_dict: Dict[str, "object"],
-    hint_n_head: Optional[int] = None,
+    state_dict: dict[str, object],
+    hint_n_head: int | None = None,
 ) -> ArchInfo:
     """Inspect tensor shapes to infer basic architectural dimensions.
 
     Works for any layer count / hidden size. Heads default to a sensible guess
     if not discoverable (hidden_size // 64, clamped to >= 1).
     """
-    import torch
 
     info = ArchInfo()
     layer_ids: set[int] = set()
-    ffn_dim: Optional[int] = None
-    hidden: Optional[int] = None
-    vocab: Optional[int] = None
+    ffn_dim: int | None = None
+    hidden: int | None = None
+    vocab: int | None = None
 
     for name, tensor in state_dict.items():
         if not hasattr(tensor, "shape"):
@@ -170,6 +169,6 @@ def infer_arch(
     return info
 
 
-def iter_state_dict_names(state_dict_keys: Iterable[str]) -> List[str]:
+def iter_state_dict_names(state_dict_keys: Iterable[str]) -> list[str]:
     """Return the list of keys in stable sorted order for deterministic output."""
     return sorted(state_dict_keys)

@@ -6,26 +6,25 @@ import platform
 import shutil
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 from .quantize import _detect_distro_id, _find_llama_quantize  # noqa: PLC2701
 
 
-def _check_python() -> Tuple[bool, str]:
+def _check_python() -> tuple[bool, str]:
     v = sys.version_info
     ok = (v.major == 3) and (10 <= v.minor <= 13)
     recommended = "3.12 recommended" if v.minor != 12 else "ok"
     return ok, f"python {v.major}.{v.minor}.{v.micro} ({recommended})"
 
 
-def _check_os() -> Tuple[bool, str]:
+def _check_os() -> tuple[bool, str]:
     uname = platform.uname()
     ok = uname.system == "Linux"
     distro = _detect_distro_id() or "unknown"
     return ok, f"{uname.system} {uname.release} ({uname.machine}) distro={distro}"
 
 
-def _check_import(mod: str, minver: str | None = None) -> Tuple[bool, str]:
+def _check_import(mod: str, minver: str | None = None) -> tuple[bool, str]:
     try:
         m = importlib.import_module(mod)
     except Exception as exc:
@@ -34,7 +33,7 @@ def _check_import(mod: str, minver: str | None = None) -> Tuple[bool, str]:
     return True, f"{mod} {ver}"
 
 
-def _check_torch_version() -> Tuple[bool, str]:
+def _check_torch_version() -> tuple[bool, str]:
     try:
         import torch
     except Exception as exc:
@@ -44,7 +43,7 @@ def _check_torch_version() -> Tuple[bool, str]:
     return ok, f"torch {torch.__version__} ({'ok' if ok else 'expected 2.7.x'})"
 
 
-def _check_llama_quantize() -> Tuple[bool, str]:
+def _check_llama_quantize() -> tuple[bool, str]:
     try:
         path = _find_llama_quantize()
         return True, f"llama-quantize: {path}"
@@ -52,13 +51,13 @@ def _check_llama_quantize() -> Tuple[bool, str]:
         return False, f"llama-quantize: not found\n    {exc}"
 
 
-def _check_tool(name: str) -> Tuple[bool, str]:
+def _check_tool(name: str) -> tuple[bool, str]:
     path = shutil.which(name)
     return (bool(path), f"{name}: {path or 'missing (optional)'}")
 
 
 def run() -> int:
-    checks: List[Tuple[str, Tuple[bool, str]]] = [
+    checks: list[tuple[str, tuple[bool, str]]] = [
         ("OS", _check_os()),
         ("Python", _check_python()),
         ("torch", _check_torch_version()),
