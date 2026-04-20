@@ -11,8 +11,12 @@ from .convert import convert_to_gguf
 from .download import download_model
 from .quantize import quantize_gguf
 
-# Preferred user-facing quant labels (one per file).
-DEFAULT_QUANTS: list[str] = ["fp32", "fp16", "q8_0", "q6_k", "q4_k_m"]
+# Preferred user-facing quant labels (one per file). The default ships only
+# fp32 + fp16 because those two are produced entirely in-process by
+# `convert_to_gguf`; k-quants (Q8_0/Q6_K/Q4_K_M/Q5_K_M) are still available
+# by passing them explicitly via `--quants`, but they require `llama-quantize`
+# which isn't guaranteed to be installable everywhere.
+DEFAULT_QUANTS: list[str] = ["fp32", "fp16"]
 
 # Normalize aliases -> canonical label used in output filenames.
 _ALIAS = {

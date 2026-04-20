@@ -5,9 +5,11 @@
 [![License](https://img.shields.io/pypi/l/hypernix.svg)](https://github.com/minerofthesoal/hypernix-pip/blob/main/LICENSE)
 
 **Download the [`ray0rf1re/hyper-nix.1`](https://huggingface.co/ray0rf1re/hyper-nix.1)
-PyTorch model and export GGUF files at `fp32`, `fp16`, `Q8_0`, `Q6_K`, and
-`Q4_K_M` precision — on Ubuntu, Arch, Fedora, openSUSE, Alpine, NixOS, or
-anything else with CPython 3.10+ and PyTorch 2.7.1.**
+PyTorch model and export GGUF files at `fp32` and `fp16` precision — on
+Ubuntu, Arch, Fedora, openSUSE, Alpine, NixOS, or anything else with CPython
+3.10+ and PyTorch 2.7.1. k-quants (`Q8_0`, `Q6_K`, `Q4_K_M`, `Q5_K_M`) are
+available as opt-in via `--quants` when a `llama-quantize` binary is
+available locally.**
 
 The converter is **architecture-agnostic**: it introspects the state dict,
 so any HyperNix checkpoint works regardless of depth, hidden size, head
@@ -71,6 +73,12 @@ Requires:
 ## Quickstart
 
 ```bash
+# Default: fp32 + fp16 only — no external binary required.
+hypernix \
+  --repo-id ray0rf1re/hyper-nix.1 \
+  --output-dir ./hypernix-gguf
+
+# Opt in to k-quants (needs llama-quantize on PATH, or the [llama-cpp] extra):
 hypernix \
   --repo-id ray0rf1re/hyper-nix.1 \
   --output-dir ./hypernix-gguf \

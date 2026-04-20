@@ -16,5 +16,5 @@ __all__ = [
     "upload_gguf",
 ]
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"
