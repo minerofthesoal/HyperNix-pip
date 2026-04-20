@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (python ${{ matrix.python-version }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04]
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          # torch wheels take a while; install with CPU-only index to save time.
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src tests || true  # non-blocking for now
+
+      - name: Pytest
+        run: pytest -q
+
+      - name: CLI smoke test
+        run: |
+          hypernix --help
+          hypernix doctor || true   # llama-quantize may be absent in CI

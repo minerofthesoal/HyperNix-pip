@@ -2,11 +2,59 @@
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, List, Optional
+
+
+# Distro-specific install hints surfaced when llama-quantize is missing.
+# Detected by reading ``ID`` / ``ID_LIKE`` from /etc/os-release.
+_DISTRO_HINTS: dict[str, str] = {
+    "arch":        "sudo pacman -S llama.cpp     # Arch / Manjaro / EndeavourOS",
+    "ubuntu":      "pip install 'hypernix[llama-cpp]'     # Ubuntu / Debian / Mint / Pop!_OS",
+    "debian":      "pip install 'hypernix[llama-cpp]'     # Debian",
+    "fedora":      "sudo dnf install llama-cpp   # Fedora / RHEL / Alma / Rocky",
+    "rhel":        "sudo dnf install llama-cpp   # RHEL / Alma / Rocky",
+    "opensuse":    "sudo zypper install llama.cpp   # openSUSE (or `pip install 'hypernix[llama-cpp]'`)",
+    "suse":        "sudo zypper install llama.cpp   # SUSE",
+    "alpine":      "apk add llama-cpp            # Alpine (edge/community)",
+    "nixos":       "nix-shell -p llama-cpp",
+    "gentoo":      "sudo emerge sci-libs/llama-cpp",
+}
+
+
+def _detect_distro_id() -> Optional[str]:
+    try:
+        with open("/etc/os-release", encoding="utf-8") as fh:
+            data = dict(
+                line.strip().split("=", 1)
+                for line in fh
+                if "=" in line and not line.startswith("#")
+            )
+    except OSError:
+        return None
+    for key in ("ID", "ID_LIKE"):
+        raw = data.get(key, "").strip('"').strip("'")
+        for token in raw.split():
+            if token in _DISTRO_HINTS:
+                return token
+    return None
+
+
+def _install_hint() -> str:
+    generic = (
+        "Install options (pick one):\n"
+        "  pip install 'hypernix[llama-cpp]'           # works on most distros\n"
+        "  # or build llama.cpp from source and put the binary on $PATH\n"
+        "  # or pass --llama-quantize /path/to/llama-quantize"
+    )
+    distro = _detect_distro_id()
+    if distro and distro in _DISTRO_HINTS:
+        return f"{_DISTRO_HINTS[distro]}\nFallback:\n{generic}"
+    return generic
 
 # Canonical friendly name -> llama-quantize enum string.
 QUANT_TYPES: dict[str, str] = {
@@ -29,44 +77,92 @@ class QuantizerNotFoundError(RuntimeError):
     pass
 
 
-def _find_llama_quantize(explicit: Optional[str] = None) -> str:
-    """Locate the llama-quantize binary.
+def _candidate_binary_names() -> List[str]:
+    # llama.cpp renamed `quantize` -> `llama-quantize` in mid-2024; keep both
+    # for compatibility with older distro packages. Some Arch/Fedora builds
+    # also suffix architecture (e.g. `llama-quantize-x86_64`).
+    arch = platform.machine()
+    return [
+        "llama-quantize",
+        "llama-cpp-quantize",
+        "quantize",
+        f"llama-quantize-{arch}",
+    ]
 
-    Search order:
-      1. ``--llama-quantize`` arg / ``explicit`` parameter.
-      2. ``LLAMA_QUANTIZE`` env var.
-      3. ``llama-quantize`` or ``quantize`` on PATH.
-      4. Common paths inside an installed ``llama-cpp-python`` wheel.
-    """
-    candidates: list[str] = []
+
+def _system_search_paths() -> List[Path]:
+    home = Path.home()
+    paths = [
+        Path("/usr/local/bin"),
+        Path("/usr/bin"),
+        Path("/usr/lib/llama.cpp"),       # Arch puts the binary here sometimes
+        Path("/usr/lib/llama-cpp"),
+        Path("/opt/llama.cpp"),
+        Path("/opt/llama.cpp/build/bin"),
+        home / ".local" / "bin",
+        home / "llama.cpp" / "build" / "bin",
+        home / "llama.cpp" / "bin",
+        home / "src" / "llama.cpp" / "build" / "bin",
+    ]
+    # Respect GGUF_QUANTIZE_PATH to let users add arbitrary search roots.
+    extra = os.environ.get("GGUF_QUANTIZE_PATH", "")
+    for entry in extra.split(os.pathsep):
+        if entry:
+            paths.append(Path(entry))
+    return paths
+
+
+def _iter_candidates(explicit: Optional[str]) -> Iterable[str]:
     if explicit:
-        candidates.append(explicit)
+        yield explicit
     env = os.environ.get("LLAMA_QUANTIZE")
     if env:
-        candidates.append(env)
-    for name in ("llama-quantize", "quantize"):
+        yield env
+    for name in _candidate_binary_names():
         found = shutil.which(name)
         if found:
-            candidates.append(found)
-
+            yield found
+    for root in _system_search_paths():
+        if not root.exists():
+            continue
+        for name in _candidate_binary_names():
+            maybe = root / name
+            if maybe.exists():
+                yield str(maybe)
+    # llama-cpp-python ships its own prebuilt binary.
     try:
         import llama_cpp  # type: ignore
 
         pkg_root = Path(llama_cpp.__file__).parent
-        for rel in ("llama-quantize", "quantize", "bin/llama-quantize", "bin/quantize"):
+        for rel in (
+            "llama-quantize", "quantize",
+            "bin/llama-quantize", "bin/quantize",
+            "lib/llama-quantize", "lib/quantize",
+        ):
             maybe = pkg_root / rel
-            if maybe.exists() and os.access(maybe, os.X_OK):
-                candidates.append(str(maybe))
+            if maybe.exists():
+                yield str(maybe)
     except Exception:
         pass
 
-    for c in candidates:
+
+def _find_llama_quantize(explicit: Optional[str] = None) -> str:
+    """Locate the llama-quantize binary across common Linux layouts.
+
+    Search order (first match wins):
+      1. ``--llama-quantize`` argument (``explicit``).
+      2. ``$LLAMA_QUANTIZE`` env var.
+      3. ``llama-quantize`` / ``quantize`` on ``$PATH``.
+      4. Distro paths (Arch, Debian/Ubuntu, Fedora, openSUSE, Alpine, NixOS).
+      5. User-local builds in ``~/.local/bin`` and ``~/llama.cpp/build/bin``.
+      6. ``$GGUF_QUANTIZE_PATH`` (colon-separated extra directories).
+      7. The binary bundled by ``llama-cpp-python``.
+    """
+    for c in _iter_candidates(explicit):
         if c and Path(c).exists() and os.access(c, os.X_OK):
             return c
     raise QuantizerNotFoundError(
-        "Could not find llama-quantize. Install it via:\n"
-        "  pip install 'hypernix[llama-cpp]'\n"
-        "or build llama.cpp and put the binary on PATH, or pass --llama-quantize=/path/to/llama-quantize."
+        "Could not locate a llama-quantize binary.\n" + _install_hint()
     )
 
 

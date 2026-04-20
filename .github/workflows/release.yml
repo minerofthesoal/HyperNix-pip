@@ -1,0 +1,106 @@
+name: release
+
+# Build an sdist + universal wheel, attach them to a GitHub Release, and
+# optionally publish to PyPI. Triggers:
+#   - pushing a tag matching v*.*.*  -> build + release + (PyPI if secret set)
+#   - manual `workflow_dispatch`      -> build only, upload as artifact
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create a GitHub Release
+  id-token: write   # needed for PyPI trusted publishing
+
+jobs:
+  build:
+    name: build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Verify version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pyver=$(python -c 'import tomllib,sys; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          if [ "$tag" != "$pyver" ]; then
+            echo "::error::tag v$tag does not match pyproject version $pyver" >&2
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Check distributions
+        run: twine check dist/*
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypernix-dist
+          path: dist/*
+          if-no-files-found: error
+
+  github-release:
+    name: attach to GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hypernix-dist
+          path: dist
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            Automated release for `hypernix` ${{ github.ref_name }}.
+
+            Install:
+            ```bash
+            pip install "hypernix[llama-cpp]==${{ github.ref_name }}"
+            ```
+            The sdist and wheel attached below are the same artifacts published to PyPI.
+
+  pypi-publish:
+    name: publish to PyPI
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/hypernix/
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hypernix-dist
+          path: dist
+
+      # Uses PyPI Trusted Publishing (OIDC). Configure the project on PyPI
+      # with publisher = GitHub, repo = minerofthesoal/hypernix-pip,
+      # workflow = release.yml, environment = pypi. No API token needed.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true

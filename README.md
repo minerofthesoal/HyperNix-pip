@@ -166,6 +166,80 @@ checkpoint you should expect roughly:
 
 Your numbers will differ when running against larger HyperNix variants.
 
+---
+
+## 7. Supported distros
+
+The Python code itself is distro-agnostic — it only needs CPython 3.12,
+PyTorch 2.7.1, and a `llama-quantize` binary. The converter has been
+exercised on:
+
+| Distro                          | Install command                                                                 |
+|---------------------------------|---------------------------------------------------------------------------------|
+| **Ubuntu 24.04 / Debian 13**    | `sudo apt install python3.12 python3.12-venv && pip install "hypernix[llama-cpp]"` |
+| **Ubuntu 22.04** (via deadsnakes)| `sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv && pip install "hypernix[llama-cpp]"` |
+| **Arch / Manjaro / EndeavourOS**| `sudo pacman -S python python-pip llama.cpp && pip install hypernix`            |
+| **Fedora 40+ / RHEL 9 / Alma / Rocky** | `sudo dnf install python3.12 llama-cpp && pip install hypernix`          |
+| **openSUSE Tumbleweed**         | `sudo zypper install python312 llama.cpp && pip install hypernix`               |
+| **Alpine 3.20+**                | `sudo apk add python3 py3-pip bash && pip install "hypernix[llama-cpp]"`        |
+| **NixOS**                       | `nix-shell -p python312 llama-cpp --run 'pip install hypernix'`                 |
+
+Or just let the bootstrap script figure it out:
+
+```bash
+./scripts/install_deps.sh        # detects /etc/os-release and installs
+source .venv/bin/activate
+hypernix doctor
+```
+
+`hypernix doctor` prints a summary of the environment and tells you
+exactly what's missing:
+
+```
+[ok] OS                       Linux 6.8.0 (x86_64) distro=ubuntu
+[ok] Python                   python 3.12.3 (ok)
+[ok] torch                    torch 2.7.1 (ok)
+[ok] gguf                     gguf 0.18.0
+[ok] llama-quantize           /home/user/.venv/lib/python3.12/site-packages/llama_cpp/llama-quantize
+[--] ionice (optional)        missing (optional)
+```
+
+`llama-quantize` is located via, in order: the `--llama-quantize` flag,
+`$LLAMA_QUANTIZE`, `$PATH`, `/usr/bin`, `/usr/local/bin`,
+`/opt/llama.cpp`, `~/.local/bin`, `~/llama.cpp/build/bin`, any
+`$GGUF_QUANTIZE_PATH` entries, and the binary bundled with
+`llama-cpp-python`.
+
+---
+
+## 8. Releases / CI
+
+Two GitHub Actions workflows ship with the repo:
+
+- **`.github/workflows/ci.yml`** — runs `pytest` + CLI smoke tests on
+  every push and PR against Ubuntu 22.04 and Ubuntu 24.04.
+- **`.github/workflows/release.yml`** — on a version tag (`vX.Y.Z`),
+  builds an sdist + wheel with `python -m build`, checks them with
+  `twine`, attaches them to a GitHub Release, and publishes to PyPI via
+  [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no
+  API token required — configure the PyPI project with GitHub publisher =
+  `minerofthesoal/hypernix-pip`, workflow = `release.yml`, environment =
+  `pypi`). Manual `workflow_dispatch` runs build the artifacts and
+  upload them for download without publishing.
+
+Cutting a release:
+
+```bash
+# bump version in pyproject.toml -> e.g. 0.2.0
+git commit -am "hypernix 0.2.0"
+git tag -a v0.2.0 -m "hypernix 0.2.0"
+git push origin main v0.2.0
+```
+
+The tag push triggers the build + GitHub Release + PyPI publish job.
+
+---
+
 ## License
 
 Apache-2.0.

@@ -146,7 +146,12 @@ def _pick_source_for(q: str, produced: dict[str, Path]) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "doctor":
+        from .doctor import run
+
+        return run()
+    args = _build_parser().parse_args(raw)
     plan = _plan(args.quants)
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
