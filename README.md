@@ -17,9 +17,35 @@ count, FFN width, or vocabulary size.
 
 ## Install
 
+From PyPI (recommended):
+
 ```bash
 pip install "hypernix[llama-cpp]"
 ```
+
+From a **GitHub Release** download (the `.whl` or `.tar.gz` attached to a
+release) — these are real Python distributions, `pip` accepts them
+directly:
+
+```bash
+pip install hypernix-0.1.2-py3-none-any.whl
+# or:
+pip install hypernix-0.1.2.tar.gz
+```
+
+From a **GitHub Actions artifact** download (the `hypernix-dist-*.zip`
+you get from the Actions tab) — GitHub wraps every artifact in a `.zip`
+on download, so you must **extract first**:
+
+```bash
+unzip hypernix-dist-0.1.2-*.zip -d hypernix-dist
+pip install hypernix-dist/hypernix-0.1.2-py3-none-any.whl
+```
+
+Each artifact zip contains an `INSTALL.txt` with platform-specific
+one-liners; the build also publishes `hypernix-wheel-<ver>` and
+`hypernix-sdist-<ver>` artifacts so you can grab the raw wheel or sdist
+without unzipping a multi-file bundle.
 
 Or install everything with the distro bootstrap script:
 

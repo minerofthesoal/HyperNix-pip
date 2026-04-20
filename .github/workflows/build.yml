@@ -108,6 +108,61 @@ jobs:
           # Exclude any pre-existing checksum file from the hashing step.
           sha256sum *.whl *.tar.gz | tee SHA256SUMS
 
+      - name: Write INSTALL.txt into the artifact
+        working-directory: dist
+        run: |
+          cat > INSTALL.txt <<EOF
+          hypernix ${{ steps.meta.outputs.version }} build artifact
+          ============================================================
+
+          GitHub wraps multi-file artifacts in a .zip when you download them
+          from the Actions page. You CANNOT \`pip install\` that outer zip —
+          extract it first, then install the wheel or sdist from inside.
+
+          ------------------------------------------------------------------
+          Linux / macOS
+          ------------------------------------------------------------------
+            unzip hypernix-dist-*.zip -d hypernix-dist
+            cd hypernix-dist
+            python3.12 -m pip install hypernix-${{ steps.meta.outputs.version }}-py3-none-any.whl
+
+          If you don't have system permissions:
+            python3.12 -m pip install --user hypernix-${{ steps.meta.outputs.version }}-py3-none-any.whl
+          Or on Debian/Ubuntu 24.04+ (PEP 668):
+            python3.12 -m pip install --break-system-packages hypernix-${{ steps.meta.outputs.version }}-py3-none-any.whl
+
+          ------------------------------------------------------------------
+          Windows (PowerShell)
+          ------------------------------------------------------------------
+            Expand-Archive hypernix-dist-*.zip hypernix-dist
+            py -3.12 -m pip install hypernix-dist\hypernix-${{ steps.meta.outputs.version }}-py3-none-any.whl
+
+          ------------------------------------------------------------------
+          With the k-quant binary (recommended)
+          ------------------------------------------------------------------
+            python3.12 -m pip install 'hypernix-${{ steps.meta.outputs.version }}-py3-none-any.whl[llama-cpp]'
+
+          ------------------------------------------------------------------
+          Contents
+          ------------------------------------------------------------------
+            hypernix-${{ steps.meta.outputs.version }}-py3-none-any.whl
+                The installable wheel. Use this 99% of the time.
+            hypernix-${{ steps.meta.outputs.version }}.tar.gz
+                Source distribution (sdist). pip install works on this too.
+            hypernix-${{ steps.meta.outputs.version }}-scripts-examples.tar.gz
+                Bonus: shell scripts + Python examples + README + LICENSE,
+                for users who don't want pip.
+            SHA256SUMS
+                Verify downloads with: sha256sum --check SHA256SUMS
+
+          ------------------------------------------------------------------
+          Verify after install
+          ------------------------------------------------------------------
+            hypernix --help
+            hypernix doctor
+          EOF
+          echo "wrote $(wc -l < INSTALL.txt) lines"
+
       - name: List final dist/
         run: ls -lah dist/
 
@@ -119,3 +174,24 @@ jobs:
           if-no-files-found: error
           retention-days: 90
           compression-level: 0   # dist/* is already compressed
+
+      # Also upload the wheel alone under a stable name so downstream jobs
+      # (or CLI users running `gh run download --name hypernix-wheel`) can
+      # grab something that pip accepts directly without unwrapping a zip.
+      - name: Upload wheel-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypernix-wheel-${{ steps.meta.outputs.version }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload sdist-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypernix-sdist-${{ steps.meta.outputs.version }}
+          # Use an explicit filename, not *.tar.gz, so the scripts+examples
+          # bundle isn't swept into the "sdist" artifact.
+          path: dist/hypernix-${{ steps.meta.outputs.version }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
