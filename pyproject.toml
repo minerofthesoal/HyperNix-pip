@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hypernix"
+version = "0.1.0"
+description = "Download and quantize the HyperNix-0.1 PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = "==3.12.*"
+authors = [{ name = "HyperNix contributors" }]
+keywords = ["hypernix", "gguf", "quantization", "llama.cpp", "pytorch"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch==2.7.1",
+    "numpy>=1.26,<3",
+    "safetensors>=0.4.3",
+    "huggingface-hub>=0.24",
+    "gguf>=0.10.0",
+    "tqdm>=4.66",
+    "sentencepiece>=0.2.0",
+]
+
+[project.optional-dependencies]
+# Pulls in a prebuilt llama.cpp with the `llama-quantize` binary so k-quant
+# conversion works out of the box. Without this extra you must provide your
+# own llama-quantize on PATH (or via --llama-quantize).
+llama-cpp = ["llama-cpp-python>=0.2.90"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+hypernix = "hypernix.cli:main"
+hypernix-quantize = "hypernix.cli:main"
+
+[project.urls]
+Homepage = "https://huggingface.co/ray0rf1re/hyper-nix.1"
+Source = "https://github.com/minerofthesoal/hypernix-pip"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hypernix"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/hypernix", "README.md", "LICENSE", "pyproject.toml"]

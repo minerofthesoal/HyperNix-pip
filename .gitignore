@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.venv/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+hypernix-gguf/
+*.gguf
