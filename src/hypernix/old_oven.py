@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn as nn
 
 from .download import download_model, verify_snapshot
 from .generate import _load_tokenizer, _sample_next
@@ -104,13 +105,21 @@ def _trim_at_stop(text: str, stops: tuple[str, ...]) -> str:
 
 @dataclass
 class CodeOven:
-    """A loaded HyperNix model + tokenizer ready for code generation.
+    """A loaded HyperNix-family model + tokenizer ready for generation.
 
     Returned by :func:`preheat`. Safe to reuse across many generate calls —
     the model is loaded once and kept resident on ``device``.
+
+    ``model`` is typed as :class:`torch.nn.Module` so the oven can also
+    host non-HyperNix architectures loaded via :func:`hypernix.train.load_snapshot`
+    — currently ``NanoNanoModel`` from :mod:`hypernix.nano_nano`. Both
+    classes share the same forward signature
+    (``forward(input_ids, labels=None) -> {"logits": ..., "loss": ...}``)
+    and expose a ``config`` attribute with ``max_position_embeddings`` and
+    ``model_type``, which is all this class relies on.
     """
 
-    model: HyperNixModel
+    model: nn.Module
     tokenizer: Any
     tokenizer_kind: str  # "hf" or "byte"
     device: torch.device
@@ -258,6 +267,78 @@ class CodeOven:
             ids,
             max_new_tokens=max_new_tokens,
             temperature=temperature, top_k=top_k, top_p=top_p,
+        )
+        return self._decode(out_ids)
+
+    # ------------------------------------------------------------------
+    # Chat
+    # ------------------------------------------------------------------
+
+    def _format_chat(self, messages: list[dict[str, str]]) -> list[int]:
+        """Render a list of ``{role, content}`` messages into token ids.
+
+        Preference order:
+        1. ``tokenizer.apply_chat_template`` when the HF tokenizer has one
+           wired up (this is what ``nano-nano-v4`` and ``nano-mini`` ship
+           with, so we get the canonical Llama/Qwen chat format for free).
+        2. A plain ``role: content`` transcript with an ``assistant:``
+           suffix — works with any tokenizer, including the byte fallback.
+        """
+        if self.tokenizer_kind == "hf":
+            apply = getattr(self.tokenizer, "apply_chat_template", None)
+            tmpl = getattr(self.tokenizer, "chat_template", None)
+            if callable(apply) and tmpl:
+                ids = apply(
+                    messages, tokenize=True, add_generation_prompt=True,
+                )
+                return list(ids)
+
+        parts: list[str] = []
+        for m in messages:
+            parts.append(f"{m['role']}: {m['content']}")
+        parts.append("assistant:")
+        return self._encode("\n".join(parts))
+
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_new_tokens: int = 256,
+        temperature: float = 0.7,
+        top_k: int = 40,
+        top_p: float = 0.95,
+        seed: int | None = None,
+    ) -> str:
+        """Run a chat turn. ``messages`` is a list of ``{"role", "content"}``.
+
+        Works with all three new HyperNix-family models:
+
+        * ``Nano-nano-v4`` and ``Nano-mini-6.99-v2`` ship a HF Llama-style
+          chat template, so ``apply_chat_template`` takes the fast path.
+        * ``nano-nano-927-v3`` / HyperNix v1 / freshly-initialized ovens
+          don't — those fall back to a simple ``role: content`` transcript.
+
+        Defaults use ``temperature=0.7`` (chat-typical), higher than the
+        code-completion default of 0.2.
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        ids = self._format_chat(messages)
+        if not ids:
+            ids = [0]
+
+        eos: tuple[int, ...] = ()
+        if self.tokenizer_kind == "hf":
+            eid = getattr(self.tokenizer, "eos_token_id", None)
+            if isinstance(eid, int):
+                eos = (eid,)
+
+        out_ids = self._run(
+            ids,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature, top_k=top_k, top_p=top_p,
+            eos_ids=eos,
         )
         return self._decode(out_ids)
 
@@ -542,7 +623,7 @@ def load_pt(pt_path: Path | str, *, device: str | None = None) -> CodeOven:
     """
     pt_path = Path(pt_path)
     bundle = torch.load(pt_path, map_location="cpu", weights_only=False)
-    from .train import HyperNixConfig, HyperNixModel
+    from .train import HyperNixConfig
 
     cfg = HyperNixConfig.from_dict(bundle["config"])
     model = HyperNixModel(cfg)

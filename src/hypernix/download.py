@@ -17,9 +17,97 @@ the resulting directory can actually be consumed by ``hypernix convert``
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
+
+
+@dataclass(frozen=True)
+class ModelInfo:
+    """Metadata for a known HyperNix-family model on the HuggingFace Hub.
+
+    ``arch`` is one of:
+
+    * ``"hypernix"`` — HyperNix-native Llama-shape; loads via
+      :class:`HyperNixModel` with interleaved RoPE and no q/k/v bias.
+    * ``"llama"`` — HuggingFace LlamaForCausalLM checkpoints (half-rotate
+      RoPE, ``model.`` prefix in the state dict). The loader in
+      :func:`hypernix.train.load_snapshot` adapts both.
+    * ``"nano-nano"`` — custom ``NanoNanoModel`` (tiny toy arch with
+      weight-tying and a non-standard RoPE path). Loads via
+      :mod:`hypernix.nano_nano`.
+    """
+
+    repo_id: str
+    arch: str
+    notes: str = ""
+
+
+# Registry of known HyperNix-family repos on the HuggingFace Hub. Users can
+# pass either a short name (``"nano-nano-v4"``) or a full repo id
+# (``"ray0rf1re/Nano-nano-v4"``) to :func:`download_model` / :func:`preheat`;
+# short names resolve via this dict. Keys are case-insensitive.
+KNOWN_MODELS: dict[str, ModelInfo] = {
+    "hyper-nix.1": ModelInfo(
+        "ray0rf1re/hyper-nix.1", "hypernix",
+        "HyperNix v1 — Llama-shaped native HyperNix.",
+    ),
+    "hyper-nix": ModelInfo(
+        "ray0rf1re/hyper-nix.1", "hypernix", "Alias for hyper-nix.1.",
+    ),
+    "hypernix": ModelInfo(
+        "ray0rf1re/hyper-nix.1", "hypernix", "Alias for hyper-nix.1.",
+    ),
+    "nano-nano-v4": ModelInfo(
+        "ray0rf1re/Nano-nano-v4", "llama",
+        "HF LlamaForCausalLM, 896d / 14L / head_dim=64.",
+    ),
+    "nano-nano": ModelInfo(
+        "ray0rf1re/Nano-nano-v4", "llama", "Alias for nano-nano-v4.",
+    ),
+    "nano-mini-6.99-v2": ModelInfo(
+        "ray0rf1re/Nano-mini-6.99-v2", "llama",
+        "HF LlamaForCausalLM, 768d / 12L / head_dim=64.",
+    ),
+    "nano-mini": ModelInfo(
+        "ray0rf1re/Nano-mini-6.99-v2", "llama", "Alias for nano-mini-6.99-v2.",
+    ),
+    "nano-nano-927-v3": ModelInfo(
+        "ray0rf1re/nano-nano-927-v3", "nano-nano",
+        "Custom NanoNanoModel; dim=120, 12L, vocab=2048.",
+    ),
+    "nano-nano-927": ModelInfo(
+        "ray0rf1re/nano-nano-927-v3", "nano-nano",
+        "Alias for nano-nano-927-v3.",
+    ),
+}
+
+
+def resolve_repo_id(name_or_repo_id: str) -> str:
+    """Resolve a short name (``"nano-mini"``) to a full ``org/repo`` id.
+
+    Anything that already contains a ``/`` is returned unchanged — users
+    can keep passing full HF repo ids and nothing breaks.
+    """
+    if "/" in name_or_repo_id:
+        return name_or_repo_id
+    key = name_or_repo_id.lower()
+    info = KNOWN_MODELS.get(key)
+    return info.repo_id if info is not None else name_or_repo_id
+
+
+def resolve_model_info(name_or_repo_id: str) -> ModelInfo | None:
+    """Return the :class:`ModelInfo` for a known short-or-full name, else None."""
+    key = name_or_repo_id.lower()
+    if key in KNOWN_MODELS:
+        return KNOWN_MODELS[key]
+    # Match full repo_id against the registry values.
+    for info in KNOWN_MODELS.values():
+        if info.repo_id.lower() == key:
+            return info
+    return None
+
 
 # Files we always try to pull. The list is intentionally explicit so the
 # reader can see exactly what's considered "needed", and the glob fallbacks
@@ -121,6 +209,11 @@ def download_model(
     def log(msg: str) -> None:
         if not quiet:
             print(f"[hypernix] {msg}", file=sys.stderr)
+
+    resolved = resolve_repo_id(repo_id)
+    if resolved != repo_id:
+        log(f"resolved short name {repo_id!r} -> {resolved}")
+    repo_id = resolved
 
     log(f"downloading {repo_id} ...")
     path = Path(

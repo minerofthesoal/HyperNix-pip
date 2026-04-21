@@ -63,6 +63,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install "build>=1.2" "twine>=5" "ruff>=0.5" "pytest>=8" "setuptools>=77" wheel
 
+      - name: Install torch (CPU wheels) + package
+        # pytest needs torch (hypernix imports it at module load). Install the
+        # CPU wheel explicitly rather than relying on the package install
+        # below to pull it, so we never accidentally fetch a GPU build.
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1
+          pip install -e ".[dev]"
+
       - name: Bump versions in source
         run: |
           v='${{ inputs.version }}'

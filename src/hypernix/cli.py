@@ -58,6 +58,7 @@ _SUBCOMMANDS = {
     "train",
     "generate",
     "oven",
+    "chat",
 }
 
 
@@ -80,6 +81,7 @@ Subcommands:
   train                  init / expand / run training utilities
   generate               sample text from a local HyperNix snapshot
   oven                   code-generation wrapper (preheat + complete/fill)
+  chat                   interactive chat REPL with any HyperNix-family model
 
 Shortcuts:
   --auto-oven            download the default snapshot and run code completion
@@ -595,6 +597,78 @@ def _run_oven(raw: list[str]) -> int:
     return 0
 
 
+def _run_chat(raw: list[str]) -> int:
+    """`hypernix chat` — chat REPL against any HyperNix-family model.
+
+    Accepts short names from :data:`hypernix.download.KNOWN_MODELS`
+    (``nano-nano``, ``nano-mini``, ``nano-nano-927``, ``hyper-nix``) or a
+    full HF repo id. ``--message`` runs a single turn and exits (useful
+    for scripting); without it, drops into an interactive REPL.
+    """
+    from .old_oven import preheat
+
+    p = argparse.ArgumentParser(
+        prog="hypernix chat",
+        description="Chat with any HyperNix-family model.",
+    )
+    p.add_argument("--repo-id", default="ray0rf1re/hyper-nix.1",
+                   help="Short name or full HF repo id.")
+    p.add_argument("--revision", default=None)
+    p.add_argument("--model-dir", default=None,
+                   help="Reuse an existing local snapshot instead of downloading.")
+    p.add_argument("--token", default=None)
+    p.add_argument("--device", default=None)
+    p.add_argument("--dtype", default="float32",
+                   choices=["float32", "float16", "bfloat16"])
+    p.add_argument("--system", default=None,
+                   help="Optional system prompt prepended to every turn.")
+    p.add_argument("--message", default=None,
+                   help="Single user message. If set, runs one turn and exits.")
+    p.add_argument("--max-new-tokens", type=int, default=256)
+    p.add_argument("--temperature", type=float, default=0.7)
+    p.add_argument("--top-k", type=int, default=40)
+    p.add_argument("--top-p", type=float, default=0.95)
+    p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--quiet", action="store_true")
+
+    ns = p.parse_args(raw)
+
+    oven = preheat(
+        repo_id=ns.repo_id, revision=ns.revision, local_dir=ns.model_dir,
+        token=ns.token, device=ns.device, dtype=ns.dtype, quiet=ns.quiet,
+    )
+
+    history: list[dict[str, str]] = []
+    if ns.system:
+        history.append({"role": "system", "content": ns.system})
+
+    def turn(user_msg: str) -> str:
+        history.append({"role": "user", "content": user_msg})
+        reply = oven.chat(
+            list(history),
+            max_new_tokens=ns.max_new_tokens,
+            temperature=ns.temperature, top_k=ns.top_k, top_p=ns.top_p,
+            seed=ns.seed,
+        )
+        history.append({"role": "assistant", "content": reply})
+        return reply
+
+    if ns.message is not None:
+        print(turn(ns.message))
+        return 0
+
+    print("[hypernix chat] Ctrl-D or empty line to exit.", file=sys.stderr)
+    while True:
+        try:
+            line = input("you> ")
+        except EOFError:
+            print(file=sys.stderr)
+            return 0
+        if not line.strip():
+            return 0
+        print(f"assistant> {turn(line)}")
+
+
 def _run_generate(raw: list[str]) -> int:
     """`hypernix generate` — sample text from a local HyperNix snapshot."""
     from .generate import generate_text
@@ -679,6 +753,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_generate(rest)
     if cmd == "oven":
         return _run_oven(rest)
+    if cmd == "chat":
+        return _run_chat(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
 
 

@@ -54,6 +54,12 @@ class HyperNixConfig:
     # Qwen2 model expects this to be True.
     attention_bias: bool = False
     model_type: str = "hypernix"
+    # RoPE convention:
+    #   "interleaved" - GPT-NeoX / HyperNix-native (cos/sin pairs over ::2/1::2).
+    #   "half-rotate" - HuggingFace Llama / Qwen2 (first half vs second half).
+    # Loading an HF Llama checkpoint (model_type="llama") uses "half-rotate";
+    # loading a HyperNix snapshot uses "interleaved".
+    rope_style: str = "interleaved"
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -63,6 +69,16 @@ class HyperNixConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> HyperNixConfig:
+        # Normalize HF Llama "rope_parameters": {"rope_theta": ..., ...} dict
+        # to the flat rope_theta our dataclass expects.
+        d = dict(d)
+        if "rope_parameters" in d and isinstance(d["rope_parameters"], dict):
+            rp = d["rope_parameters"]
+            if "rope_theta" in rp and "rope_theta" not in d:
+                d["rope_theta"] = rp["rope_theta"]
+        # Infer rope_style from model_type when the caller didn't supply one.
+        if "rope_style" not in d:
+            d["rope_style"] = _default_rope_style(d.get("model_type", "hypernix"))
         fields = {k: d[k] for k in cls.__dataclass_fields__ if k in d}
         return cls(**fields)
 
@@ -103,11 +119,25 @@ def _rope_cache(seq_len: int, head_dim: int, theta: float, device, dtype) -> tup
     return freqs.cos().to(dtype), freqs.sin().to(dtype)
 
 
-def _apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+def _default_rope_style(model_type: str) -> str:
+    """Pick the RoPE convention a given HF ``model_type`` trains with."""
+    if model_type in {"llama", "qwen2", "mistral"}:
+        return "half-rotate"
+    return "interleaved"
+
+
+def _apply_rope(
+    x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, *, style: str = "interleaved",
+) -> torch.Tensor:
     # x: [B, H, T, D] ; cos/sin: [T, D/2]
-    x1, x2 = x[..., ::2], x[..., 1::2]
     cos = cos[None, None, :, :]
     sin = sin[None, None, :, :]
+    if style == "half-rotate":
+        # HF Llama / Qwen2: rotate first half against second half.
+        x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
+        return torch.cat((x1 * cos - x2 * sin, x1 * sin + x2 * cos), dim=-1)
+    # "interleaved" (default): GPT-NeoX style, pairs (0,1), (2,3), ...
+    x1, x2 = x[..., ::2], x[..., 1::2]
     return torch.stack((x1 * cos - x2 * sin, x1 * sin + x2 * cos), dim=-1).flatten(-2)
 
 
@@ -117,6 +147,7 @@ class Attention(nn.Module):
         self.n_head = cfg.num_attention_heads
         self.n_kv = cfg.n_kv_head
         self.head_dim = cfg.head_dim
+        self.rope_style = cfg.rope_style
         hidden = cfg.hidden_size
         qkv_bias = cfg.attention_bias
         self.q_proj = nn.Linear(hidden, self.n_head * self.head_dim, bias=qkv_bias)
@@ -129,8 +160,8 @@ class Attention(nn.Module):
         q = self.q_proj(x).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         k = self.k_proj(x).view(B, T, self.n_kv, self.head_dim).transpose(1, 2)
         v = self.v_proj(x).view(B, T, self.n_kv, self.head_dim).transpose(1, 2)
-        q = _apply_rope(q, cos, sin)
-        k = _apply_rope(k, cos, sin)
+        q = _apply_rope(q, cos, sin, style=self.rope_style)
+        k = _apply_rope(k, cos, sin, style=self.rope_style)
         # Repeat KV heads for grouped-query attention.
         if self.n_kv != self.n_head:
             repeat = self.n_head // self.n_kv
@@ -249,19 +280,63 @@ def save_snapshot(
     return out
 
 
-def load_snapshot(model_dir: Path | str) -> tuple[HyperNixModel, HyperNixConfig]:
-    """Load a HuggingFace-style HyperNix snapshot into :class:`HyperNixModel`."""
-    model_dir = Path(model_dir)
-    cfg = HyperNixConfig.from_json(model_dir / "config.json")
-    model = HyperNixModel(cfg)
+def _load_state_dict(model_dir: Path) -> dict[str, torch.Tensor]:
+    """Load the full state dict from a snapshot (single file or sharded)."""
     weights = model_dir / "model.safetensors"
     if weights.exists():
-        state = load_file(str(weights))
-    else:
-        # Fallback: gather all shards.
-        state = {}
-        for shard in sorted(model_dir.glob("*.safetensors")):
-            state.update(load_file(str(shard)))
+        return load_file(str(weights))
+    state: dict[str, torch.Tensor] = {}
+    for shard in sorted(model_dir.glob("*.safetensors")):
+        state.update(load_file(str(shard)))
+    return state
+
+
+def _strip_hf_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Drop the ``model.`` prefix HF LlamaForCausalLM puts on its tensors so
+    they line up with :class:`HyperNixModel`'s flat naming."""
+    if not any(k.startswith("model.") for k in state):
+        return state
+    remapped: dict[str, torch.Tensor] = {}
+    for k, v in state.items():
+        if k.startswith("model."):
+            remapped[k[len("model.") :]] = v
+        else:
+            remapped[k] = v
+    return remapped
+
+
+def load_snapshot(model_dir: Path | str):
+    """Load any supported snapshot from ``model_dir``.
+
+    Dispatches on the ``model_type`` declared in ``config.json``:
+
+    * ``"hypernix"`` / ``"llama"`` / ``"qwen2"`` / ``"mistral"`` — returns a
+      :class:`HyperNixModel` (our parametric Llama-shape); the loader
+      automatically strips the HF ``model.`` prefix and picks the correct
+      RoPE convention.
+    * ``"nano-nano"`` — returns a :class:`hypernix.nano_nano.NanoNanoModel`
+      (the custom tiny arch used by ``ray0rf1re/nano-nano-927-v3``).
+
+    Returns ``(model, config)``.
+    """
+    model_dir = Path(model_dir)
+    cfg_raw = json.loads((model_dir / "config.json").read_text())
+    model_type = cfg_raw.get("model_type", "hypernix")
+
+    if model_type == "nano-nano":
+        # Custom arch — delegate to the dedicated module so we don't pollute
+        # the HyperNix code path with nano-nano-specific tensor remapping.
+        from .nano_nano import NanoNanoConfig, NanoNanoModel
+
+        cfg = NanoNanoConfig.from_dict(cfg_raw)
+        model = NanoNanoModel(cfg)
+        state = _strip_hf_prefix(_load_state_dict(model_dir))
+        model.load_state_dict(state, strict=False)
+        return model, cfg
+
+    cfg = HyperNixConfig.from_dict(cfg_raw)
+    model = HyperNixModel(cfg)
+    state = _strip_hf_prefix(_load_state_dict(model_dir))
     model.load_state_dict(state, strict=False)
     return model, cfg
 
