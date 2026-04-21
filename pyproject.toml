@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.31.0"
+version = "0.32.0"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
@@ -29,7 +29,13 @@ classifiers = [
 ]
 
 dependencies = [
-    "torch>=2.7.1,<2.8",
+    # torch 2.7 is the floor (for nn.RMSNorm + 2.7's rope-friendly SDPA path).
+    # No upper bound on 2.x — 2.7, 2.8, 2.9, etc. are all accepted. CUDA 11
+    # users: install from the cu118 index first, e.g.
+    #   pip install --index-url https://download.pytorch.org/whl/cu118 torch
+    # then `pip install hypernix` will reuse that torch rather than pulling
+    # a CUDA-12 wheel.
+    "torch>=2.7,<3",
     "numpy>=1.26,<3",
     "safetensors>=0.4.3",
     "huggingface-hub>=0.24",

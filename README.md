@@ -61,7 +61,7 @@ Requires:
 
 - Linux (x86_64 / aarch64)
 - Python **3.10 – 3.13** (3.12 recommended)
-- PyTorch **2.7.1**
+- PyTorch **2.7 or newer** (CPU, CUDA 11.8, CUDA 12.x, or ROCm)
 - `llama-quantize` — shipped via the `[llama-cpp]` extra, or from
   `pacman -S llama.cpp` / `dnf install llama-cpp` / a source build. If none
   of those are available, hypernix auto-downloads a prebuilt CPU binary
@@ -69,6 +69,31 @@ Requires:
   GitHub release and caches it under `~/.cache/hypernix/bin/`. Disable with
   `--no-auto-fetch`, or pre-seed the cache with
   `hypernix fetch-llama-quantize`.
+
+### Picking a torch build (CPU / CUDA 11 / CUDA 12)
+
+`pip install hypernix` pulls the default torch wheel for your platform,
+which is currently a CUDA-12 build on Linux x86_64. If you have an older
+CUDA 11 driver (or a GPU that doesn't have CUDA-12 support) install
+torch from the CUDA-11.8 index **first**, then install hypernix — pip
+will reuse the already-installed torch instead of replacing it:
+
+```bash
+# CUDA 11.8 (older drivers / Kepler-through-Pascal GPUs on old stacks)
+pip install --index-url https://download.pytorch.org/whl/cu118 torch
+pip install hypernix
+
+# CUDA 12.x (modern default)
+pip install --index-url https://download.pytorch.org/whl/cu124 torch
+pip install hypernix
+
+# CPU-only (no GPU, or you don't want to pull CUDA deps)
+pip install --index-url https://download.pytorch.org/whl/cpu torch
+pip install hypernix
+```
+
+`hypernix doctor` prints the installed torch build (`cuda=11.8`,
+`cuda=12.4`, or `cpu`) so you can confirm after install.
 
 ## Quickstart
 

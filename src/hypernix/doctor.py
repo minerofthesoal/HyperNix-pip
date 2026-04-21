@@ -46,9 +46,19 @@ def _check_torch_version() -> tuple[bool, str]:
         import torch
     except Exception as exc:
         return False, f"torch import failed: {exc}"
-    # Accept 2.7.x (any patch / local tag like +cpu / +cu121).
-    ok = torch.__version__.split("+", 1)[0].startswith("2.7.")
-    return ok, f"torch {torch.__version__} ({'ok' if ok else 'expected 2.7.x'})"
+    # Accept any 2.7+ minor/patch (CPU, CUDA 11.8, CUDA 12.x, ROCm — local
+    # tag is whatever follows ``+``). Reject 2.6 and earlier, which don't
+    # ship ``nn.RMSNorm``.
+    base = torch.__version__.split("+", 1)[0]
+    parts = base.split(".")
+    try:
+        major, minor = int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        return False, f"torch {torch.__version__} (unparseable version)"
+    ok = (major, minor) >= (2, 7) and major < 3
+    cuda = getattr(torch.version, "cuda", None)
+    tag = f"cuda={cuda}" if cuda else "cpu"
+    return ok, f"torch {torch.__version__} ({tag}) ({'ok' if ok else 'expected >=2.7,<3'})"
 
 
 def _check_llama_quantize() -> tuple[bool, str]:
