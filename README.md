@@ -139,14 +139,25 @@ intermediate on disk.
 ## CLI reference
 
 ```
-hypernix [--repo-id REPO_ID] [--output-dir DIR] [--quants QUANT ...]
-         [--model-dir DIR] [--n-head N] [--context-length N]
-         [--threads N] [--llama-quantize BIN] [--no-auto-fetch]
-         [--keep-intermediate]
-         [--upload-to REPO_ID] [--upload-private] [--token TOKEN]
-hypernix doctor
-hypernix fetch-llama-quantize [--force] [--quiet]
+hypernix <subcommand> [options]
+
+Subcommands (all script-friendly, each wraps one library function):
+  all                   download -> convert -> [quantize]  (default)
+  download              fetch a HuggingFace snapshot
+  convert               produce an fp32 or fp16 GGUF from a snapshot
+  quantize              run llama-quantize on an fp16/fp32 GGUF
+  verify                read-validate a GGUF and print its headers
+  info                  package + optional GGUF header summary
+  upload                push files to a HuggingFace repo
+  doctor                environment diagnostic
+  fetch-llama-quantize  pre-seed the llama-quantize cache
+  train init            create a fresh HyperNix snapshot
+  train expand          warm-start a bigger model from a smaller one
+  train run             minimal causal-LM training loop
 ```
+
+`hypernix` with only flags (no subcommand) still runs the full `all`
+pipeline, so existing scripts keep working.
 
 | Quant alias | llama.cpp enum |
 |---|---|
@@ -156,6 +167,52 @@ hypernix fetch-llama-quantize [--force] [--quiet]
 | `q6`, `q6_k` | Q6_K |
 | `q4km`, `q4_k_m` | Q4_K_M |
 | `q5km`, `q5_k_m` | Q5_K_M |
+
+## Training larger HyperNix models
+
+The `train` subcommand is a small scaffold for standing up a same-size
+or bigger HyperNix model. Install with:
+
+```bash
+pip install "hypernix[train]"
+```
+
+Initialize a new HyperNix at a chosen shape:
+
+```bash
+hypernix train init \
+  --out-dir ./hyper-nix-v2 \
+  --tokenizer-source ./hyper-nix-v1 \
+  --hidden-size 1536 --intermediate-size 6144 \
+  --num-hidden-layers 24 --num-attention-heads 24
+```
+
+Warm-start a **bigger** model from an existing smaller checkpoint —
+overlapping rows/columns copy over, new slots init from `N(0, std)`,
+extra blocks duplicate the last old block:
+
+```bash
+hypernix train expand \
+  --src-dir ./hyper-nix-v1 \
+  --dst-dir ./hyper-nix-v2 \
+  --hidden-size 1536 --intermediate-size 6144 \
+  --num-hidden-layers 24
+```
+
+Run a minimal causal-LM training loop on a raw-text file (smoke-test /
+short continue-pretrain, not a full trainer):
+
+```bash
+hypernix train run \
+  --model-dir ./hyper-nix-v2 \
+  --dataset ./corpus.txt \
+  --out-dir ./hyper-nix-v2-trained \
+  --steps 1000 --batch-size 2 --context-length 512
+```
+
+The output of `train init`/`train expand`/`train run` is a standard
+HuggingFace snapshot directory, so you can feed it straight into
+`hypernix convert` (or `hypernix all --model-dir`).
 
 ## How it works
 
@@ -194,6 +251,7 @@ Three workflows live under `.github/workflows/`:
 | **`ci.yml`** | push / PR | ruff lint, pytest across Python **3.10–3.13** on `ubuntu-latest` + `ubuntu-22.04`, editable install, `setup.py --version` compat, plus a `build-check` job that verifies the sdist really contains `tests/`, `examples/`, `scripts/`, `.github/workflows/`, `MANIFEST.in`, `setup.py`, `setup.cfg`. |
 | **`build.yml`** | reusable (`workflow_call`) + manual `workflow_dispatch` + push to `main` touching packaging | Builds sdist + wheel, runs `twine check --strict`, test-installs **both** the wheel *and* the sdist in clean venvs, bundles `scripts/ + examples/ + README + LICENSE` into an extra tarball for non-pip users, generates `SHA256SUMS`, and uploads a single 90-day-retention artifact containing all four files (`*.whl`, `*.tar.gz`, `*-scripts-examples.tar.gz`, `SHA256SUMS`). |
 | **`release.yml`** | tag `vX.Y.Z` (or `vX.Y.Z-rc1` / `-pre` / `aN` / `bN`) | Calls `build.yml` for a single source of truth, verifies the tag matches `pyproject.toml`, classifies stable vs prerelease, creates a GitHub Release with all artifacts attached (prerelease flag set automatically), then publishes to **PyPI** (stable tags) or **TestPyPI** (prerelease tags) via Trusted Publishing — no API token needed. Manual `workflow_dispatch` can also push to TestPyPI for smoke-testing. |
+| **`public-release.yml`** | manual `workflow_dispatch` with `version` input | One-click public release: validates PEP 440 version, bumps `pyproject.toml` + `setup.cfg` + `src/hypernix/__init__.py`, runs ruff + pytest + `python -m build`, commits the bump, creates an annotated tag with an auto-generated changelog from `git log`, and pushes — which fires `release.yml`. Has a `dry_run` toggle that preserves the built artifacts as an artifact for inspection. |
 
 Trusted Publishing setup (one-time, per registry):
 

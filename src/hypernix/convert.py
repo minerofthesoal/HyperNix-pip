@@ -222,14 +222,30 @@ def convert_to_gguf(
 
     tok = _load_tokenizer_tokens(model_dir)
     if tok:
-        writer.add_tokenizer_model(tok["kind"])
+        kind = tok["kind"]
+        writer.add_tokenizer_model(kind)
+        # llama.cpp 2024+ requires `tokenizer.ggml.pre` on BPE GGUFs.
+        # Without it, loaders (llama.cpp / LM Studio) fail with
+        # "invalid GGUF type 9" on the merges field. "default" is the
+        # safe catch-all pre-tokenizer identifier.
+        if kind == "bpe":
+            try:
+                writer.add_tokenizer_pre("default")
+            except AttributeError:
+                writer.add_string("tokenizer.ggml.pre", "default")
         writer.add_token_list(tok["tokens"])
         if "scores" in tok:
             writer.add_token_scores(tok["scores"])
         if "types" in tok:
             writer.add_token_types(tok["types"])
-        if tok.get("merges"):
-            writer.add_token_merges(tok["merges"])
+        merges = tok.get("merges")
+        if merges:
+            # HF tokenizer.json v2+ stores merges as [["a","b"], ...];
+            # llama.cpp wants a flat list of "a b" strings. Normalize so the
+            # GGUF passes `gguf_init_from_file_impl` validation.
+            if isinstance(merges[0], (list, tuple)):
+                merges = [" ".join(m) for m in merges]
+            writer.add_token_merges(merges)
         bos = cfg.get("bos_token_id")
         eos = cfg.get("eos_token_id")
         pad = cfg.get("pad_token_id")

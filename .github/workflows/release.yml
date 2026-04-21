@@ -113,11 +113,24 @@ jobs:
             pip install "hypernix[llama-cpp]==${{ needs.build.outputs.version }}"
             ```
 
-            Quantize `ray0rf1re/hyper-nix.1` to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M):
+            Default (fp32 + fp16 only, no external binary needed):
             ```bash
-            hypernix --repo-id ray0rf1re/hyper-nix.1 \
-                     --output-dir ./hypernix-gguf \
-                     --quants fp32 fp16 q8_0 q6_k q4_k_m
+            hypernix all --repo-id ray0rf1re/hyper-nix.1 \
+                         --output-dir ./hypernix-gguf
+            ```
+
+            Opt in to k-quants (auto-downloads `llama-quantize` if missing):
+            ```bash
+            hypernix all --quants fp32 fp16 q8_0 q6_k q4_k_m
+            ```
+
+            Script-friendly subcommands:
+            ```bash
+            hypernix download --repo-id ray0rf1re/hyper-nix.1
+            hypernix convert  --model-dir DIR --output fp16.gguf --dtype fp16
+            hypernix quantize --source fp16.gguf --output q4.gguf --type q4_k_m
+            hypernix verify   model.gguf
+            hypernix train    expand --src-dir v1 --dst-dir v2 --hidden-size 1536
             ```
 
             Verify downloads with `sha256sum --check SHA256SUMS` against the

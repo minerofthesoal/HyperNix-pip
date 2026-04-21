@@ -1,0 +1,154 @@
+name: public-release
+
+# One-click public release:
+#
+#   1. Manual dispatch with a version (e.g. 0.2.0 or 0.2.0-rc1).
+#   2. Updates pyproject.toml + setup.cfg + src/hypernix/__init__.py so the
+#      three version strings stay in sync.
+#   3. Runs lint + tests + `python -m build` so we never tag a broken state.
+#   4. Commits the version bump to the trigger branch (skip-ci-tagged).
+#   5. Creates an annotated, signed-if-available tag `v<version>` and pushes
+#      it — which fires `release.yml`, which handles GitHub Release + PyPI
+#      (stable) or TestPyPI (prerelease) publishing via Trusted Publishing.
+#
+# Net effect: kick this off once from the Actions tab and a public release
+# lands on PyPI and on the Releases page with SHA256SUMS attached.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version, without the leading v (e.g. 0.2.0 or 0.2.0-rc1)."
+        required: true
+        type: string
+      dry_run:
+        description: "Validate + build but skip the commit + tag push."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: public-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: cut public release v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        run: |
+          v='${{ inputs.version }}'
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-]?(rc|pre|alpha|beta|a|b)[0-9]*)?$ ]]; then
+            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install "build>=1.2" "twine>=5" "ruff>=0.5" "pytest>=8" "setuptools>=77" wheel
+
+      - name: Bump versions in source
+        run: |
+          v='${{ inputs.version }}'
+          python - <<PY
+          import re
+          from pathlib import Path
+
+          v = "${{ inputs.version }}"
+
+          p = Path("pyproject.toml")
+          p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{v}"', p.read_text(), count=1, flags=re.M))
+
+          s = Path("setup.cfg")
+          s.write_text(re.sub(r'^version = .+$', f'version = {v}', s.read_text(), count=1, flags=re.M))
+
+          init = Path("src/hypernix/__init__.py")
+          init.write_text(re.sub(r'__version__ = "[^"]+"', f'__version__ = "{v}"', init.read_text(), count=1))
+          PY
+          echo "--- pyproject.toml version line"
+          grep '^version' pyproject.toml
+          echo "--- setup.cfg version line"
+          grep '^version' setup.cfg
+          echo "--- __init__.py version line"
+          grep __version__ src/hypernix/__init__.py
+
+      - name: Lint
+        run: ruff check src/hypernix
+
+      - name: Tests
+        run: PYTHONPATH=src pytest -q
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Twine check
+        run: twine check --strict dist/*
+
+      - name: Generate CHANGELOG fragment
+        id: changelog
+        run: |
+          last=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          {
+            echo "## Changelog"
+            echo ""
+            if [ -n "$last" ]; then
+              echo "Commits since \`$last\`:"
+              echo ""
+              git log "$last..HEAD" --pretty='- %s (%h)' --no-merges
+            else
+              echo "Initial tagged release."
+            fi
+          } > CHANGELOG_FRAGMENT.md
+          echo "--- fragment ---"
+          cat CHANGELOG_FRAGMENT.md
+
+      - name: Upload build artifacts (dry-run preview)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-release-dryrun-${{ inputs.version }}
+          path: |
+            dist/
+            CHANGELOG_FRAGMENT.md
+          retention-days: 14
+
+      - name: Commit version bump
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml setup.cfg src/hypernix/__init__.py
+          if git diff --cached --quiet; then
+            echo "::notice::no version change to commit (already at v${{ inputs.version }})"
+          else
+            git commit -m "hypernix v${{ inputs.version }} [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Tag and push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          tag='v${{ inputs.version }}'
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists"
+            exit 1
+          fi
+          git tag -a "$tag" -F CHANGELOG_FRAGMENT.md
+          git push origin "$tag"
+          echo "::notice::pushed $tag -> release.yml will now run"
