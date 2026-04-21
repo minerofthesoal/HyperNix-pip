@@ -148,10 +148,34 @@ def _iter_candidates(explicit: str | None) -> Iterable[str]:
         pass
 
 
+def _pip_install_llama_cpp_python(quiet: bool = False) -> None:
+    """Best-effort ``pip install llama-cpp-python`` used by --auto.
+
+    Tries ``--user`` first (works inside PEP 668 externally-managed envs like
+    Arch's system Python), then falls back to a plain install. Failures are
+    swallowed — the caller rechecks the candidate list afterwards.
+    """
+    base = [sys.executable, "-m", "pip", "install"]
+    if quiet:
+        base.append("--quiet")
+    base.append("llama-cpp-python")
+
+    print("[hypernix] --auto: trying `pip install --user llama-cpp-python`", file=sys.stderr)
+    for extra in (["--user"], []):
+        cmd = [*base[:-1], *extra, base[-1]]
+        try:
+            proc = subprocess.run(cmd, check=False)
+            if proc.returncode == 0:
+                return
+        except Exception as exc:  # noqa: BLE001
+            print(f"[hypernix] pip install attempt failed: {exc}", file=sys.stderr)
+
+
 def _find_llama_quantize(
     explicit: str | None = None,
     *,
     auto_fetch: bool = True,
+    auto: bool = False,
     quiet: bool = False,
 ) -> str:
     """Locate the llama-quantize binary across common Linux layouts.
@@ -168,22 +192,43 @@ def _find_llama_quantize(
 
     When ``auto_fetch`` is true (default) and nothing is found locally, the
     resolver downloads a prebuilt CPU binary from the upstream
-    ``ggml-org/llama.cpp`` GitHub release and caches it before returning.
+    ``ggml-org/llama.cpp`` GitHub release (walking back through recent
+    releases if the latest tag has no matching asset) and caches it.
+
+    When ``auto`` is also true, a further fallback of
+    ``pip install llama-cpp-python`` is attempted — handy on distros where
+    upstream's release assets skip the current arch.
     """
     for c in _iter_candidates(explicit):
         if c and Path(c).exists() and os.access(c, os.X_OK):
             return c
 
+    gh_error: Exception | None = None
     if auto_fetch and not explicit and not os.environ.get("LLAMA_QUANTIZE"):
         try:
             fetched = fetcher.fetch_llama_quantize(quiet=quiet)
+            if fetched.exists() and os.access(fetched, os.X_OK):
+                return str(fetched)
         except Exception as exc:  # noqa: BLE001
-            raise QuantizerNotFoundError(
-                "Could not locate a llama-quantize binary and the auto-fetch "
-                f"fallback failed: {exc}\n" + _install_hint()
-            ) from exc
-        if fetched.exists() and os.access(fetched, os.X_OK):
-            return str(fetched)
+            gh_error = exc
+            if not auto:
+                raise QuantizerNotFoundError(
+                    "Could not locate a llama-quantize binary and the auto-fetch "
+                    f"fallback failed: {exc}\n" + _install_hint()
+                ) from exc
+
+    if auto:
+        _pip_install_llama_cpp_python(quiet=quiet)
+        for c in _iter_candidates(explicit):
+            if c and Path(c).exists() and os.access(c, os.X_OK):
+                print(f"[hypernix] --auto: resolved via PyPI -> {c}", file=sys.stderr)
+                return c
+        suffix = f" (GitHub fetch error: {gh_error})" if gh_error else ""
+        raise QuantizerNotFoundError(
+            "--auto could not resolve llama-quantize via $PATH, the llama.cpp "
+            f"GitHub releases, or `pip install llama-cpp-python`.{suffix}\n"
+            + _install_hint()
+        )
 
     raise QuantizerNotFoundError(
         "Could not locate a llama-quantize binary.\n" + _install_hint()
@@ -198,6 +243,7 @@ def quantize_gguf(
     llama_quantize_bin: str | None = None,
     extra_args: list[str] | None = None,
     auto_fetch: bool = True,
+    auto: bool = False,
 ) -> Path:
     """Run llama-quantize to produce ``output_gguf`` from ``source_gguf``.
 
@@ -206,6 +252,10 @@ def quantize_gguf(
     (default) and no binary is found locally, a CPU-only prebuilt
     ``llama-quantize`` is downloaded from the upstream ``ggml-org/llama.cpp``
     GitHub release and cached under ``~/.cache/hypernix/bin``.
+
+    When ``auto`` is true, a final PyPI fallback
+    (``pip install llama-cpp-python``) is attempted if the GitHub release
+    fetch fails.
     """
     source = Path(source_gguf)
     output = Path(output_gguf)
@@ -218,7 +268,7 @@ def quantize_gguf(
             f"Unknown quant type {quant_type!r}. Valid: {sorted(set(QUANT_TYPES))}"
         )
 
-    binary = _find_llama_quantize(llama_quantize_bin, auto_fetch=auto_fetch)
+    binary = _find_llama_quantize(llama_quantize_bin, auto_fetch=auto_fetch, auto=auto)
     cmd: list[str] = [binary]
     if threads and threads > 0:
         cmd += ["--threads", str(threads)]

@@ -128,6 +128,13 @@ def _build_all_parser(prog: str = "hypernix all") -> argparse.ArgumentParser:
         "--no-auto-fetch", dest="auto_fetch", action="store_false", default=True,
         help="Disable auto-download of llama-quantize from GitHub releases.",
     )
+    p.add_argument(
+        "--auto", action="store_true", default=False,
+        help="Unattended mode: configure everything automatically. Walks "
+             "back through recent llama.cpp releases when the latest tag has "
+             "no CPU-only asset, and falls back to `pip install "
+             "llama-cpp-python` if GitHub fetching fails entirely.",
+    )
     p.add_argument("--keep-intermediate", action="store_true")
     p.add_argument("--token", default=None)
     p.add_argument("--upload-to", default=None, metavar="REPO_ID")
@@ -191,6 +198,7 @@ def _run_all(raw: list[str]) -> int:
             source_gguf=_pick_source_for(q, produced), output_gguf=out,
             quant_type=q, threads=args.threads,
             llama_quantize_bin=args.llama_quantize, auto_fetch=args.auto_fetch,
+            auto=args.auto,
         )
         produced[q] = out
 
@@ -276,11 +284,17 @@ def _run_quantize(raw: list[str]) -> int:
     p.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     p.add_argument("--llama-quantize", default=None)
     p.add_argument("--no-auto-fetch", dest="auto_fetch", action="store_false", default=True)
+    p.add_argument(
+        "--auto", action="store_true", default=False,
+        help="Unattended mode: walks back through recent llama.cpp "
+             "releases and falls back to `pip install llama-cpp-python` "
+             "if GitHub fetching fails.",
+    )
     ns = p.parse_args(raw)
     out = quantize_gguf(
         source_gguf=ns.source, output_gguf=ns.output, quant_type=ns.qtype,
         threads=ns.threads, llama_quantize_bin=ns.llama_quantize,
-        auto_fetch=ns.auto_fetch,
+        auto_fetch=ns.auto_fetch, auto=ns.auto,
     )
     print(out)
     return 0
@@ -372,16 +386,33 @@ def _run_upload(raw: list[str]) -> int:
 
 def _run_fetch_llama_quantize(raw: list[str]) -> int:
     from .fetcher import cache_dir, cached_binary, fetch_llama_quantize
+    from .quantize import _find_llama_quantize  # noqa: PLC2701
 
     p = argparse.ArgumentParser(prog="hypernix fetch-llama-quantize")
     p.add_argument("--force", action="store_true")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument(
+        "--auto", action="store_true", default=False,
+        help="Also try `pip install llama-cpp-python` if GitHub fetching fails.",
+    )
+    p.add_argument(
+        "--search-releases", type=int, default=10,
+        help="How many recent llama.cpp releases to probe for a matching "
+             "CPU asset (newest first). Default: 10.",
+    )
     ns = p.parse_args(raw)
     existing = cached_binary()
     if existing and not ns.force:
         print(f"[hypernix] already cached: {existing}", file=sys.stderr)
         return 0
-    path = fetch_llama_quantize(force=ns.force, quiet=ns.quiet)
+    if ns.auto:
+        # Route through the resolver so the PyPI fallback is engaged when
+        # the GitHub fetch legitimately fails.
+        path = _find_llama_quantize(auto_fetch=True, auto=True, quiet=ns.quiet)
+    else:
+        path = str(fetch_llama_quantize(
+            force=ns.force, quiet=ns.quiet, search_releases=ns.search_releases,
+        ))
     print(f"[hypernix] {path}", file=sys.stderr)
     print(f"[hypernix] cache dir: {cache_dir()}", file=sys.stderr)
     return 0

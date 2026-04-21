@@ -24,7 +24,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 LLAMA_CPP_REPO = "ggml-org/llama.cpp"
-_RELEASES_API = f"https://api.github.com/repos/{LLAMA_CPP_REPO}/releases/latest"
+_LATEST_API = f"https://api.github.com/repos/{LLAMA_CPP_REPO}/releases/latest"
+_LIST_API = f"https://api.github.com/repos/{LLAMA_CPP_REPO}/releases"
 _USER_AGENT = "hypernix/fetcher (+https://github.com/minerofthesoal/hypernix-pip)"
 
 
@@ -112,7 +113,19 @@ def _http_get(url: str, accept: str = "application/json") -> bytes:
 
 
 def _latest_release() -> dict:
-    raw = _http_get(_RELEASES_API)
+    raw = _http_get(_LATEST_API)
+    return json.loads(raw)
+
+
+def _recent_releases(limit: int = 10) -> list[dict]:
+    """Return up to ``limit`` recent releases (newest first).
+
+    Used as a fallback when the *latest* release doesn't ship a matching
+    CPU-only asset for the current OS/arch — upstream occasionally skips a
+    given tag's ubuntu binary, and walking back a handful of releases
+    almost always finds one that does.
+    """
+    raw = _http_get(f"{_LIST_API}?per_page={limit}")
     return json.loads(raw)
 
 
@@ -168,14 +181,23 @@ def fetch_llama_quantize(
     force: bool = False,
     quiet: bool = False,
     prefer_cached: bool = True,
+    search_releases: int = 10,
 ) -> Path:
     """Download a prebuilt ``llama-quantize`` binary into the user cache.
+
+    Tries the latest llama.cpp release first; if that release doesn't ship a
+    CPU-only asset matching the current OS/arch, walks back through up to
+    ``search_releases`` prior releases looking for one that does. This makes
+    the fetch resilient to upstream occasionally skipping a binary on a given
+    tag.
 
     Args:
         force: Ignore any cached binary and redownload.
         quiet: Suppress progress prints.
         prefer_cached: If a cached binary already exists, return it without
             hitting the network (unless ``force=True``).
+        search_releases: How many recent releases to probe (newest first)
+            when the latest tag has no matching asset. Set to 1 to disable.
 
     Returns:
         Path to the executable binary.
@@ -189,8 +211,11 @@ def fetch_llama_quantize(
         if not quiet:
             print(f"[hypernix] {msg}", file=sys.stderr)
 
+    # Pull the list of candidate releases newest-first. Use /releases?per_page
+    # rather than /releases/latest so a single API call covers both the
+    # happy path and the walk-back fallback.
     try:
-        release = _latest_release()
+        candidates = _recent_releases(limit=max(1, search_releases))
     except urllib.error.URLError as exc:
         raise RuntimeError(
             f"Could not reach the GitHub API to find a llama.cpp release: {exc}. "
@@ -198,30 +223,37 @@ def fetch_llama_quantize(
             "or `pip install 'hypernix[llama-cpp]'`."
         ) from exc
 
-    tag = release.get("tag_name", "?")
-    asset = _pick_asset(release.get("assets") or [])
-    if asset is None:
-        os_tag, arch_tokens = _detect_asset_tokens()
-        raise RuntimeError(
-            f"Release {tag} has no CPU-only asset for os={os_tag} arch={arch_tokens!r}. "
-            "Install llama.cpp from your distro (e.g. `pacman -S llama.cpp`) or via "
-            "`pip install 'hypernix[llama-cpp]'`."
-        )
+    os_tag, arch_tokens = _detect_asset_tokens()
+    tried: list[str] = []
+    for release in candidates:
+        tag = release.get("tag_name", "?")
+        asset = _pick_asset(release.get("assets") or [])
+        if asset is None:
+            tried.append(tag)
+            log(f"release {tag}: no CPU-only {os_tag}/{arch_tokens[0]} asset, trying older release")
+            continue
 
-    url = asset["browser_download_url"]
-    size_mb = (asset.get("size") or 0) / (1024 * 1024)
-    log(f"downloading llama.cpp {tag} asset: {asset['name']} ({size_mb:.1f} MB)")
+        url = asset["browser_download_url"]
+        size_mb = (asset.get("size") or 0) / (1024 * 1024)
+        log(f"downloading llama.cpp {tag} asset: {asset['name']} ({size_mb:.1f} MB)")
 
-    zip_path: Path | None = None
-    try:
-        zip_path = _download_to_temp(url)
-        extracted = _extract_binary(zip_path, cache_dir())
-    finally:
-        if zip_path is not None:
-            try:
-                zip_path.unlink()
-            except OSError:
-                pass
+        zip_path: Path | None = None
+        try:
+            zip_path = _download_to_temp(url)
+            extracted = _extract_binary(zip_path, cache_dir())
+        finally:
+            if zip_path is not None:
+                try:
+                    zip_path.unlink()
+                except OSError:
+                    pass
 
-    log(f"cached binary at {extracted}")
-    return extracted
+        log(f"cached binary at {extracted}")
+        return extracted
+
+    raise RuntimeError(
+        f"No CPU-only asset for os={os_tag} arch={arch_tokens!r} found in the "
+        f"latest {len(candidates)} llama.cpp release(s) (checked: {', '.join(tried)}). "
+        "Use --auto to try the PyPI fallback, install llama.cpp from your distro "
+        "(e.g. `pacman -S llama.cpp`), or `pip install 'hypernix[llama-cpp]'`."
+    )
