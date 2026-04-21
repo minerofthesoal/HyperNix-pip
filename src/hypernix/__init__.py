@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .convert import convert_to_gguf
-from .download import download_model
+from .download import download_model, verify_snapshot
 from .fetcher import fetch_llama_quantize
 from .quantize import QUANT_TYPES, quantize_gguf
 from .train import (
@@ -30,7 +30,8 @@ __all__ = [
     "save_snapshot",
     "train",
     "upload_gguf",
+    "verify_snapshot",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.21.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

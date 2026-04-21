@@ -119,7 +119,7 @@ def _pick_source_for(q: str, produced: dict[str, Path]) -> Path:
 
 def _run_all(raw: list[str]) -> int:
     from .convert import convert_to_gguf
-    from .download import download_model
+    from .download import download_model, verify_snapshot
     from .quantize import quantize_gguf
 
     args = _build_all_parser().parse_args(raw)
@@ -132,8 +132,8 @@ def _run_all(raw: list[str]) -> int:
         if not model_dir.exists():
             print(f"--model-dir {model_dir} does not exist", file=sys.stderr)
             return 2
+        verify_snapshot(model_dir)
     else:
-        print(f"[hypernix] downloading {args.repo_id} ...", file=sys.stderr)
         model_dir = download_model(repo_id=args.repo_id, revision=args.revision, token=args.token)
     print(f"[hypernix] model dir: {model_dir}", file=sys.stderr)
 
@@ -203,10 +203,16 @@ def _run_download(raw: list[str]) -> int:
     p.add_argument("--local-dir", default=None)
     p.add_argument("--cache-dir", default=None)
     p.add_argument("--token", default=None)
+    p.add_argument("--quiet", action="store_true")
+    p.add_argument(
+        "--no-verify", dest="verify", action="store_false", default=True,
+        help="Skip the post-download sanity check.",
+    )
     ns = p.parse_args(raw)
     path = download_model(
         repo_id=ns.repo_id, revision=ns.revision,
         local_dir=ns.local_dir, cache_dir=ns.cache_dir, token=ns.token,
+        quiet=ns.quiet, verify=ns.verify,
     )
     print(path)
     return 0
