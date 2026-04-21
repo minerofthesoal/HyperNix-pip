@@ -7,22 +7,46 @@ import shutil
 import sys
 from pathlib import Path
 
+from . import deps
 from .fetcher import cache_dir, cached_binary
 from .quantize import _detect_distro_id, _find_llama_quantize  # noqa: PLC2701
+
+# Packages hypernix expects at runtime, grouped by whether doctor --fix
+# is allowed to install them. ``torch`` is intentionally absent — see
+# deps.PROTECTED.
+_RUNTIME_DEPS: tuple[str, ...] = (
+    "numpy>=1.26,<3",
+    "safetensors>=0.4.3",
+    "huggingface-hub>=0.24",
+    "gguf>=0.10.0",
+    "tqdm>=4.66",
+    "sentencepiece>=0.2.1",
+)
+# Optional — needed for HF tokenizer / training.
+_OPTIONAL_DEPS: tuple[str, ...] = (
+    "tokenizers>=0.20",
+    "transformers>=4.44",
+)
 
 
 def _check_python() -> tuple[bool, str]:
     v = sys.version_info
     ok = (v.major == 3) and (10 <= v.minor <= 13)
-    recommended = "3.12 recommended" if v.minor != 12 else "ok"
-    return ok, f"python {v.major}.{v.minor}.{v.micro} ({recommended})"
+    # 3.10–3.13 are all supported; 3.12 is the main CI target but there's
+    # no quality difference for users.
+    return ok, f"python {v.major}.{v.minor}.{v.micro} ({'ok' if ok else 'expected 3.10–3.13'})"
 
 
 def _check_os() -> tuple[bool, str]:
+    """OS check is informational — hypernix runs on Linux, macOS, and Windows."""
     uname = platform.uname()
-    ok = uname.system == "Linux"
-    distro = _detect_distro_id() or "unknown"
-    return ok, f"{uname.system} {uname.release} ({uname.machine}) distro={distro}"
+    supported = {"Linux", "Darwin", "Windows"}
+    ok = uname.system in supported
+    extra = ""
+    if uname.system == "Linux":
+        distro = _detect_distro_id() or "unknown"
+        extra = f" distro={distro}"
+    return ok, f"{uname.system} {uname.release} ({uname.machine}){extra}"
 
 
 def _check_import(mod: str, minver: str | None = None) -> tuple[bool, str]:
@@ -84,7 +108,28 @@ def _check_tool(name: str) -> tuple[bool, str]:
     return (bool(path), f"{name}: {path or 'missing (optional)'}")
 
 
-def run() -> int:
+def run(*, fix: bool = False) -> int:
+    """Run the environment check. If ``fix`` is True, pip-install missing deps.
+
+    ``fix`` will NOT install or reinstall torch (see ``deps.PROTECTED``) —
+    users pick their CUDA / CPU flavour manually.
+    """
+    if fix:
+        print("[hypernix] doctor --fix: installing / upgrading runtime deps")
+        deps.ensure(list(_RUNTIME_DEPS), upgrade=True)
+        deps.ensure(list(_OPTIONAL_DEPS), upgrade=True)
+        # Optional platform-specific extras.
+        if sys.platform != "win32":  # nice/ionice are POSIX-only utilities
+            pass
+
+    # Optional tool checks vary by OS — nice/ionice are POSIX-only.
+    optional_tools: list[tuple[str, tuple[bool, str]]] = []
+    if sys.platform != "win32":
+        optional_tools = [
+            ("nice (optional)", _check_tool("nice")),
+            ("ionice (optional)", _check_tool("ionice")),
+        ]
+
     checks: list[tuple[str, tuple[bool, str]]] = [
         ("OS", _check_os()),
         ("Python", _check_python()),
@@ -95,8 +140,7 @@ def run() -> int:
         ("sentencepiece", _check_import("sentencepiece")),
         ("llama-quantize", _check_llama_quantize()),
         ("auto-fetch cache", _check_fetch_cache()),
-        ("nice (optional)", _check_tool("nice")),
-        ("ionice (optional)", _check_tool("ionice")),
+        *optional_tools,
     ]
 
     mandatory = {"OS", "Python", "torch", "gguf", "huggingface_hub", "safetensors", "llama-quantize"}
@@ -110,4 +154,8 @@ def run() -> int:
     print()
     print(f"hypernix executable: {shutil.which('hypernix') or 'not on PATH'}")
     print(f"working dir: {Path.cwd()}")
+    if not all_ok and not fix:
+        print()
+        print("tip: run `hypernix doctor --fix` to pip-install missing runtime deps")
+        print("     (torch is never auto-installed; pick your own CUDA/CPU flavour)")
     return 0 if all_ok else 1

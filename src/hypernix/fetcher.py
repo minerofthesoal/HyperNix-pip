@@ -41,9 +41,15 @@ def cache_dir() -> Path:
 
 def cached_binary() -> Path | None:
     """Return the path to a cached ``llama-quantize`` if one exists."""
-    for name in ("llama-quantize", "quantize"):
+    names = ["llama-quantize", "quantize"]
+    if sys.platform == "win32":
+        names = [*names, *(f"{n}.exe" for n in names)]
+    for name in names:
         candidate = cache_dir() / name
-        if candidate.exists() and os.access(candidate, os.X_OK):
+        if not candidate.exists():
+            continue
+        # On Windows the executable bit doesn't exist; existence is enough.
+        if sys.platform == "win32" or os.access(candidate, os.X_OK):
             return candidate
     return None
 
@@ -72,9 +78,16 @@ def _detect_asset_tokens() -> tuple[str, list[str]]:
 
 
 def _pick_asset(assets: Iterable[dict]) -> dict | None:
-    """Pick the best CPU-only Linux asset from a release payload."""
+    """Pick the best CPU-only asset from a release payload for the current OS/arch."""
     os_tag, arch_tokens = _detect_asset_tokens()
-    exclude = ("cuda", "hip", "rocm", "vulkan", "sycl", "musa", "kompute", "cann", "arm64-apple", "macos")
+    # On macOS we want the macos asset; everywhere else skip macOS-specific builds.
+    exclude_common = ("cuda", "hip", "rocm", "vulkan", "sycl", "musa", "kompute", "cann")
+    if os_tag == "macos":
+        exclude = exclude_common
+    elif os_tag == "win":
+        exclude = (*exclude_common, "macos", "arm64-apple", "ubuntu")
+    else:
+        exclude = (*exclude_common, "macos", "arm64-apple")
 
     def score(name: str) -> int:
         lower = name.lower()
@@ -86,7 +99,7 @@ def _pick_asset(assets: Iterable[dict]) -> dict | None:
             return -1
         if any(tok in lower for tok in exclude):
             return -1
-        # Prefer "bin-ubuntu-x64" flavour.
+        # Prefer "bin-<os>-<arch>" flavour.
         s = 10
         if "bin" in lower:
             s += 5
@@ -141,7 +154,17 @@ def _download_to_temp(url: str) -> Path:
 
 def _extract_binary(zip_path: Path, target_dir: Path) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
-    libs_pattern = re.compile(r"(?:^|/)(lib(?:llama|ggml)[^/]*\.(?:so|dylib)(?:\.[0-9]+)*|ggml[^/]*\.so(?:\.[0-9]+)*)$")
+    # Capture Linux .so, macOS .dylib, AND Windows .dll co-shipped with
+    # the binary so the cache is self-contained on every platform.
+    libs_pattern = re.compile(
+        r"(?:^|/)("
+        r"lib(?:llama|ggml)[^/]*\.(?:so|dylib)(?:\.[0-9]+)*"
+        r"|ggml[^/]*\.so(?:\.[0-9]+)*"
+        r"|(?:llama|ggml)[^/]*\.dll"
+        r"|msvcp[0-9]+\.dll|vcruntime[0-9]+\.dll"
+        r")$",
+        re.IGNORECASE,
+    )
     extracted: Path | None = None
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -161,7 +184,12 @@ def _extract_binary(zip_path: Path, target_dir: Path) -> Path:
             dest_bin = target_dir / Path(bin_name).name
             with dest_bin.open("wb") as out:
                 shutil.copyfileobj(src, out)
-            dest_bin.chmod(dest_bin.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            if sys.platform != "win32":
+                # chmod is a no-op on Windows; calling it only on POSIX
+                # keeps the intent clear and avoids surprises in tests.
+                dest_bin.chmod(
+                    dest_bin.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                )
             extracted = dest_bin
 
         for n in names:

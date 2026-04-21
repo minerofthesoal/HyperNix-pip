@@ -76,7 +76,7 @@ Subcommands:
   verify                 read-check a GGUF and print its headers
   info                   show package + GGUF header info
   upload                 push files to a HuggingFace repo
-  doctor                 environment diagnostic
+  doctor                 environment diagnostic (pass --fix to install missing deps)
   fetch-llama-quantize   pre-seed the llama-quantize cache
   train                  init / expand / run training utilities
   generate               sample text from a local HyperNix snapshot
@@ -744,7 +744,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_upload(rest)
     if cmd == "doctor":
         from .doctor import run
-        return run()
+        fix = "--fix" in rest
+        return run(fix=fix)
     if cmd == "fetch-llama-quantize":
         return _run_fetch_llama_quantize(rest)
     if cmd == "train":

@@ -48,10 +48,26 @@ def _detect_distro_id() -> str | None:
 def _install_hint() -> str:
     generic = (
         "Install options (pick one):\n"
-        "  pip install 'hypernix[llama-cpp]'           # works on most distros\n"
+        "  pip install 'hypernix[llama-cpp]'           # works on most platforms\n"
         "  # or build llama.cpp from source and put the binary on $PATH\n"
         "  # or pass --llama-quantize /path/to/llama-quantize"
     )
+    if sys.platform == "win32":
+        win = (
+            "Windows install options (pick one):\n"
+            "  pip install 'hypernix[llama-cpp]'           # easiest\n"
+            "  scoop install llama.cpp                     # if you use Scoop\n"
+            "  choco install llama.cpp                     # if you use Chocolatey\n"
+            "  # or download the win-x64 zip from https://github.com/ggml-org/llama.cpp/releases"
+        )
+        return f"{win}\nFallback:\n{generic}"
+    if sys.platform == "darwin":
+        mac = (
+            "macOS install options (pick one):\n"
+            "  brew install llama.cpp                      # Homebrew\n"
+            "  pip install 'hypernix[llama-cpp]'"
+        )
+        return f"{mac}\nFallback:\n{generic}"
     distro = _detect_distro_id()
     if distro and distro in _DISTRO_HINTS:
         return f"{_DISTRO_HINTS[distro]}\nFallback:\n{generic}"
@@ -83,29 +99,69 @@ def _candidate_binary_names() -> list[str]:
     # for compatibility with older distro packages. Some Arch/Fedora builds
     # also suffix architecture (e.g. `llama-quantize-x86_64`).
     arch = platform.machine()
-    return [
+    base = [
         "llama-quantize",
         "llama-cpp-quantize",
         "quantize",
         f"llama-quantize-{arch}",
     ]
+    if sys.platform == "win32":
+        # shutil.which respects PATHEXT, but direct ``root / name`` lookups
+        # don't — list ``.exe`` variants explicitly so the manual search
+        # finds binaries on Windows too.
+        return [*base, *(f"{n}.exe" for n in base)]
+    return base
 
 
 def _system_search_paths() -> list[Path]:
+    """Directories to probe for ``llama-quantize``. OS-aware."""
     home = Path.home()
-    paths = [
+    paths: list[Path] = [
         fetcher.cache_dir(),              # Binaries auto-fetched from GitHub releases.
-        Path("/usr/local/bin"),
-        Path("/usr/bin"),
-        Path("/usr/lib/llama.cpp"),       # Arch puts the binary here sometimes
-        Path("/usr/lib/llama-cpp"),
-        Path("/opt/llama.cpp"),
-        Path("/opt/llama.cpp/build/bin"),
-        home / ".local" / "bin",
-        home / "llama.cpp" / "build" / "bin",
-        home / "llama.cpp" / "bin",
-        home / "src" / "llama.cpp" / "build" / "bin",
     ]
+
+    if sys.platform == "win32":
+        # Typical Windows install roots. %USERPROFILE% layouts only —
+        # %ProgramFiles% needs admin to write to, so manual installers
+        # tend to land in user-scoped dirs.
+        localappdata = os.environ.get("LOCALAPPDATA")
+        programfiles = os.environ.get("ProgramFiles")
+        programfiles_x86 = os.environ.get("ProgramFiles(x86)")
+        for root in (localappdata, programfiles, programfiles_x86):
+            if not root:
+                continue
+            r = Path(root)
+            paths += [
+                r / "llama.cpp",
+                r / "llama.cpp" / "bin",
+                r / "Programs" / "llama.cpp",
+                r / "Programs" / "llama.cpp" / "bin",
+            ]
+        # Scoop and Chocolatey shims pick this up via shutil.which + PATH,
+        # but list the default shim dirs anyway for non-PATH installs.
+        paths += [
+            home / "scoop" / "apps" / "llama.cpp" / "current",
+            home / "scoop" / "shims",
+            Path("C:/ProgramData/chocolatey/bin"),
+            home / "llama.cpp" / "build" / "bin" / "Release",
+            home / "llama.cpp" / "bin",
+        ]
+    else:
+        paths += [
+            Path("/usr/local/bin"),
+            Path("/usr/bin"),
+            Path("/usr/lib/llama.cpp"),       # Arch puts the binary here sometimes
+            Path("/usr/lib/llama-cpp"),
+            Path("/opt/llama.cpp"),
+            Path("/opt/llama.cpp/build/bin"),
+            Path("/opt/homebrew/bin"),        # macOS arm64 homebrew
+            Path("/usr/local/Cellar"),        # macOS x86_64 homebrew (scanned shallowly)
+            home / ".local" / "bin",
+            home / "llama.cpp" / "build" / "bin",
+            home / "llama.cpp" / "bin",
+            home / "src" / "llama.cpp" / "build" / "bin",
+        ]
+
     # Respect GGUF_QUANTIZE_PATH to let users add arbitrary search roots.
     extra = os.environ.get("GGUF_QUANTIZE_PATH", "")
     for entry in extra.split(os.pathsep):
@@ -136,11 +192,14 @@ def _iter_candidates(explicit: str | None) -> Iterable[str]:
         import llama_cpp  # type: ignore
 
         pkg_root = Path(llama_cpp.__file__).parent
-        for rel in (
+        rels = [
             "llama-quantize", "quantize",
             "bin/llama-quantize", "bin/quantize",
             "lib/llama-quantize", "lib/quantize",
-        ):
+        ]
+        if sys.platform == "win32":
+            rels = [*rels, *(f"{r}.exe" for r in rels)]
+        for rel in rels:
             maybe = pkg_root / rel
             if maybe.exists():
                 yield str(maybe)

@@ -33,14 +33,26 @@ class _ByteTokenizer:
         return bytes(b & 0xFF for b in ids).decode("utf-8", errors="replace")
 
 
+def _try_fast(model_dir: Path) -> Any:
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained(str(model_dir), use_fast=True)
+
+
+def _try_slow(model_dir: Path) -> Any:
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained(str(model_dir), use_fast=False)
+
+
 def _load_tokenizer(model_dir: Path) -> tuple[Any, str]:
     """Return (tokenizer, kind). kind is 'hf' or 'byte'.
 
-    Tries fast tokenizer first. If the local `tokenizers` crate is too old
+    Tries fast tokenizer first. If the local ``tokenizers`` crate is too old
     to parse the repo's ``tokenizer.json`` (a common failure mode looks like
     ``data did not match any variant of untagged enum ModelWrapper``),
-    retries with ``use_fast=False``. Falls back to the byte tokenizer and
-    prints an upgrade hint only if both HF paths fail.
+    auto-upgrades ``tokenizers`` + ``transformers`` via pip (unless
+    ``HYPERNIX_AUTO_INSTALL=0``) and retries. If ``transformers`` itself is
+    missing it's auto-installed too. Falls back to slow tokenizer, then to
+    the byte tokenizer with an upgrade hint.
     """
     has_fast = (model_dir / "tokenizer.json").exists()
     has_slow = (model_dir / "tokenizer.model").exists() or (
@@ -50,19 +62,40 @@ def _load_tokenizer(model_dir: Path) -> tuple[Any, str]:
         return _ByteTokenizer(), "byte"
 
     try:
-        from transformers import AutoTokenizer
+        import transformers  # noqa: F401
     except ModuleNotFoundError:
-        return _ByteTokenizer(), "byte"
+        from . import deps
+        if not deps.ensure(["transformers>=4.44", "tokenizers>=0.20"]):
+            return _ByteTokenizer(), "byte"
 
     fast_err: Exception | None = None
     if has_fast:
         try:
-            return AutoTokenizer.from_pretrained(str(model_dir), use_fast=True), "hf"
+            return _try_fast(model_dir), "hf"
         except Exception as exc:  # tokenizers crate schema mismatch, etc.
             fast_err = exc
 
+    # Auto-upgrade + retry the fast tokenizer once. Schema mismatches on
+    # tokenizer.json are almost always "your tokenizers crate is too old".
+    if fast_err is not None:
+        from . import deps
+        if not deps.disabled():
+            print(
+                f"[hypernix] fast tokenizer failed ({fast_err}); "
+                "attempting to upgrade tokenizers + transformers",
+                file=sys.stderr,
+            )
+            if deps.ensure(
+                ["tokenizers>=0.20", "transformers>=4.44"],
+                reimport=["tokenizers", "transformers"],
+            ):
+                try:
+                    return _try_fast(model_dir), "hf"
+                except Exception as exc:
+                    fast_err = exc
+
     try:
-        return AutoTokenizer.from_pretrained(str(model_dir), use_fast=False), "hf"
+        return _try_slow(model_dir), "hf"
     except Exception as slow_err:
         msg = (
             f"[hypernix] could not load HF tokenizer from {model_dir}: {slow_err}\n"
