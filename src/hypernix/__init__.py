@@ -6,7 +6,15 @@ from .convert import convert_to_gguf
 from .download import download_model, verify_snapshot
 from .fetcher import fetch_llama_quantize
 from .generate import generate_text
-from .old_oven import CodeOven, bake_code, fill_middle, load_pt, preheat
+from .old_oven import (
+    ARCH_PRESETS,
+    CodeOven,
+    bake_code,
+    fill_middle,
+    load_pt,
+    new_oven,
+    preheat,
+)
 from .quantize import QUANT_TYPES, quantize_gguf
 from .train import (
     HyperNixConfig,
@@ -20,6 +28,7 @@ from .train import (
 from .upload import upload_gguf
 
 __all__ = [
+    "ARCH_PRESETS",
     "CodeOven",
     "HyperNixConfig",
     "HyperNixModel",
@@ -34,6 +43,7 @@ __all__ = [
     "init_from_scratch",
     "load_pt",
     "load_snapshot",
+    "new_oven",
     "old_oven",
     "preheat",
     "quantize_gguf",

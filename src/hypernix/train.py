@@ -49,6 +49,10 @@ class HyperNixConfig:
     rope_theta: float = 10000.0
     rms_norm_eps: float = 1e-5
     tie_word_embeddings: bool = False
+    # Qwen2/Qwen2.5 put a bias on q_proj/k_proj/v_proj (but never o_proj);
+    # HyperNix-native and Llama-style configs leave this False. The HF
+    # Qwen2 model expects this to be True.
+    attention_bias: bool = False
     model_type: str = "hypernix"
 
     def to_dict(self) -> dict[str, Any]:
@@ -114,9 +118,10 @@ class Attention(nn.Module):
         self.n_kv = cfg.n_kv_head
         self.head_dim = cfg.head_dim
         hidden = cfg.hidden_size
-        self.q_proj = nn.Linear(hidden, self.n_head * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(hidden, self.n_kv * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(hidden, self.n_kv * self.head_dim, bias=False)
+        qkv_bias = cfg.attention_bias
+        self.q_proj = nn.Linear(hidden, self.n_head * self.head_dim, bias=qkv_bias)
+        self.k_proj = nn.Linear(hidden, self.n_kv * self.head_dim, bias=qkv_bias)
+        self.v_proj = nn.Linear(hidden, self.n_kv * self.head_dim, bias=qkv_bias)
         self.o_proj = nn.Linear(self.n_head * self.head_dim, hidden, bias=False)
 
     def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
@@ -220,6 +225,12 @@ def save_snapshot(
     out.mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(model.config.to_dict(), indent=2))
     state = {k: v.detach().contiguous().cpu() for k, v in model.state_dict().items()}
+    # When weights are tied, `embed_tokens.weight` and `lm_head.weight` share
+    # memory, which safetensors rejects. Drop the redundant lm_head tensor —
+    # the model re-ties on load via HyperNixModel.__init__.
+    if model.config.tie_word_embeddings and "lm_head.weight" in state:
+        if "embed_tokens.weight" in state and state["lm_head.weight"].data_ptr() == state["embed_tokens.weight"].data_ptr():
+            del state["lm_head.weight"]
     save_file(state, str(out / "model.safetensors"))
     if tokenizer_source is not None:
         src = Path(tokenizer_source)

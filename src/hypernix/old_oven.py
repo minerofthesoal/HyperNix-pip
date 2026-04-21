@@ -32,7 +32,14 @@ import torch
 
 from .download import download_model, verify_snapshot
 from .generate import _load_tokenizer, _sample_next
-from .train import HyperNixModel, load_snapshot
+from .train import (
+    HyperNixConfig,
+    HyperNixModel,
+    _iter_chunks,
+    init_from_scratch,
+    load_snapshot,
+    save_snapshot,
+)
 
 # Heuristic stop strings we trim off a code completion. Users can pass an
 # explicit `stop=...` to override; set `stop=()` to disable trimming.
@@ -43,6 +50,41 @@ DEFAULT_STOPS: tuple[str, ...] = ("\nclass ", "\ndef ", "\n\n\n", "</s>")
 _FIM_PREFIX = "<fim_prefix>"
 _FIM_SUFFIX = "<fim_suffix>"
 _FIM_MIDDLE = "<fim_middle>"
+
+
+# ---------------------------------------------------------------------------
+# Architecture presets
+# ---------------------------------------------------------------------------
+# The HyperNix model class is a parametric Llama-style causal LM. By flipping
+# a handful of config knobs it can also be used as the Qwen2 / Qwen2.5
+# architecture: the only structural difference is that Qwen2 places a bias on
+# q_proj / k_proj / v_proj (but not o_proj). Defaults also differ for
+# rope_theta and the RMSNorm epsilon. These presets encode those differences
+# so callers can request either architecture by name.
+ARCH_PRESETS: dict[str, dict[str, Any]] = {
+    "hypernix": {
+        "attention_bias": False,
+        "model_type": "hypernix",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "qwen2": {
+        "attention_bias": True,
+        "model_type": "qwen2",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    # Alias so users can spell the arch the way Qwen2.5 is marketed.
+    "qwen2.5": {
+        "attention_bias": True,
+        "model_type": "qwen2",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+}
 
 
 def _dtype_from_str(name: str) -> torch.dtype:
@@ -220,6 +262,117 @@ class CodeOven:
         return self._decode(out_ids)
 
     # ------------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------------
+
+    def train(
+        self,
+        dataset_path: Path | str,
+        out_dir: Path | str | None = None,
+        *,
+        steps: int = 1000,
+        batch_size: int = 2,
+        context_length: int = 512,
+        lr: float = 3e-4,
+        weight_decay: float = 0.1,
+        grad_clip: float = 1.0,
+        log_every: int = 10,
+        save_every: int = 500,
+        seed: int | None = None,
+        quiet: bool = False,
+    ) -> Path:
+        """Continue-pretrain this oven on a raw-text file.
+
+        Works for both architectures (HyperNix and Qwen2/Qwen2.5) — the
+        underlying model class is the same, the preset just flips
+        ``attention_bias`` and a few hyperparameters. Uses the snapshot's
+        HF tokenizer if one is present, otherwise falls back to the
+        byte-level tokenizer so the training loop is always runnable
+        (handy for smoke-testing / CI).
+
+        Args:
+            dataset_path: Path to a raw-text file.
+            out_dir: Where to save the trained snapshot. Defaults to
+                ``<model_dir>-trained`` next to the current model dir.
+            steps, batch_size, context_length, lr, weight_decay, grad_clip:
+                Standard training knobs.
+            log_every, save_every: Console / checkpoint cadence.
+            seed: Optional torch seed for reproducible runs.
+            quiet: Suppress per-step logging.
+
+        Returns:
+            Path to the written snapshot directory (a HF-style snapshot
+            that feeds straight back into ``preheat(local_dir=...)``).
+        """
+        import math
+
+        dataset_path = Path(dataset_path)
+        if out_dir is None:
+            out = self.model_dir.parent / (self.model_dir.name + "-trained")
+        else:
+            out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        # Training mode may run in a higher-precision path than the
+        # generation dtype; keep the user's dtype but flip on train().
+        self.model.train()
+
+        bos_id: int | None = None
+        if self.tokenizer_kind == "hf":
+            bos_id = getattr(self.tokenizer, "bos_token_id", None)
+
+        chunks = list(
+            _iter_chunks(dataset_path, self.tokenizer, context_length, bos_id=bos_id)
+        )
+        if not chunks:
+            raise RuntimeError(
+                f"dataset {dataset_path} produced no training chunks "
+                f"(needs > context_length={context_length} tokens)"
+            )
+
+        opt = torch.optim.AdamW(
+            self.model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
+        )
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, steps))
+
+        step = 0
+        while step < steps:
+            batch = torch.stack([
+                chunks[(step * batch_size + i) % len(chunks)] for i in range(batch_size)
+            ]).to(self.device)
+            inputs = batch[:, :-1]
+            labels = batch[:, 1:]
+            out_dict = self.model(inputs, labels=labels)
+            loss = out_dict["loss"]
+
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            if grad_clip:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip)
+            opt.step()
+            sched.step()
+            step += 1
+
+            if not quiet and step % log_every == 0:
+                ppl = math.exp(min(loss.item(), 20))
+                print(
+                    f"[old_oven.train] arch={self.model.config.model_type} "
+                    f"step {step}/{steps}  loss={loss.item():.4f}  ppl={ppl:.2f}"
+                )
+            if save_every and step % save_every == 0:
+                save_snapshot(self.model, out, tokenizer_source=self.model_dir)
+
+        save_snapshot(self.model, out, tokenizer_source=self.model_dir)
+        self.model.eval()
+        # Point the oven at the newly-saved snapshot so subsequent
+        # .save_pt() / re-preheat calls pick up the trained weights.
+        self.model_dir = out
+        return out
+
+    # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
@@ -284,6 +437,77 @@ def preheat(
         )
 
     model, _cfg = load_snapshot(path)
+    dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    tdtype = _dtype_from_str(dtype)
+    model.to(dev, dtype=tdtype)
+    model.eval()
+
+    tok, kind = _load_tokenizer(path)
+    return CodeOven(
+        model=model, tokenizer=tok, tokenizer_kind=kind,
+        device=dev, dtype=tdtype, model_dir=path,
+    )
+
+
+def new_oven(
+    out_dir: Path | str,
+    *,
+    arch: str = "hypernix",
+    vocab_size: int = 32000,
+    hidden_size: int = 1024,
+    intermediate_size: int = 4096,
+    num_hidden_layers: int = 16,
+    num_attention_heads: int = 16,
+    num_key_value_heads: int | None = None,
+    max_position_embeddings: int = 2048,
+    tokenizer_source: Path | str | None = None,
+    device: str | None = None,
+    dtype: str = "float32",
+    seed: int | None = None,
+) -> CodeOven:
+    """Create a new untrained oven in HyperNix or Qwen2 (Qwen2.5) architecture.
+
+    Writes a fresh HuggingFace-style snapshot at ``out_dir`` (so the model
+    can be re-loaded from disk later), then returns a :class:`CodeOven`
+    pointing at it. The returned oven is ready for ``.train(...)``.
+
+    Args:
+        out_dir: Where to write the new snapshot.
+        arch: ``"hypernix"`` (default) or ``"qwen2"`` / ``"qwen2.5"``.
+            The Qwen presets enable q/k/v bias, switch ``model_type`` to
+            ``"qwen2"``, and use Qwen's canonical rope/eps defaults.
+        vocab_size, hidden_size, ... max_position_embeddings: Standard
+            causal-LM shape knobs.
+        tokenizer_source: Existing snapshot to copy tokenizer files from.
+            If omitted, the snapshot has no HF tokenizer and training /
+            generation falls back to the byte-level tokenizer.
+        device, dtype: Runtime placement for the returned oven.
+        seed: Optional torch seed for reproducible initialization.
+
+    Returns:
+        A trainable :class:`CodeOven`. Call ``.train(dataset_path, ...)``
+        to pretrain, then ``.complete(...)`` / ``.fill(...)`` as usual.
+    """
+    if arch not in ARCH_PRESETS:
+        raise ValueError(
+            f"unknown arch {arch!r}; choose from {sorted(ARCH_PRESETS)}"
+        )
+    preset = ARCH_PRESETS[arch]
+    cfg = HyperNixConfig(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        intermediate_size=intermediate_size,
+        num_hidden_layers=num_hidden_layers,
+        num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads,
+        max_position_embeddings=max_position_embeddings,
+        **preset,
+    )
+    path = init_from_scratch(
+        out_dir, cfg, tokenizer_source=tokenizer_source, seed=seed,
+    )
+
+    model, _ = load_snapshot(path)
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     tdtype = _dtype_from_str(dtype)
     model.to(dev, dtype=tdtype)
