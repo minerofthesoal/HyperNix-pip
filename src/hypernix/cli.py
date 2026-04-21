@@ -56,7 +56,33 @@ _SUBCOMMANDS = {
     "doctor",
     "fetch-llama-quantize",
     "train",
+    "generate",
 }
+
+
+def _print_usage() -> None:
+    print(
+        """hypernix — download, convert, quantize, train HyperNix models
+
+usage: hypernix <subcommand> [options]
+
+Subcommands:
+  all                    download -> convert -> [quantize] (the classic pipeline)
+  download               fetch a HuggingFace model snapshot to disk
+  convert                produce fp32 / fp16 GGUF from a local snapshot
+  quantize               run llama-quantize on an fp16/fp32 GGUF
+  verify                 read-check a GGUF and print its headers
+  info                   show package + GGUF header info
+  upload                 push files to a HuggingFace repo
+  doctor                 environment diagnostic
+  fetch-llama-quantize   pre-seed the llama-quantize cache
+  train                  init / expand / run training utilities
+  generate               sample text from a local HyperNix snapshot
+
+Run `hypernix <subcommand> --help` for per-command flags.
+Run `hypernix all --help` for the classic pipeline flags.
+"""
+    )
 
 
 def _canonical(quant: str) -> str:
@@ -279,8 +305,20 @@ def _run_verify(raw: list[str]) -> int:
         print(f"[hypernix verify] FAILED to parse {path}: {exc}", file=sys.stderr)
         return 1
 
+    # `GGUFReader.version` existed in older gguf; newer versions expose it
+    # as the `GGUF.version` field instead. Try both, then fall back to
+    # reading the raw magic bytes.
+    gguf_version: int | str = getattr(reader, "version", None) or "?"
+    if gguf_version == "?":
+        field = reader.fields.get("GGUF.version")
+        if field is not None and field.parts:
+            try:
+                gguf_version = int(field.parts[-1][0])
+            except (IndexError, TypeError, ValueError):
+                pass
+
     print(f"[hypernix verify] {path}")
-    print(f"  version: {reader.version}")
+    print(f"  version: {gguf_version}")
     print(f"  tensors: {len(reader.tensors)}   fields: {len(reader.fields)}")
     for name in sorted(reader.fields):
         f = reader.fields[name]
@@ -369,6 +407,8 @@ def _run_train(raw: list[str]) -> int:
     p_init.add_argument("--max-position-embeddings", type=int, default=2048)
     p_init.add_argument("--rope-theta", type=float, default=10000.0)
     p_init.add_argument("--tie-word-embeddings", action="store_true")
+    p_init.add_argument("--seed", type=int, default=None,
+                        help="Seed torch RNG before init for reproducibility.")
 
     p_exp = sub.add_parser("expand", help="Warm-start a bigger model from a smaller one.")
     p_exp.add_argument("--src-dir", required=True)
@@ -379,6 +419,8 @@ def _run_train(raw: list[str]) -> int:
     p_exp.add_argument("--num-attention-heads", type=int, default=None)
     p_exp.add_argument("--vocab-size", type=int, default=None)
     p_exp.add_argument("--init-std", type=float, default=0.02)
+    p_exp.add_argument("--seed", type=int, default=None,
+                       help="Seed torch RNG before expansion for reproducibility.")
 
     p_run = sub.add_parser("run", help="Run a minimal causal-LM training loop.")
     p_run.add_argument("--model-dir", required=True)
@@ -394,6 +436,8 @@ def _run_train(raw: list[str]) -> int:
     p_run.add_argument("--dtype", default="float32", choices=["float32", "float16", "bfloat16"])
     p_run.add_argument("--log-every", type=int, default=10)
     p_run.add_argument("--save-every", type=int, default=500)
+    p_run.add_argument("--seed", type=int, default=None,
+                       help="Seed torch RNG before training for reproducibility.")
 
     ns = p.parse_args(raw)
     if ns.action == "init":
@@ -407,14 +451,16 @@ def _run_train(raw: list[str]) -> int:
             rope_theta=ns.rope_theta,
             tie_word_embeddings=ns.tie_word_embeddings,
         )
-        out = init_from_scratch(ns.out_dir, cfg, tokenizer_source=ns.tokenizer_source)
+        out = init_from_scratch(
+            ns.out_dir, cfg, tokenizer_source=ns.tokenizer_source, seed=ns.seed,
+        )
     elif ns.action == "expand":
         out = expand_checkpoint(
             ns.src_dir, ns.dst_dir,
             hidden_size=ns.hidden_size, intermediate_size=ns.intermediate_size,
             num_hidden_layers=ns.num_hidden_layers,
             num_attention_heads=ns.num_attention_heads,
-            vocab_size=ns.vocab_size, init_std=ns.init_std,
+            vocab_size=ns.vocab_size, init_std=ns.init_std, seed=ns.seed,
         )
     else:  # run
         out = train(
@@ -423,9 +469,40 @@ def _run_train(raw: list[str]) -> int:
             context_length=ns.context_length, lr=ns.lr,
             weight_decay=ns.weight_decay, grad_clip=ns.grad_clip,
             device=ns.device, dtype=ns.dtype,
-            log_every=ns.log_every, save_every=ns.save_every,
+            log_every=ns.log_every, save_every=ns.save_every, seed=ns.seed,
         )
     print(out)
+    return 0
+
+
+def _run_generate(raw: list[str]) -> int:
+    """`hypernix generate` — sample text from a local HyperNix snapshot."""
+    from .generate import generate_text
+
+    p = argparse.ArgumentParser(
+        prog="hypernix generate",
+        description="Sample text from a local HyperNix snapshot directory.",
+    )
+    p.add_argument("--model-dir", required=True,
+                   help="Path to a HF-style snapshot (config.json + safetensors).")
+    p.add_argument("--prompt", default="",
+                   help="Prompt to condition on. Empty => start from BOS.")
+    p.add_argument("--max-new-tokens", type=int, default=64)
+    p.add_argument("--temperature", type=float, default=1.0)
+    p.add_argument("--top-k", type=int, default=50)
+    p.add_argument("--top-p", type=float, default=0.95)
+    p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--device", default=None)
+    p.add_argument("--dtype", default="float32",
+                   choices=["float32", "float16", "bfloat16"])
+    ns = p.parse_args(raw)
+    text = generate_text(
+        model_dir=ns.model_dir, prompt=ns.prompt,
+        max_new_tokens=ns.max_new_tokens, temperature=ns.temperature,
+        top_k=ns.top_k, top_p=ns.top_p, seed=ns.seed,
+        device=ns.device, dtype=ns.dtype,
+    )
+    print(text)
     return 0
 
 
@@ -436,9 +513,18 @@ def _run_train(raw: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
 
-    # No args or first arg isn't a subcommand -> run `all` with the given flags
-    # so existing scripts don't break.
-    if not raw or raw[0] not in _SUBCOMMANDS:
+    # No args / top-level --help / --version -> print the subcommand menu.
+    if not raw or raw[0] in ("-h", "--help"):
+        _print_usage()
+        return 0
+    if raw[0] in ("-V", "--version"):
+        from . import __version__
+        print(f"hypernix {__version__}")
+        return 0
+
+    # First arg isn't a subcommand -> assume classic pipeline flags and run
+    # `all` with them so existing scripts keep working.
+    if raw[0] not in _SUBCOMMANDS:
         return _run_all(raw)
 
     cmd, rest = raw[0], raw[1:]
@@ -463,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_fetch_llama_quantize(rest)
     if cmd == "train":
         return _run_train(rest)
+    if cmd == "generate":
+        return _run_generate(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
 
 

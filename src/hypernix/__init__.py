@@ -4,6 +4,7 @@ from __future__ import annotations
 from .convert import convert_to_gguf
 from .download import download_model, verify_snapshot
 from .fetcher import fetch_llama_quantize
+from .generate import generate_text
 from .quantize import QUANT_TYPES, quantize_gguf
 from .train import (
     HyperNixConfig,
@@ -24,6 +25,7 @@ __all__ = [
     "download_model",
     "expand_checkpoint",
     "fetch_llama_quantize",
+    "generate_text",
     "init_from_scratch",
     "load_snapshot",
     "quantize_gguf",

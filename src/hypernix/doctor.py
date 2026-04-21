@@ -30,7 +30,14 @@ def _check_import(mod: str, minver: str | None = None) -> tuple[bool, str]:
         m = importlib.import_module(mod)
     except Exception as exc:
         return False, f"{mod} import failed: {exc}"
-    ver = getattr(m, "__version__", "?")
+    ver = getattr(m, "__version__", None)
+    if ver is None:
+        # Some libs (gguf) don't expose __version__; fall back to dist metadata.
+        try:
+            from importlib.metadata import PackageNotFoundError, version
+            ver = version(mod)
+        except (PackageNotFoundError, Exception):  # noqa: BLE001
+            ver = "?"
     return True, f"{mod} {ver}"
 
 

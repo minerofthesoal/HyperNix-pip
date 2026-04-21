@@ -281,6 +281,7 @@ def expand_checkpoint(
     vocab_size: int | None = None,
     init_std: float = 0.02,
     tokenizer_source: Path | str | None = None,
+    seed: int | None = None,
 ) -> Path:
     """Warm-start a bigger HyperNix model from a smaller snapshot.
 
@@ -295,6 +296,8 @@ def expand_checkpoint(
     """
     src = Path(src_dir)
     dst = Path(dst_dir)
+    if seed is not None:
+        torch.manual_seed(seed)
     old_model, old_cfg = load_snapshot(src)
 
     new_cfg = HyperNixConfig(
@@ -367,6 +370,7 @@ def train(
     dtype: str = "float32",
     log_every: int = 10,
     save_every: int = 500,
+    seed: int | None = None,
 ) -> Path:
     """Minimal causal-LM training loop.
 
@@ -380,6 +384,9 @@ def train(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    if seed is not None:
+        torch.manual_seed(seed)
+
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     tdtype = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[dtype]
 
@@ -387,7 +394,20 @@ def train(
     model.to(dev, dtype=tdtype)
     model.train()
 
-    from transformers import AutoTokenizer  # lazy import - optional dep
+    try:
+        from transformers import AutoTokenizer  # lazy import - optional dep
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "hypernix.train needs the `transformers` tokenizer at runtime. "
+            "Install it with:  pip install 'hypernix[train]'  "
+            "(or `pip install transformers`)."
+        ) from exc
+    if not (model_dir / "tokenizer.json").exists() and not (model_dir / "tokenizer.model").exists():
+        raise FileNotFoundError(
+            f"No tokenizer files under {model_dir}. Re-init with "
+            "`hypernix train init --tokenizer-source <snapshot_with_tokenizer>` "
+            "or copy tokenizer.json/tokenizer.model into the model dir."
+        )
     tok = AutoTokenizer.from_pretrained(str(model_dir), use_fast=True)
 
     chunks = list(_iter_chunks(dataset_path, tok, context_length))
@@ -432,8 +452,15 @@ def init_from_scratch(
     cfg: HyperNixConfig,
     tokenizer_source: Path | str | None = None,
     init_std: float = 0.02,
+    seed: int | None = None,
 ) -> Path:
-    """Create a new randomly-initialized HyperNix snapshot at ``out_dir``."""
+    """Create a new randomly-initialized HyperNix snapshot at ``out_dir``.
+
+    Pass ``seed`` to make initialization deterministic (useful when a user
+    wants to reproduce a bigger-sibling model later via ``expand_checkpoint``).
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
     model = HyperNixModel(cfg)
     with torch.no_grad():
         for p in model.parameters():
