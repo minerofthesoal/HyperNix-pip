@@ -57,6 +57,7 @@ _SUBCOMMANDS = {
     "fetch-llama-quantize",
     "train",
     "generate",
+    "oven",
 }
 
 
@@ -78,6 +79,11 @@ Subcommands:
   fetch-llama-quantize   pre-seed the llama-quantize cache
   train                  init / expand / run training utilities
   generate               sample text from a local HyperNix snapshot
+  oven                   code-generation wrapper (preheat + complete/fill)
+
+Shortcuts:
+  --auto-oven            download the default snapshot and run code completion
+                         (equivalent to `hypernix oven --auto ...`).
 
 Run `hypernix <subcommand> --help` for per-command flags.
 Run `hypernix all --help` for the classic pipeline flags.
@@ -506,6 +512,89 @@ def _run_train(raw: list[str]) -> int:
     return 0
 
 
+def _run_oven(raw: list[str]) -> int:
+    """`hypernix oven` — code-generation wrapper around HyperNix.
+
+    Equivalent (roughly) to::
+
+        oven = hypernix.old_oven.preheat(repo_id, local_dir=..., device=...)
+        print(oven.complete(prompt))
+        # or oven.fill(prefix, suffix) when --fill-prefix is given
+        oven.save_pt(save_pt_path)  # if --save-pt
+    """
+    from .old_oven import preheat
+
+    p = argparse.ArgumentParser(
+        prog="hypernix oven",
+        description="Preheat a HyperNix snapshot and bake code out of it.",
+    )
+    p.add_argument("--repo-id", default="ray0rf1re/hyper-nix.1")
+    p.add_argument("--revision", default=None)
+    p.add_argument("--model-dir", default=None,
+                   help="Reuse an existing local snapshot instead of downloading.")
+    p.add_argument("--token", default=None)
+    p.add_argument("--device", default=None)
+    p.add_argument("--dtype", default="float32",
+                   choices=["float32", "float16", "bfloat16"])
+    p.add_argument("--quiet", action="store_true")
+
+    p.add_argument("--prompt", default=None,
+                   help="Prompt to complete. Mutually exclusive with --fill-prefix.")
+    p.add_argument("--fill-prefix", default=None,
+                   help="FIM prefix; requires --fill-suffix.")
+    p.add_argument("--fill-suffix", default=None,
+                   help="FIM suffix; requires --fill-prefix.")
+
+    p.add_argument("--max-new-tokens", type=int, default=256)
+    p.add_argument("--temperature", type=float, default=0.2)
+    p.add_argument("--top-k", type=int, default=40)
+    p.add_argument("--top-p", type=float, default=0.95)
+    p.add_argument("--seed", type=int, default=None)
+
+    p.add_argument("--save-pt", default=None,
+                   help="Also write a self-contained torch.load-able bundle to this path.")
+    p.add_argument("--auto", action="store_true", default=False,
+                   help="Unattended mode alias (same defaults; reserved for future use).")
+
+    ns = p.parse_args(raw)
+
+    has_fill = ns.fill_prefix is not None or ns.fill_suffix is not None
+    if has_fill and (ns.fill_prefix is None or ns.fill_suffix is None):
+        p.error("--fill-prefix and --fill-suffix must be used together")
+    if has_fill and ns.prompt is not None:
+        p.error("--prompt cannot be combined with --fill-prefix/--fill-suffix")
+
+    oven = preheat(
+        repo_id=ns.repo_id, revision=ns.revision, local_dir=ns.model_dir,
+        token=ns.token, device=ns.device, dtype=ns.dtype, quiet=ns.quiet,
+    )
+
+    if has_fill:
+        text = oven.fill(
+            prefix=ns.fill_prefix, suffix=ns.fill_suffix,
+            max_new_tokens=ns.max_new_tokens,
+            temperature=ns.temperature, top_k=ns.top_k, top_p=ns.top_p,
+            seed=ns.seed,
+        )
+    elif ns.prompt is not None:
+        text = oven.complete(
+            prompt=ns.prompt,
+            max_new_tokens=ns.max_new_tokens,
+            temperature=ns.temperature, top_k=ns.top_k, top_p=ns.top_p,
+            seed=ns.seed,
+        )
+    else:
+        text = None
+
+    if text is not None:
+        print(text)
+
+    if ns.save_pt:
+        out = oven.save_pt(ns.save_pt)
+        print(f"[hypernix] wrote {out}", file=sys.stderr)
+    return 0
+
+
 def _run_generate(raw: list[str]) -> int:
     """`hypernix generate` — sample text from a local HyperNix snapshot."""
     from .generate import generate_text
@@ -553,6 +642,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"hypernix {__version__}")
         return 0
 
+    # Top-level --auto-oven shortcut: translate to `oven --auto ...` so users
+    # can run a one-liner `hypernix --auto-oven --prompt "def fib(n):"` and
+    # get a working PyTorch model + a completion with zero extra ceremony.
+    if raw[0] == "--auto-oven":
+        return _run_oven(["--auto", *raw[1:]])
+
     # First arg isn't a subcommand -> assume classic pipeline flags and run
     # `all` with them so existing scripts keep working.
     if raw[0] not in _SUBCOMMANDS:
@@ -582,6 +677,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_train(rest)
     if cmd == "generate":
         return _run_generate(rest)
+    if cmd == "oven":
+        return _run_oven(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
 
 
