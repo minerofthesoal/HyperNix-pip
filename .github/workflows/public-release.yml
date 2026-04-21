@@ -126,11 +126,14 @@ jobs:
           echo "--- fragment ---"
           cat CHANGELOG_FRAGMENT.md
 
-      - name: Upload build artifacts (dry-run preview)
-        if: ${{ inputs.dry_run }}
+      - name: Upload build artifacts
+        # Always attach the built sdist + wheel + changelog to this workflow
+        # run so they're inspectable regardless of whether this was a dry-run
+        # or a real release. release.yml (fired by the tag push on non-dry-run)
+        # handles the actual PyPI + GitHub Release publishing separately.
         uses: actions/upload-artifact@v4
         with:
-          name: public-release-dryrun-${{ inputs.version }}
+          name: public-release-${{ inputs.dry_run && 'dryrun-' || '' }}${{ inputs.version }}
           path: |
             dist/
             CHANGELOG_FRAGMENT.md
