@@ -13,6 +13,7 @@ stays exercisable on freshly-initialized models.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -33,15 +34,45 @@ class _ByteTokenizer:
 
 
 def _load_tokenizer(model_dir: Path) -> tuple[Any, str]:
-    """Return (tokenizer, kind). kind is 'hf' or 'byte'."""
-    if (model_dir / "tokenizer.json").exists() or (model_dir / "tokenizer.model").exists():
-        try:
-            from transformers import AutoTokenizer
+    """Return (tokenizer, kind). kind is 'hf' or 'byte'.
 
+    Tries fast tokenizer first. If the local `tokenizers` crate is too old
+    to parse the repo's ``tokenizer.json`` (a common failure mode looks like
+    ``data did not match any variant of untagged enum ModelWrapper``),
+    retries with ``use_fast=False``. Falls back to the byte tokenizer and
+    prints an upgrade hint only if both HF paths fail.
+    """
+    has_fast = (model_dir / "tokenizer.json").exists()
+    has_slow = (model_dir / "tokenizer.model").exists() or (
+        (model_dir / "vocab.json").exists() and (model_dir / "merges.txt").exists()
+    )
+    if not (has_fast or has_slow):
+        return _ByteTokenizer(), "byte"
+
+    try:
+        from transformers import AutoTokenizer
+    except ModuleNotFoundError:
+        return _ByteTokenizer(), "byte"
+
+    fast_err: Exception | None = None
+    if has_fast:
+        try:
             return AutoTokenizer.from_pretrained(str(model_dir), use_fast=True), "hf"
-        except ModuleNotFoundError:
-            pass
-    return _ByteTokenizer(), "byte"
+        except Exception as exc:  # tokenizers crate schema mismatch, etc.
+            fast_err = exc
+
+    try:
+        return AutoTokenizer.from_pretrained(str(model_dir), use_fast=False), "hf"
+    except Exception as slow_err:
+        msg = (
+            f"[hypernix] could not load HF tokenizer from {model_dir}: {slow_err}\n"
+            f"          falling back to UTF-8 byte tokenizer (output quality will suffer).\n"
+            f"          try: pip install --upgrade 'tokenizers>=0.20' 'transformers>=4.44'"
+        )
+        if fast_err is not None:
+            msg += f"\n          (fast-tokenizer error was: {fast_err})"
+        print(msg, file=sys.stderr)
+        return _ByteTokenizer(), "byte"
 
 
 def _sample_next(
