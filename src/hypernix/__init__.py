@@ -1,7 +1,7 @@
 """HyperNix: convert ray0rf1re/hyper-nix.1 PyTorch weights to GGUF."""
 from __future__ import annotations
 
-from . import mediocre_fridge, new_fridge, old_fridge, old_oven
+from . import freezer, mediocre_fridge, new_fridge, old_fridge, old_oven
 from .convert import convert_to_gguf
 from .download import (
     KNOWN_MODELS,
@@ -48,6 +48,7 @@ __all__ = [
     "expand_checkpoint",
     "fetch_llama_quantize",
     "fill_middle",
+    "freezer",
     "generate_text",
     "init_from_scratch",
     "load_pt",
@@ -67,5 +68,5 @@ __all__ = [
     "verify_snapshot",
 ]
 
-__version__ = "0.36.0"
+__version__ = "0.40.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"
