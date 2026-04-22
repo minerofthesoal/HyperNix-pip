@@ -50,7 +50,8 @@ def test_old_freezer_defaults_are_conservative() -> None:
     assert fz.base_batch_size == 1
     assert fz.base_context_length == 512
     assert fz.empty_cache_each_step is True
-    assert fz.preferred_dtype in (torch.bfloat16, torch.float16)
+    # fp16 on real Pascal/Volta/Turing GPUs; bf16 on Ampere+; fp32 on CPU.
+    assert fz.preferred_dtype in (torch.bfloat16, torch.float16, torch.float32)
 
 
 def test_new_freezer_defaults_are_generous() -> None:
@@ -234,3 +235,83 @@ def test_freezer_exposed_on_package() -> None:
 
     assert hypernix.freezer is not None
     assert hypernix.freezer.auto_freezer is not None
+
+
+# ---------------------------------------------------------------------------
+# CUDA 6.1 (Pascal) helpers
+# ---------------------------------------------------------------------------
+
+def test_compute_capability_none_on_cpu() -> None:
+    from hypernix.freezer import compute_capability
+
+    with patch.object(torch.cuda, "is_available", return_value=False):
+        assert compute_capability() is None
+
+
+def test_is_pascal_true_for_sm61() -> None:
+    from hypernix.freezer import is_pascal
+
+    with (
+        patch.object(torch.cuda, "is_available", return_value=True),
+        patch.object(torch.cuda, "get_device_capability", return_value=(6, 1)),
+    ):
+        assert is_pascal() is True
+
+
+def test_is_pascal_false_for_ampere() -> None:
+    from hypernix.freezer import is_pascal
+
+    with (
+        patch.object(torch.cuda, "is_available", return_value=True),
+        patch.object(torch.cuda, "get_device_capability", return_value=(8, 6)),
+    ):
+        assert is_pascal() is False
+
+
+def test_pascal_safe_dtype_on_pascal_returns_fp16() -> None:
+    from hypernix.freezer import pascal_safe_dtype
+
+    with (
+        patch.object(torch.cuda, "is_available", return_value=True),
+        patch.object(torch.cuda, "get_device_capability", return_value=(6, 1)),
+    ):
+        assert pascal_safe_dtype() == torch.float16
+
+
+def test_pascal_safe_dtype_on_turing_returns_fp16() -> None:
+    from hypernix.freezer import pascal_safe_dtype
+
+    with (
+        patch.object(torch.cuda, "is_available", return_value=True),
+        patch.object(torch.cuda, "get_device_capability", return_value=(7, 5)),
+    ):
+        assert pascal_safe_dtype() == torch.float16
+
+
+def test_pascal_safe_dtype_on_ampere_returns_bf16_when_supported() -> None:
+    from hypernix.freezer import pascal_safe_dtype
+
+    with (
+        patch.object(torch.cuda, "is_available", return_value=True),
+        patch.object(torch.cuda, "get_device_capability", return_value=(8, 0)),
+        patch.object(torch.cuda, "is_bf16_supported", return_value=True),
+    ):
+        assert pascal_safe_dtype() == torch.bfloat16
+
+
+def test_pascal_safe_dtype_on_cpu_returns_fp32() -> None:
+    from hypernix.freezer import pascal_safe_dtype
+
+    with patch.object(torch.cuda, "is_available", return_value=False):
+        assert pascal_safe_dtype() == torch.float32
+
+
+def test_pascal_mode_hints_shape() -> None:
+    from hypernix.freezer import pascal_mode_hints
+
+    hints = pascal_mode_hints()
+    assert hints["dtype"] == torch.float16
+    assert hints["use_sdpa"] is False
+    assert hints["use_compile"] is False
+    assert hints["tf32"] is False
+    assert "cu118" in hints["install_hint"]

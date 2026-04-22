@@ -85,6 +85,87 @@ def probe_vram(device_index: int = 0) -> VRAMBudget:
 
 
 # ---------------------------------------------------------------------------
+# Compute capability (Pascal / Ampere / Hopper / …) detection
+# ---------------------------------------------------------------------------
+
+#: Compute capability for Pascal consumer cards (GTX 1060/1070/1080/Ti, Titan X/Xp).
+PASCAL_CC: tuple[int, int] = (6, 1)
+
+#: Compute capabilities that do NOT have native bf16 — Volta (7,0), Turing
+#: (7,5), Pascal (6,x) and older. Ampere (8,0+) introduced bf16. bf16 on
+#: these is either unsupported or emulated in software.
+_NO_NATIVE_BF16 = frozenset({(6, 0), (6, 1), (6, 2), (7, 0), (7, 5)})
+
+
+def compute_capability(device_index: int = 0) -> tuple[int, int] | None:
+    """Return ``(major, minor)`` for a CUDA device, or ``None`` on CPU-only hosts."""
+    if not torch.cuda.is_available():
+        return None
+    try:
+        return torch.cuda.get_device_capability(device_index)
+    except (RuntimeError, AttributeError):
+        return None
+
+
+def is_pascal(device_index: int = 0) -> bool:
+    """True if the device is a Pascal chip (sm_60, sm_61, sm_62)."""
+    cc = compute_capability(device_index)
+    return cc is not None and cc[0] == 6
+
+
+def pascal_safe_dtype(device_index: int = 0) -> torch.dtype:
+    """Pick a dtype that trains stably on the detected device.
+
+    * ``torch.bfloat16`` — Ampere (sm_80) and newer.
+    * ``torch.float16``  — Pascal / Volta / Turing (sm_6x / 7x).
+    * ``torch.float32``  — CPU-only hosts (PyTorch CPU fp16 matmul is
+                           emulated and overflows quickly in training).
+
+    bf16 on Pascal is either unsupported or falls back to a slow software
+    path; fp16 has native tensor-core-free fast-math on Pascal (sm_61).
+    """
+    cc = compute_capability(device_index)
+    if cc is None:
+        # No CUDA device — fp16 on CPU is unstable for training.
+        return torch.float32
+    if cc in _NO_NATIVE_BF16 or cc < (8, 0):
+        return torch.float16
+    if not torch.cuda.is_bf16_supported():
+        return torch.float16
+    return torch.bfloat16
+
+
+def pascal_mode_hints(device_index: int = 0) -> dict[str, object]:
+    """Return a dict of recommended settings for Pascal (sm_61) GPUs.
+
+    Nothing here is *required* — it's a cheat sheet for callers building
+    their own training loop.  Keys:
+
+    ``dtype``            fp16 (not bf16 — Pascal has no native bf16).
+    ``use_sdpa``         False; the PyTorch 2 fused SDPA kernels assume
+                         Ampere+ tensor cores.
+    ``use_compile``      False; ``torch.compile`` breaks often on sm_61
+                         due to Triton kernel assumptions.
+    ``tf32``             False; Pascal has no TF32 support.
+    ``matmul_precision`` "highest" — the TF32 knob is inert anyway.
+    ``install_hint``     One-line pip command for the CUDA 11.8 wheel,
+                         which is the last official PyTorch line still
+                         compiled for sm_61.
+    """
+    return {
+        "dtype": torch.float16,
+        "use_sdpa": False,
+        "use_compile": False,
+        "tf32": False,
+        "matmul_precision": "highest",
+        "install_hint": (
+            "pip install --index-url "
+            "https://download.pytorch.org/whl/cu118 torch"
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Base freezer
 # ---------------------------------------------------------------------------
 
@@ -141,9 +222,13 @@ class Freezer:
 # ---------------------------------------------------------------------------
 
 class OldFreezer(Freezer):
-    """For 8–10 GB GPUs (GTX 1080, RTX 2060/2070, RTX 3060-8GB, …)."""
+    """For 8–10 GB GPUs (GTX 1080, RTX 2060/2070, RTX 3060-8GB, …).
 
-    preferred_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    Picks dtype from :func:`pascal_safe_dtype`, so on a GTX 1080 (sm_61)
+    you get native fp16 rather than emulated bf16.
+    """
+
+    preferred_dtype = pascal_safe_dtype()
     base_batch_size = 1
     base_context_length = 512
     empty_cache_each_step = True
