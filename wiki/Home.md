@@ -18,6 +18,7 @@ see the [top-level README](../README.md).
 | [Training](Training.md) | `init_from_scratch`, `expand_checkpoint`, `train`, AutoModel fallback. |
 | [Quantization](Quantization.md) | GGUF pipeline, k-quants, `llama-quantize` integration. |
 | [CLI](CLI.md) | Every subcommand, every flag, typical invocations. |
+| [Changelog](Changelog.md) | Full per-release notes — features, fixes, UX papercuts. |
 
 ## The subsystem map
 
@@ -70,9 +71,12 @@ see the [top-level README](../README.md).
 
 ## Version history
 
-The project is semver-ish; minor bumps add features, patch bumps are
-bug fixes. Recent notable releases:
+Recent releases (see [Changelog](Changelog.md) for the full per-release
+notes going all the way back to 0.2.0):
 
+- **0.45.3** — `smoke_alarm` accepts `preset=` one-string kwarg
+- **0.45.2** — pans accept `context_length` / `max_chars` (kw-only)
+- **0.45.1** — pans init fix: positional args no longer bind to `name`
 - **0.45.0** — espresso_maker, blender, toaster, food_processor, smoker; +3 microwave tiers; +2 coffee_maker tiers + cold_brew; CLI `brew`
 - **0.44.0** — pans / microwave / table / sink / instant_pot / coffee_maker / pressure_cooker
 - **0.43.0** — `smoke_alarm` (Rads / Gas / Modern / Auto) + 16 CPU + 20 GPU presets
@@ -86,3 +90,6 @@ bug fixes. Recent notable releases:
 - **0.32.x** — CUDA 11.8 torch, slow-tokenizer fallback
 - **0.31.x** — Chat REPL, Nano-nano / Nano-mini model family
 - **0.30.x** — Code-generation oven (`old_oven.preheat`)
+
+See [Changelog.md](Changelog.md) for per-release details including
+patch versions, UX fixes, and bug reports.

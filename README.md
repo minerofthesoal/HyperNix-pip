@@ -274,6 +274,7 @@ Topic-focused reference guides live in the `wiki/` directory:
 - [`wiki/Training.md`](wiki/Training.md) — scratch training, expansion, and fine-tuning flows
 - [`wiki/CLI.md`](wiki/CLI.md) — full CLI cheat sheet
 - [`wiki/Quantization.md`](wiki/Quantization.md) — GGUF conversion + k-quant pipeline
+- [`wiki/Changelog.md`](wiki/Changelog.md) — full per-release version history
 
 ## How the GGUF pipeline works
 
