@@ -12,6 +12,7 @@ see the [top-level README](../README.md).
 | [Ranges](Ranges.md) | `new_range` / `old_range` / `industrial_range` — labeling rubrics from cheap heuristics up to LLM-as-judge. |
 | [Freezer](Freezer.md) | VRAM manager — `OldFreezer`, `NewFreezer`, `FlashFreezer`, `auto_freezer`, `probe_vram`, plus CPU / GPU preset registries. |
 | [Alarms](Alarms.md) | Smoke alarms — `RadsAlarm` (lightest), `GasAlarm` (mid), `ModernAlarm` (warmup-measured), `AutoAlarm`. CPU + GPU preset tables. |
+| [Kitchen](Kitchen.md) | pans / microwave / table / sink / instant_pot / coffee_maker / pressure_cooker. |
 | [Pascal](Pascal.md) | GTX 1080 / CUDA 6.1 / sm_61 training playbook. |
 | [Architectures](Architectures.md) | `ARCH_PRESETS` seed registry and `KNOWN_MODELS` short-name registry. |
 | [Training](Training.md) | `init_from_scratch`, `expand_checkpoint`, `train`, AutoModel fallback. |
@@ -72,6 +73,7 @@ see the [top-level README](../README.md).
 The project is semver-ish; minor bumps add features, patch bumps are
 bug fixes. Recent notable releases:
 
+- **0.44.0** — pans / microwave / table / sink / instant_pot / coffee_maker / pressure_cooker
 - **0.43.0** — `smoke_alarm` (Rads / Gas / Modern / Auto) + 16 CPU + 20 GPU presets
 - **0.42.0** — `new_range` / `old_range` / `industrial_range` labeling rubrics
 - **0.41.0** — CUDA 6.1 / Pascal helpers, HyperNix 1.5 (92.1 M) training script

@@ -39,15 +39,22 @@ See :doc:`/README.md` for the headline quickstart and
 from __future__ import annotations
 
 from . import (
+    coffee_maker,
     freezer,
     industrial_range,
+    instant_pot,
     mediocre_fridge,
+    microwave,
     new_fridge,
     new_range,
     old_fridge,
     old_oven,
     old_range,
+    pans,
+    pressure_cooker,
+    sink,
     smoke_alarm,
+    table,
 )
 from .convert import convert_to_gguf
 from .download import (
@@ -102,6 +109,7 @@ __all__ = [
     "ModelInfo",
     "QUANT_TYPES",
     "bake_code",
+    "coffee_maker",
     "convert_to_gguf",
     "cpu_preset",
     "download_model",
@@ -113,25 +121,31 @@ __all__ = [
     "gpu_preset",
     "industrial_range",
     "init_from_scratch",
+    "instant_pot",
     "load_pt",
     "load_snapshot",
     "mediocre_fridge",
+    "microwave",
     "new_fridge",
     "new_oven",
     "new_range",
     "old_fridge",
     "old_oven",
     "old_range",
+    "pans",
+    "pressure_cooker",
     "preheat",
     "quantize_gguf",
     "resolve_model_info",
     "resolve_repo_id",
     "save_snapshot",
+    "sink",
     "smoke_alarm",
+    "table",
     "train",
     "upload_gguf",
     "verify_snapshot",
 ]
 
-__version__ = "0.43.0"
+__version__ = "0.44.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

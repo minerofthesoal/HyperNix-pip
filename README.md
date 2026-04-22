@@ -24,11 +24,39 @@ isolation.
 | `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric with explainability, `industrial_range` is the LLM-as-judge wrapper. |
 | `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB), `NewFreezer` (11 GB+), `FlashFreezer` (OOM-safe retry wrapper). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core Ultra Series 1 & 2) + 20 GPU presets (H100/H200, RTX A4500-A6000, RTX PRO Ada/Blackwell, 4070 Ti Super, 4080 Super, 1660 Ti, 2080/2080 Super/2080 Ti, 3080 Ti, 1080/1080 Ti). |
 | `hypernix.smoke_alarm` | Training-step planner & monitor. `RadsAlarm` (constants, lightest), `GasAlarm` (CPU/GPU presets), `ModernAlarm` (warmup-measured), `AutoAlarm` (selector). Plus `storage_warning`, mid-run `check`. |
+| `hypernix.pans` | 5-tier data preprocessing: `FryingPan` → `SaucePan` → `Skillet` → `GrillPan` → `Wok`. Pair with `sink.Sink.pour` to write the output to disk. |
+| `hypernix.microwave` | `zap(repo_or_dir, prompt)` — one-shot, throwaway inference. |
+| `hypernix.table` | Dead-simple tabular viewer: `from_training_log`, `from_judge_corpus`, `filter`, `select`, `show`. |
+| `hypernix.sink` | Append-only file sink with optional rotation + dedupe. |
+| `hypernix.instant_pot` | `brew(recipe)` — one-shot end-to-end pipeline (preheat → train → optional GGUF). |
+| `hypernix.coffee_maker` | Scheduled / repeated training runs with exception capture and cooperative stop. |
+| `hypernix.pressure_cooker` | Custom optimizer: AdamW + warmup / plateau / cosine cooldown + lookahead. |
 | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
 | `hypernix.quantize` | `llama-quantize` driver for Q8_0, Q6_K, Q4_K_M, Q5_K_M. |
 | `hypernix.upload` | Push the produced artifacts back to a HuggingFace repo. |
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.13.
+
+## Who this is actually for
+
+Put bluntly, `hypernix` is shaped around one use case: **a solo
+practitioner fine-tuning or building causal LMs on a consumer GPU,
+then publishing quantized GGUFs.** The `OldFreezer` defaults, the
+Pascal helpers, the 8 – 10 GB tuning, the `FlashFreezer` OOM retry,
+the in-process `llama-quantize` fetch, the runtime auto-pip for
+fiddly deps — every design decision points at that workflow. If
+you're on an H100 cluster with a real trainer, you'd pick DeepSpeed
+or similar; if you're on a GTX 1080 / 2080 / 3060 trying to ship a
+QLoRA fine-tune to the Hub, this is extremely on-target.
+
+It's also worth flagging what it's *not*: the `train()` loop is a
+smoke-tester, not a production trainer — it's explicitly
+single-device, no sharding, no mixed precision. Anything serious
+goes through a real framework. `hypernix`'s value is in everything
+**around** that loop: the snapshot handling, the conversion pipeline,
+the memory plumbing, the labeling rubrics, the time budgeting, and
+the `pressure_cooker` optimizer for when you do want something with
+more opinion than stock AdamW.
 
 ---
 
@@ -240,6 +268,7 @@ Topic-focused reference guides live in the `wiki/` directory:
 - [`wiki/Ranges.md`](wiki/Ranges.md) — `new_range` / `old_range` / `industrial_range` (labeling rubrics)
 - [`wiki/Freezer.md`](wiki/Freezer.md) — VRAM manager (OldFreezer / NewFreezer / FlashFreezer)
 - [`wiki/Alarms.md`](wiki/Alarms.md) — smoke alarms (Rads / Gas / Modern / Auto) + CPU / GPU preset tables
+- [`wiki/Kitchen.md`](wiki/Kitchen.md) — pans / microwave / table / sink / instant pot / coffee maker / pressure cooker
 - [`wiki/Pascal.md`](wiki/Pascal.md) — CUDA 6.1 / GTX 1080 playbook
 - [`wiki/Architectures.md`](wiki/Architectures.md) — ARCH_PRESETS and KNOWN_MODELS
 - [`wiki/Training.md`](wiki/Training.md) — scratch training, expansion, and fine-tuning flows
