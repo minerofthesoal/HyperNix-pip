@@ -59,6 +59,7 @@ _SUBCOMMANDS = {
     "generate",
     "oven",
     "chat",
+    "brew",
 }
 
 
@@ -82,6 +83,7 @@ Subcommands:
   generate               sample text from a local HyperNix snapshot
   oven                   code-generation wrapper (preheat + complete/fill)
   chat                   interactive chat REPL with any HyperNix-family model
+  brew                   run hypernix.instant_pot.brew from a JSON recipe
 
 Shortcuts:
   --auto-oven            download the default snapshot and run code completion
@@ -759,7 +761,40 @@ def main(argv: list[str] | None = None) -> int:
         return _run_oven(rest)
     if cmd == "chat":
         return _run_chat(rest)
+    if cmd == "brew":
+        return _run_brew(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
+
+
+def _run_brew(raw: list[str]) -> int:
+    """`hypernix brew` — run instant_pot.brew from a JSON recipe file."""
+    import json
+
+    from . import instant_pot
+
+    p = argparse.ArgumentParser(
+        prog="hypernix brew",
+        description="Run hypernix.instant_pot.brew from a JSON recipe file.",
+    )
+    p.add_argument("recipe", help="Path to a JSON recipe file.")
+    p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                   help="Override a recipe key (repeatable).")
+    ns = p.parse_args(raw)
+
+    recipe = json.loads(Path(ns.recipe).read_text(encoding="utf-8"))
+    for override in ns.set:
+        if "=" not in override:
+            raise SystemExit(f"bad --set value: {override!r} (expected KEY=VALUE)")
+        key, value = override.split("=", 1)
+        # Accept JSON literals for typed overrides, else plain string.
+        try:
+            recipe[key] = json.loads(value)
+        except json.JSONDecodeError:
+            recipe[key] = value
+
+    out = instant_pot.brew(recipe)
+    print(out)
+    return 0
 
 
 if __name__ == "__main__":

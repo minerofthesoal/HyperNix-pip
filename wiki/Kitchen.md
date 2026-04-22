@@ -9,11 +9,16 @@ scheduled repetition, and a custom training optimizer.
 | Module | What it does |
 |---|---|
 | [`pans`](#pans) | 5-tier preprocessing pipeline: FryingPan → SaucePan → Skillet → GrillPan → Wok. |
-| [`microwave`](#microwave) | One-shot throwaway inference: `zap(repo_or_dir, prompt)`. |
+| [`microwave`](#microwave) | 5-tier throwaway inference: defrost → low_zap → zap → high_zap → chat_zap. |
 | [`table`](#table) | Dead-simple tabular viewer over training logs and judge corpora. |
 | [`sink`](#sink) | Append-only file output with optional rotation + dedupe. |
 | [`instant_pot`](#instant_pot) | One-call end-to-end pipeline: preheat → train → optional GGUF. |
-| [`coffee_maker`](#coffee_maker) | Scheduled / repeated brews with exception capture. |
+| [`coffee_maker`](#coffee_maker) | 3 tiers (drip / french-press / percolator) + cold-brew type. |
+| [`espresso_maker`](#espresso_maker) | 4 tiers of prompt-battery evaluation: ristretto / single / double / lungo. |
+| [`blender`](#blender) | 4 tiers of multi-source mixing. |
+| [`toaster`](#toaster) | 4 tiers of per-line formatting. |
+| [`food_processor`](#food_processor) | 4 tiers of bulk chunking / slicing / shredding. |
+| [`smoker`](#smoker) | 4 tiers of training quality — useable / good / commercial / high-quality. |
 | [`pressure_cooker`](#pressure_cooker) | AdamW + warmup / plateau / cooldown + lookahead. |
 
 ## pans
@@ -58,22 +63,33 @@ sink.Sink("clean.txt").pour(pans.GrillPan("raw.txt", min_chars=8))
 
 ## microwave
 
-One-shot throwaway inference. Preheats an oven, generates, tears it
-down. Don't use in a loop — rebuild cost is meaningful; preheat a
-`CodeOven` once and call `.complete()` repeatedly instead.
+Five power-level tiers of throwaway inference:
 
 ```python
 from hypernix import microwave
 
-out = microwave.zap("nix2.5", "def fib(n):", max_new_tokens=64)
-print(out)
+# Tier 1 — defrost: preheat only, return the oven for reuse.
+oven = microwave.defrost("nix2.5", device="cuda")
 
-# Single-turn chat companion:
-reply = microwave.chat_zap("nix2.5", "Capital of France?",
-                           system="You are terse.")
+# Tier 2 — low_zap: 16 tokens, temp 0, top_k 1 (deterministic one-liner).
+slug = microwave.low_zap("nix2.5", "Filename for: Annual revenue report 2024")
+
+# Tier 3 — zap: 64 tokens, temp 0.2 (default).
+out = microwave.zap("nix2.5", "def fib(n):")
+
+# Tier 4 — high_zap: 512 tokens, temp 0.7 (draft a paragraph).
+para = microwave.high_zap("nix2.5", "Explain RoPE in two paragraphs.")
+
+# Tier 5 — chat_zap: one-turn chat with system prompt.
+reply = microwave.chat_zap("nix2.5", "Capital of France?", system="Be terse.")
+
+# Continuation without a rebuild:
+more = microwave.reheat(oven, prior_output=out, max_new_tokens=32)
 ```
 
-Accepts short names, full HF repo ids, or a local snapshot directory.
+`microwave.TIERS` maps short names (`"defrost"`, `"low"`, `"standard"`,
+`"high"`, `"chat"`) to the callable. All accept KNOWN_MODELS short
+names, full HF repo ids, or a local snapshot path.
 
 ## table
 
@@ -144,27 +160,67 @@ GGUF and each quant is produced via `llama-quantize` under
 
 ## coffee_maker
 
-Repeat a callable on a schedule, catch exceptions, keep history.
-Zero-config cron replacement — for anything fancier reach for
-systemd-timers or APScheduler.
+Three tiers plus a separate "cold brew" type.
+
+**Tier 1 — `CoffeeMaker` (drip).** The original: scheduled repetition.
 
 ```python
 from hypernix import coffee_maker
 
 def nightly_pretrain():
-    # pull new scraped data, continue pretrain
-    ...
+    ...  # pull fresh data, continue pretrain
 
 maker = coffee_maker.coffee_maker(nightly_pretrain, interval_seconds=86400)
-maker.run(cycles=7)            # one week of nightly brews
-maker.summary()
-# {"cycles": 7, "failed": 0, "mean_duration_s": 1823.4, "last_ok": True}
+maker.run(cycles=7)                 # one week of nightly brews
+maker.summary()                      # cycles / failed / mean_duration_s / last_ok
 ```
 
-Exceptions don't stop the loop — they're captured in the `Brew`
-record. Call `.stop()` from another thread or from inside the brew
-itself for a cooperative cancel; `.serve()` also installs a SIGINT
-handler so Ctrl-C exits cleanly.
+Exceptions don't stop the loop — they're captured as failed `Brew`
+records. `.stop()` for a cooperative cancel; `.serve()` installs a
+SIGINT handler.
+
+**Tier 2 — `FrenchPressMaker` (batch).** Run a list of zero-arg
+callables in sequence, collect all results.
+
+```python
+results = coffee_maker.french_press([
+    lambda: train_lora("dataset_a"),
+    lambda: train_lora("dataset_b"),
+    lambda: train_lora("dataset_c"),
+]).plunge()
+```
+
+**Tier 3 — `PercolatorMaker` (cyclic refinement).** The output of
+cycle N feeds cycle N+1. Optional `convergence(old, new) -> bool`
+short-circuits the loop.
+
+```python
+def draft_then_critique(prior):
+    critique = judge.complete(f"critique this draft: {prior}")
+    return oven.complete(f"revise given: {prior}\ncritique: {critique}")
+
+final = coffee_maker.percolator(
+    draft_then_critique, seed_input="First draft here.", max_cycles=5,
+).percolate()
+```
+
+**New type — `ColdBrewMaker`.** Long single brew with mandatory disk
+checkpoints. `brew_fn(state, phase)` reads the last state from
+`checkpoint_path` and returns the next state.
+
+```python
+def phase_fn(state, phase):
+    # Phase 0: download; Phase 1: convert; Phase 2: train; Phase 3: quantize; …
+    state[f"phase_{phase}_done"] = True
+    return state
+
+cb = coffee_maker.cold_brew(phase_fn, phases=4,
+                            checkpoint_path="./run/ckpt.json")
+final_state = cb.brew()
+```
+
+Crashing mid-run? Just call `brew()` again — it picks up from the
+last persisted phase.
 
 ## pressure_cooker
 
@@ -220,6 +276,155 @@ repr(opt)
 # PressureCooker(peak_lr=0.0003, warmup=200, plateau=1000, cooldown=200,
 #                lookahead=k=5, alpha=0.5)
 ```
+
+## espresso_maker
+
+Four tiers of prompt-battery evaluation. All four share a `pull`
+method: given a list of prompts (+ optional references), run the
+oven against each, score, return a list of `Shot(prompt, output,
+score, reference)`.
+
+| Tier | Tokens | Temp | Samples/prompt | Use |
+|---|---|---|---|---|
+| `Ristretto` | 16 | 0.0 | 1 | deterministic spot-check |
+| `SingleShot` | 64 | 0.2 | 1 | standard eval |
+| `DoubleShot` | 96 | 0.4 | 2 | scorer picks winner |
+| `Lungo` | 256 | 0.8 | 4 | show-me-what-the-model-thinks |
+
+```python
+from hypernix import espresso_maker
+
+maker = espresso_maker.double_shot(
+    oven,
+    scorer=lambda prompt, output, reference: sum(
+        w in output.lower() for w in reference.lower().split()
+    ),
+)
+shots = maker.pull(prompts=["Q1", "Q2"], references=["ref1", "ref2"])
+print(maker.mean_score)
+```
+
+## blender
+
+Four tiers of multi-source data mixing.
+
+```python
+from hypernix import blender, sink
+
+# Straight concatenation:
+blender.HandBlender(sources=["a.txt", "b.txt"])
+
+# Round-robin interleave:
+blender.PersonalBlender(sources=["a.txt", "b.txt"])
+
+# Weighted sampling (70% source A, 30% source B):
+blender.CountertopBlender(sources=["a.txt", "b.txt"], weights=[0.7, 0.3])
+
+# Full buffer + shuffle (RAM-resident):
+blender.HighPowerBlender(sources=["a.txt", "b.txt"], seed=0)
+
+# Any blender pairs with a sink:
+sink.Sink("mixed.txt").pour(blender.CountertopBlender(
+    sources=["raw.txt", "curated.txt"], weights=[0.7, 0.3],
+))
+```
+
+## toaster
+
+Four tiers of per-line formatting.
+
+```python
+from hypernix import toaster
+
+# Tier 1 — pair every 2 lines as (prompt, response):
+toaster.TwoSliceToaster(source="pairs.txt",
+                        prompt_tag="Q: ", response_tag="A: ")
+
+# Tier 2 — four lines to one 2-turn chat:
+toaster.FourSliceToaster(source="turns.txt")
+
+# Tier 3 — streaming per-line template:
+toaster.ConveyorToaster(source="stream.txt", template="<T>{line}</T>")
+
+# Tier 4 — whole-document wrap (blank lines separate docs):
+toaster.ToasterOven(source="docs.txt",
+                    header="<DOCUMENT>", footer="</DOCUMENT>")
+```
+
+## food_processor
+
+Four blade tiers for bulk text chunking.
+
+```python
+from hypernix import food_processor as fp
+
+# Chop on blank lines:
+fp.ChopBlade(source="big.txt", separator="\n\n")
+
+# Fixed-length character slices with optional overlap:
+fp.SliceBlade(source="big.txt", slice_chars=1024, overlap_chars=128)
+
+# Whitespace-tokenized sliding window:
+fp.ShredBlade(source="big.txt", window_tokens=256, stride_tokens=128)
+
+# Whole file as one blob, whitespace collapsed:
+fp.PureeBlade(source="big.txt")
+```
+
+## smoker
+
+Four tiers of training quality, low-and-slow. Each wraps
+`oven.train` with progressively more machinery; all return the
+trained snapshot path.
+
+| Tier | Adds to the previous tier |
+|---|---|
+| `UseableSmoker` | minimum viable — kwargs pass-through to `oven.train` |
+| `GoodSmoker` | + linear warmup / plateau / cosine-cooldown LR schedule |
+| `CommercialSmoker` | + EMA (exponential moving average of weights) blend at end |
+| `HighQualitySmoker` | + curriculum (progressive context length) |
+
+```python
+from hypernix import smoker, old_oven
+
+oven = old_oven.preheat(repo_id="nix2.5", device="cuda", dtype="float16")
+
+# Useable — fastest, roughest output:
+smoker.useable_smoker(oven=oven, steps=1000).smoke("corpus.txt", "./u")
+
+# Good — warmup + cooldown:
+smoker.good_smoker(oven=oven, steps=2000,
+                   warmup_frac=0.1, cooldown_frac=0.2).smoke("corpus.txt", "./g")
+
+# Commercial — + EMA:
+smoker.commercial_smoker(oven=oven, steps=4000, ema_decay=0.95).smoke(
+    "corpus.txt", "./c",
+)
+
+# High-quality — + curriculum:
+smoker.high_quality_smoker(
+    oven=oven, steps=8000, base_context_length=128, context_length=1024,
+).smoke("corpus.txt", "./hq")
+```
+
+Each call records a one-line entry in `smoker.history` for
+provenance. The tier choice is ultimately customization — swap
+`UseableSmoker` for `HighQualitySmoker` without changing anything
+else in your pipeline.
+
+## CLI: `hypernix brew`
+
+The `instant_pot.brew(recipe)` call is also wired to the CLI:
+
+```bash
+hypernix brew recipe.json                    # plain
+hypernix brew recipe.json --set steps=2000   # typed override
+hypernix brew recipe.json --set device='"cuda"' --set batch_size=2
+```
+
+`--set KEY=VALUE` accepts a JSON literal for the value (strings must
+be quoted with double quotes inside single quotes on the shell).
+Non-JSON values are used as plain strings.
 
 ## End-to-end example
 

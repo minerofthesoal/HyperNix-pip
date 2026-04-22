@@ -73,6 +73,7 @@ see the [top-level README](../README.md).
 The project is semver-ish; minor bumps add features, patch bumps are
 bug fixes. Recent notable releases:
 
+- **0.45.0** — espresso_maker, blender, toaster, food_processor, smoker; +3 microwave tiers; +2 coffee_maker tiers + cold_brew; CLI `brew`
 - **0.44.0** — pans / microwave / table / sink / instant_pot / coffee_maker / pressure_cooker
 - **0.43.0** — `smoke_alarm` (Rads / Gas / Modern / Auto) + 16 CPU + 20 GPU presets
 - **0.42.0** — `new_range` / `old_range` / `industrial_range` labeling rubrics
