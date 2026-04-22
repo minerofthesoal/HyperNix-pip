@@ -12,6 +12,7 @@ recursive-include tests *.py
 recursive-include examples *.py
 recursive-include scripts *.sh
 recursive-include .github/workflows *.yml
+recursive-include wiki *.md
 
 # Noise we never want in the sdist.
 global-exclude __pycache__ *.pyc *.pyo *.swp .DS_Store
