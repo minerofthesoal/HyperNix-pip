@@ -62,6 +62,14 @@ _FIM_MIDDLE = "<fim_middle>"
 # q_proj / k_proj / v_proj (but not o_proj). Defaults also differ for
 # rope_theta and the RMSNorm epsilon. These presets encode those differences
 # so callers can request either architecture by name.
+#
+# The presets below are seeds for :func:`new_oven` (creating a fresh,
+# untrained snapshot in a chosen arch). Actually *loading* any HF-family
+# model — Gemma, Phi, DeepSeek, GLM, GPT-OSS, Nemotron, Llama 3+, etc. —
+# goes through :func:`hypernix.train.load_snapshot` which falls back to
+# ``transformers.AutoModelForCausalLM`` for any non-Llama-shaped arch.
+# You don't need a preset here to consume those models; you only need one
+# to hand-spec a fresh parametric model in that style.
 ARCH_PRESETS: dict[str, dict[str, Any]] = {
     "hypernix": {
         "attention_bias": False,
@@ -70,6 +78,52 @@ ARCH_PRESETS: dict[str, dict[str, Any]] = {
         "rms_norm_eps": 1e-5,
         "tie_word_embeddings": False,
     },
+    # ---- Llama family -----------------------------------------------------
+    # Llama 2 defaults.
+    "llama": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    # Llama 3 / 3.1 / 3.2 / 3.3 — same shape, rope_theta bumped to 500k.
+    "llama3": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "llama3.1": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "llama3.2": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": True,
+    },
+    "llama3.3": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "llama4": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": True,
+    },
+    # ---- Qwen family ------------------------------------------------------
     "qwen2": {
         "attention_bias": True,
         "model_type": "qwen2",
@@ -77,7 +131,6 @@ ARCH_PRESETS: dict[str, dict[str, Any]] = {
         "rms_norm_eps": 1e-6,
         "tie_word_embeddings": True,
     },
-    # Alias so users can spell the arch the way Qwen2.5 is marketed.
     "qwen2.5": {
         "attention_bias": True,
         "model_type": "qwen2",
@@ -85,7 +138,113 @@ ARCH_PRESETS: dict[str, dict[str, Any]] = {
         "rms_norm_eps": 1e-6,
         "tie_word_embeddings": True,
     },
+    # Qwen3 keeps q/k/v bias off and uses an even larger rope_theta.
+    # Consuming a real Qwen3 checkpoint goes through AutoModel; this seed
+    # is only for creating a new Qwen3-shaped model from scratch.
+    "qwen3": {
+        "attention_bias": False,
+        "model_type": "qwen2",  # runtime class reuses our qwen2 path
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    # ---- Mistral ----------------------------------------------------------
+    "mistral": {
+        "attention_bias": False,
+        "model_type": "mistral",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    # ---- DeepSeek-R1 (distilled Llama-shape) ------------------------------
+    # The real MoE / MLA checkpoints must go through AutoModel; this is the
+    # distilled-Llama seed used by the popular R1-distill variants.
+    "deepseek-r1": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "deepseek": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
 }
+# Backing presets for architectures that have a distinct model_type at the
+# HF level but still fit the Llama-shape we expose here — provided as
+# short-name aliases so `new_oven(arch="gemma2")` does something sensible.
+# For actually loading a pretrained checkpoint of these families, we route
+# through transformers.AutoModelForCausalLM in load_snapshot(); this just
+# gives users a shortcut for hand-building a fresh-initialized one.
+ARCH_PRESETS.update({
+    "gemma": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    "gemma2": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    "gemma3": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    "phi3": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "phi4": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 250000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "glm4": {
+        "attention_bias": True,
+        "model_type": "qwen2",  # GLM4's attention has a qkv bias like Qwen2
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "nemotron": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "gpt-oss": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "gptoss": {  # alias
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 500000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+})
 
 
 def _dtype_from_str(name: str) -> torch.dtype:

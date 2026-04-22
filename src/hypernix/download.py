@@ -25,18 +25,18 @@ from huggingface_hub import hf_hub_download, snapshot_download
 
 @dataclass(frozen=True)
 class ModelInfo:
-    """Metadata for a known HyperNix-family model on the HuggingFace Hub.
+    """Metadata for a known model on the HuggingFace Hub.
 
-    ``arch`` is one of:
+    ``arch`` is a short tag indicating which code path loads this model:
 
     * ``"hypernix"`` — HyperNix-native Llama-shape; loads via
       :class:`HyperNixModel` with interleaved RoPE and no q/k/v bias.
-    * ``"llama"`` — HuggingFace LlamaForCausalLM checkpoints (half-rotate
-      RoPE, ``model.`` prefix in the state dict). The loader in
-      :func:`hypernix.train.load_snapshot` adapts both.
-    * ``"nano-nano"`` — custom ``NanoNanoModel`` (tiny toy arch with
-      weight-tying and a non-standard RoPE path). Loads via
-      :mod:`hypernix.nano_nano`.
+    * ``"llama"`` / ``"qwen2"`` / ``"mistral"`` — HF-shaped state dict with
+      the ``model.`` prefix; loaded natively by :class:`HyperNixModel`.
+    * ``"nano-nano"`` — custom ``NanoNanoModel`` (tiny toy arch).
+    * ``"auto"`` — anything else (gemma, phi, deepseek, glm4, gpt-oss,
+      nemotron, qwen3, llama3+ MoE, etc.). Loaded via
+      ``transformers.AutoModelForCausalLM``.
     """
 
     repo_id: str
@@ -80,6 +80,143 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
     "nano-nano-927": ModelInfo(
         "ray0rf1re/nano-nano-927-v3", "nano-nano",
         "Alias for nano-nano-927-v3.",
+    ),
+    # ---- Llama 3 family ---------------------------------------------------
+    "llama-3.1-8b": ModelInfo(
+        "meta-llama/Llama-3.1-8B", "llama",
+        "Llama 3.1 8B base (gated repo — HF token required).",
+    ),
+    "llama-3.1-8b-instruct": ModelInfo(
+        "meta-llama/Llama-3.1-8B-Instruct", "llama",
+        "Llama 3.1 8B instruction-tuned (gated repo).",
+    ),
+    "llama-3.2-1b": ModelInfo(
+        "meta-llama/Llama-3.2-1B", "llama",
+        "Llama 3.2 1B base (gated repo).",
+    ),
+    "llama-3.2-3b": ModelInfo(
+        "meta-llama/Llama-3.2-3B", "llama",
+        "Llama 3.2 3B base (gated repo).",
+    ),
+    "llama-3.3-70b-instruct": ModelInfo(
+        "meta-llama/Llama-3.3-70B-Instruct", "llama",
+        "Llama 3.3 70B instruct (gated repo).",
+    ),
+    # ---- Qwen 2.5 / 3 -----------------------------------------------------
+    "qwen2.5-0.5b": ModelInfo(
+        "Qwen/Qwen2.5-0.5B", "qwen2",
+        "Qwen2.5 0.5B base.",
+    ),
+    "qwen2.5-7b": ModelInfo(
+        "Qwen/Qwen2.5-7B", "qwen2",
+        "Qwen2.5 7B base.",
+    ),
+    "qwen2.5-7b-instruct": ModelInfo(
+        "Qwen/Qwen2.5-7B-Instruct", "qwen2",
+        "Qwen2.5 7B instruct.",
+    ),
+    "qwen2.5-coder-7b": ModelInfo(
+        "Qwen/Qwen2.5-Coder-7B", "qwen2",
+        "Qwen2.5-Coder 7B.",
+    ),
+    "qwen3-0.6b": ModelInfo(
+        "Qwen/Qwen3-0.6B", "auto",
+        "Qwen3 0.6B — loads via AutoModel.",
+    ),
+    "qwen3-8b": ModelInfo(
+        "Qwen/Qwen3-8B", "auto",
+        "Qwen3 8B — loads via AutoModel.",
+    ),
+    # ---- Gemma 2 / 3 ------------------------------------------------------
+    "gemma-2-2b": ModelInfo(
+        "google/gemma-2-2b", "auto",
+        "Gemma 2 2B (gated).",
+    ),
+    "gemma-2-9b": ModelInfo(
+        "google/gemma-2-9b", "auto",
+        "Gemma 2 9B (gated).",
+    ),
+    "gemma-2-27b": ModelInfo(
+        "google/gemma-2-27b", "auto",
+        "Gemma 2 27B (gated).",
+    ),
+    "gemma-3-1b": ModelInfo(
+        "google/gemma-3-1b-it", "auto",
+        "Gemma 3 1B instruction-tuned.",
+    ),
+    "gemma-3-4b": ModelInfo(
+        "google/gemma-3-4b-it", "auto",
+        "Gemma 3 4B instruction-tuned.",
+    ),
+    # ---- Phi --------------------------------------------------------------
+    "phi-3-mini": ModelInfo(
+        "microsoft/Phi-3-mini-4k-instruct", "auto",
+        "Phi-3 mini 4k instruct.",
+    ),
+    "phi-3.5-mini": ModelInfo(
+        "microsoft/Phi-3.5-mini-instruct", "auto",
+        "Phi-3.5 mini instruct.",
+    ),
+    "phi-4": ModelInfo(
+        "microsoft/phi-4", "auto",
+        "Phi-4 14B.",
+    ),
+    # ---- DeepSeek ---------------------------------------------------------
+    "deepseek-r1-distill-llama-8b": ModelInfo(
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-8B", "llama",
+        "R1-distilled Llama 8B (llama-shaped).",
+    ),
+    "deepseek-r1-distill-qwen-7b": ModelInfo(
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "qwen2",
+        "R1-distilled Qwen 7B.",
+    ),
+    "deepseek-v2-lite": ModelInfo(
+        "deepseek-ai/DeepSeek-V2-Lite", "auto",
+        "DeepSeek V2 Lite (MoE — AutoModel).",
+    ),
+    "deepseek-v3": ModelInfo(
+        "deepseek-ai/DeepSeek-V3", "auto",
+        "DeepSeek V3 671B MoE (AutoModel).",
+    ),
+    # ---- GLM --------------------------------------------------------------
+    "glm-4-9b-chat": ModelInfo(
+        "THUDM/glm-4-9b-chat", "auto",
+        "GLM-4 9B chat.",
+    ),
+    "glm-4.1v": ModelInfo(
+        "THUDM/GLM-4.1V-9B-Thinking", "auto",
+        "GLM-4.1V-9B Thinking (VLM — AutoModel).",
+    ),
+    # ---- Nvidia -----------------------------------------------------------
+    "nemotron-4-15b": ModelInfo(
+        "nvidia/Nemotron-4-15B-Base", "auto",
+        "Nemotron-4 15B base.",
+    ),
+    "llama-3.1-nemotron-70b-instruct": ModelInfo(
+        "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF", "llama",
+        "Nemotron 70B Instruct (llama-shaped).",
+    ),
+    "mistral-nemo-12b": ModelInfo(
+        "nvidia/Mistral-NeMo-12B-Base", "mistral",
+        "Mistral-NeMo 12B base.",
+    ),
+    # ---- GPT-OSS (OpenAI) -------------------------------------------------
+    "gpt-oss-20b": ModelInfo(
+        "openai/gpt-oss-20b", "auto",
+        "OpenAI gpt-oss 20B (AutoModel).",
+    ),
+    "gpt-oss-120b": ModelInfo(
+        "openai/gpt-oss-120b", "auto",
+        "OpenAI gpt-oss 120B (AutoModel).",
+    ),
+    # ---- Mistral ----------------------------------------------------------
+    "mistral-7b-instruct": ModelInfo(
+        "mistralai/Mistral-7B-Instruct-v0.3", "mistral",
+        "Mistral 7B Instruct v0.3.",
+    ),
+    "mixtral-8x7b-instruct": ModelInfo(
+        "mistralai/Mixtral-8x7B-Instruct-v0.1", "auto",
+        "Mixtral 8x7B Instruct (MoE — AutoModel).",
     ),
 }
 

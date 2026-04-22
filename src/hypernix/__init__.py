@@ -64,5 +64,5 @@ __all__ = [
     "verify_snapshot",
 ]
 
-__version__ = "0.33.0"
+__version__ = "0.34.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

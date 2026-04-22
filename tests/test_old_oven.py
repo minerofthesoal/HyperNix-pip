@@ -154,7 +154,7 @@ def test_new_oven_rejects_unknown_arch(tmp_path: Path) -> None:
     from hypernix import new_oven
 
     with pytest.raises(ValueError, match="unknown arch"):
-        new_oven(tmp_path / "x", arch="llama3", device="cpu")
+        new_oven(tmp_path / "x", arch="does-not-exist", device="cpu")
 
 
 # ---------------------------------------------------------------------------

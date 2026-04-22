@@ -744,8 +744,11 @@ def main(argv: list[str] | None = None) -> int:
         return _run_upload(rest)
     if cmd == "doctor":
         from .doctor import run
-        fix = "--fix" in rest
-        return run(fix=fix)
+        dp = argparse.ArgumentParser(prog="hypernix doctor")
+        dp.add_argument("--fix", action="store_true",
+                        help="Install missing runtime dependencies via pip.")
+        ns = dp.parse_args(rest)
+        return run(fix=ns.fix)
     if cmd == "fetch-llama-quantize":
         return _run_fetch_llama_quantize(rest)
     if cmd == "train":

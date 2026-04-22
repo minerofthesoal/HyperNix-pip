@@ -80,7 +80,45 @@ class HyperNixConfig:
         if "rope_style" not in d:
             d["rope_style"] = _default_rope_style(d.get("model_type", "hypernix"))
         fields = {k: d[k] for k in cls.__dataclass_fields__ if k in d}
-        return cls(**fields)
+        cfg = cls(**fields)
+        cfg._validate()
+        return cfg
+
+    def _validate(self) -> None:
+        """Catch the common shape errors at config-load time, not deep in forward."""
+        if self.hidden_size <= 0 or self.num_attention_heads <= 0:
+            raise ValueError(
+                f"hidden_size={self.hidden_size} / num_attention_heads="
+                f"{self.num_attention_heads} must both be positive"
+            )
+        if self.hidden_size % self.num_attention_heads != 0:
+            raise ValueError(
+                f"hidden_size={self.hidden_size} must be divisible by "
+                f"num_attention_heads={self.num_attention_heads}"
+            )
+        head_dim = self.hidden_size // self.num_attention_heads
+        if head_dim % 2 != 0:
+            # RoPE pairs adjacent dims — odd head_dim breaks both conventions.
+            raise ValueError(
+                f"head_dim={head_dim} must be even for RoPE "
+                f"(derived from hidden_size={self.hidden_size} / "
+                f"num_attention_heads={self.num_attention_heads})"
+            )
+        n_kv = self.num_key_value_heads or self.num_attention_heads
+        if self.num_attention_heads % n_kv != 0:
+            raise ValueError(
+                f"num_attention_heads={self.num_attention_heads} must be divisible by "
+                f"num_key_value_heads={n_kv} (grouped-query attention constraint)"
+            )
+        if self.rope_style not in {"interleaved", "half-rotate"}:
+            raise ValueError(
+                f"rope_style must be 'interleaved' or 'half-rotate', got {self.rope_style!r}"
+            )
+
+    def __post_init__(self) -> None:
+        # Validate defaults too — a programmatic HyperNixConfig(hidden_size=1025)
+        # should fail fast, not silently produce garbage.
+        self._validate()
 
     @classmethod
     def from_json(cls, path: Path | str) -> HyperNixConfig:
@@ -305,17 +343,125 @@ def _strip_hf_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     return remapped
 
 
+# Model types our native HyperNixModel handles correctly via shape-compatible
+# tensor names (Llama / Qwen2 / Mistral all ship as LlamaForCausalLM-like state
+# dicts). Everything else falls through to the transformers AutoModel path.
+_NATIVE_MODEL_TYPES: frozenset[str] = frozenset({"hypernix", "llama", "qwen2", "mistral"})
+
+
+class _HFCausalLMWrapper(nn.Module):
+    """Wraps ``transformers.AutoModelForCausalLM`` to match the HyperNixModel
+    contract (``forward(input_ids, labels=None) -> {"logits": ..., "loss": ...}``
+    and a ``.config`` with ``max_position_embeddings`` + ``model_type``).
+
+    This is what powers broad-model support: any architecture transformers
+    can load — Gemma, Phi, DeepSeek, GLM, GPT-OSS, Nemotron, Llama 3+, etc.
+    — becomes usable via :func:`hypernix.oven.preheat` without hypernix
+    itself having to implement each arch.
+    """
+
+    def __init__(self, hf_model, hf_config) -> None:
+        super().__init__()
+        self.hf_model = hf_model
+        self.hf_config = hf_config
+        # Oven/generate rely on these two attributes.
+        self.config = _HFConfigShim(hf_config)
+
+    def forward(
+        self, input_ids: torch.Tensor, labels: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor]:
+        out = self.hf_model(input_ids=input_ids, labels=labels)
+        result: dict[str, torch.Tensor] = {"logits": out.logits}
+        if labels is not None and getattr(out, "loss", None) is not None:
+            result["loss"] = out.loss
+        return result
+
+
+class _HFConfigShim:
+    """Minimal config facade hypernix's inference code expects.
+
+    Exposes ``max_position_embeddings`` and ``model_type`` (plus a ``to_dict``
+    for debugging / save-snapshot). Backing store is the real HF config so
+    any other attribute access still works for callers that peek inside.
+    """
+
+    def __init__(self, hf_config) -> None:
+        self._hf = hf_config
+
+    def __getattr__(self, name: str):
+        return getattr(self._hf, name)
+
+    @property
+    def max_position_embeddings(self) -> int:
+        # HF's Gemma uses max_position_embeddings; some configs use
+        # n_positions (GPT-2-ish) or ctx_size. Fall back through them.
+        for attr in ("max_position_embeddings", "n_positions", "ctx_size"):
+            v = getattr(self._hf, attr, None)
+            if v:
+                return int(v)
+        return 2048
+
+    @property
+    def model_type(self) -> str:
+        return getattr(self._hf, "model_type", "unknown")
+
+    def to_dict(self) -> dict[str, Any]:
+        if hasattr(self._hf, "to_dict"):
+            return self._hf.to_dict()
+        return dict(self._hf.__dict__)
+
+
+def _try_hf_automodel(model_dir: Path, model_type: str) -> tuple[Any, Any] | None:
+    """Last-resort loader: use transformers.AutoModelForCausalLM for any arch.
+
+    Returns ``(wrapped_model, wrapped_config)`` on success, ``None`` if
+    transformers isn't installed or the load fails for any reason. We try
+    to auto-install transformers first via ``hypernix.deps.ensure`` so a
+    fresh env doesn't silently drop to byte-tokenizer + random-weights land.
+    """
+    try:
+        from transformers import AutoConfig, AutoModelForCausalLM
+    except ModuleNotFoundError:
+        from . import deps
+        if not deps.ensure(["transformers>=4.44", "tokenizers>=0.20"]):
+            return None
+        try:
+            from transformers import AutoConfig, AutoModelForCausalLM
+        except ModuleNotFoundError:
+            return None
+
+    try:
+        hf_cfg = AutoConfig.from_pretrained(str(model_dir), trust_remote_code=False)
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            str(model_dir), trust_remote_code=False
+        )
+    except Exception as exc:  # noqa: BLE001 — HF can throw any exception
+        import sys as _sys
+        print(
+            f"[hypernix] AutoModelForCausalLM could not load model_type={model_type!r}: {exc}",
+            file=_sys.stderr,
+        )
+        return None
+    wrapped = _HFCausalLMWrapper(hf_model, hf_cfg)
+    return wrapped, wrapped.config
+
+
 def load_snapshot(model_dir: Path | str):
     """Load any supported snapshot from ``model_dir``.
 
     Dispatches on the ``model_type`` declared in ``config.json``:
 
     * ``"hypernix"`` / ``"llama"`` / ``"qwen2"`` / ``"mistral"`` — returns a
-      :class:`HyperNixModel` (our parametric Llama-shape); the loader
+      native :class:`HyperNixModel` (our parametric Llama-shape); the loader
       automatically strips the HF ``model.`` prefix and picks the correct
       RoPE convention.
     * ``"nano-nano"`` — returns a :class:`hypernix.nano_nano.NanoNanoModel`
-      (the custom tiny arch used by ``ray0rf1re/nano-nano-927-v3``).
+      (custom tiny arch used by ``ray0rf1re/nano-nano-927-v3``).
+    * **Anything else** — gemma, gemma2, gemma3, phi, phi3, phi4, mistral
+      variants, qwen3, llama3+, deepseek, glm4, gpt-oss, nemotron, etc. —
+      falls through to ``transformers.AutoModelForCausalLM`` wrapped to
+      match the HyperNix inference contract. Requires ``transformers`` to
+      be installed (auto-installed on first use unless ``HYPERNIX_AUTO_INSTALL=0``).
 
     Returns ``(model, config)``.
     """
@@ -334,10 +480,39 @@ def load_snapshot(model_dir: Path | str):
         model.load_state_dict(state, strict=False)
         return model, cfg
 
+    if model_type in _NATIVE_MODEL_TYPES:
+        cfg = HyperNixConfig.from_dict(cfg_raw)
+        model = HyperNixModel(cfg)
+        state = _strip_hf_prefix(_load_state_dict(model_dir))
+        model.load_state_dict(state, strict=False)
+        # Re-assert the weight tie: HF checkpoints that stripped lm_head on
+        # save leave lm_head at its freshly-initialized random values if
+        # load_state_dict ran in strict=False mode. When embeddings are tied,
+        # force the pointer identity again so the two heads stay in sync.
+        if cfg.tie_word_embeddings:
+            model.lm_head.weight = model.embed_tokens.weight
+        return model, cfg
+
+    # Unknown model_type — try transformers AutoModel before giving up.
+    result = _try_hf_automodel(model_dir, model_type)
+    if result is not None:
+        return result
+
+    # Final fallback: load as HyperNix and warn. This is how the old code
+    # behaved implicitly; we now surface the choice to the user.
+    import sys as _sys
+    print(
+        f"[hypernix] WARNING: unknown model_type={model_type!r} and transformers "
+        "could not load it; falling back to HyperNixModel which may produce "
+        "garbage if the weights aren't Llama-shaped.",
+        file=_sys.stderr,
+    )
     cfg = HyperNixConfig.from_dict(cfg_raw)
     model = HyperNixModel(cfg)
     state = _strip_hf_prefix(_load_state_dict(model_dir))
     model.load_state_dict(state, strict=False)
+    if cfg.tie_word_embeddings:
+        model.lm_head.weight = model.embed_tokens.weight
     return model, cfg
 
 
