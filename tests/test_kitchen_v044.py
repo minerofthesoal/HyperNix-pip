@@ -89,6 +89,55 @@ def test_pick_pan_factory() -> None:
         assert isinstance(p, pans.Pan)
 
 
+# Regression: second positional arg used to silently bind to `name`
+# (inherited from Pan.__init__), so ``Skillet(src, "instruct")`` would
+# set ``name="instruct"`` and leave ``mode="chat"``.  `name` is now a
+# ClassVar, so positional arg #2 is the first real field on each pan.
+
+def test_skillet_second_positional_is_mode_not_name() -> None:
+    from hypernix import pans
+
+    s = pans.Skillet(["hi"], "instruct")
+    assert s.mode == "instruct"
+    assert s.name == "Skillet"   # unchanged — name is a ClassVar
+
+
+def test_grill_pan_second_positional_is_min_chars() -> None:
+    from hypernix import pans
+
+    g = pans.GrillPan(["hello", "world", "hi", "hello"], 4)
+    assert g.min_chars == 4
+    # "hi" (2 chars) dropped; second "hello" dropped as duplicate.
+    assert list(g) == ["hello", "world"]
+
+
+def test_grill_pan_seen_is_not_in_init_signature() -> None:
+    import inspect
+
+    from hypernix import pans
+
+    params = inspect.signature(pans.GrillPan).parameters
+    assert "_seen" not in params
+
+
+def test_pick_pan_unknown_tier_gives_useful_error() -> None:
+    import pytest
+
+    from hypernix import pans
+
+    with pytest.raises(ValueError, match="unknown pan tier"):
+        pans.pick_pan("microwave-pan", source=["x"])
+
+
+def test_pick_pan_bad_kwarg_lists_valid_ones() -> None:
+    import pytest
+
+    from hypernix import pans
+
+    with pytest.raises(ValueError, match="Skillet rejected"):
+        pans.pick_pan("skillet", source=["x"], min_chars=16)
+
+
 # ---------------------------------------------------------------------------
 # microwave
 # ---------------------------------------------------------------------------

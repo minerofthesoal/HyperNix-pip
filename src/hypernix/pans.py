@@ -25,6 +25,7 @@ import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, ClassVar
 
 _WS_RE = re.compile(r"[ \t]+")
 _MULTINEWLINE_RE = re.compile(r"\n{3,}")
@@ -37,10 +38,18 @@ _MULTINEWLINE_RE = re.compile(r"\n{3,}")
 @dataclass
 class Pan:
     """Abstract pan.  Subclasses override :meth:`cook` (one line in,
-    zero-or-one line out) or :meth:`iter` (full iterator override)."""
+    zero-or-one line out) or :meth:`iter` (full iterator override).
+
+    ``name`` is deliberately a :class:`ClassVar` rather than a
+    ``@dataclass`` field — it's a human-readable label used in
+    ``__repr__`` / logs, not state.  Making it a field exposed it as
+    the *second positional argument* of every subclass, which meant
+    ``Skillet("file.txt", "instruct")`` silently set ``name="instruct"``
+    instead of ``mode="instruct"`` and left the caller confused.
+    """
 
     source: Path | str | Iterable[str]
-    name: str = "Pan"
+    name: ClassVar[str] = "Pan"
 
     def _source_lines(self) -> Iterator[str]:
         if isinstance(self.source, (str, Path)):
@@ -74,7 +83,7 @@ class FryingPan(Pan):
     through.  Useful when the input is already clean (already-formatted
     corpora, pre-tokenized chunks)."""
 
-    name: str = "FryingPan"
+    name: ClassVar[str] = "FryingPan"
 
     def cook(self, line: str) -> str | None:
         return line.rstrip()
@@ -90,7 +99,7 @@ class SaucePan(Pan):
     strip leading/trailing whitespace.  Standard mild cleaning for
     scraped or OCR'd text."""
 
-    name: str = "SaucePan"
+    name: ClassVar[str] = "SaucePan"
 
     def cook(self, line: str) -> str | None:
         line = _WS_RE.sub(" ", line.strip())
@@ -111,10 +120,10 @@ class Skillet(Pan):
     replies on the following line (or in a separate corpus).
     """
 
-    name: str = "Skillet"
     mode: str = "chat"            # "chat" | "instruct"
     user_tag: str = "<USER>"
     assistant_tag: str = "<ASSISTANT>"
+    name: ClassVar[str] = "Skillet"
 
     def cook(self, line: str) -> str | None:
         line = line.strip()
@@ -133,11 +142,15 @@ class Skillet(Pan):
 class GrillPan(Pan):
     """High direct heat.  SaucePan-style cleaning plus deduplication
     (SHA1 hash set) and a minimum length filter.  Safe on arbitrary
-    web-scraped text: collapses boilerplate, drops single-word lines."""
+    web-scraped text: collapses boilerplate, drops single-word lines.
 
-    name: str = "GrillPan"
+    ``_seen`` is internal dedupe state and is not part of the public
+    ``__init__`` signature.
+    """
+
     min_chars: int = 8
-    _seen: set[str] = field(default_factory=set, repr=False)
+    name: ClassVar[str] = "GrillPan"
+    _seen: set[str] = field(default_factory=set, repr=False, init=False)
 
     def cook(self, line: str) -> str | None:
         line = _WS_RE.sub(" ", line.strip())
@@ -162,9 +175,9 @@ class Wok(Pan):
     small corpora where order-randomization matters and you can afford
     the memory."""
 
-    name: str = "Wok"
     seed: int = 0
     reverse_ratio: float = 0.0
+    name: ClassVar[str] = "Wok"
 
     def iter(self) -> Iterator[str]:
         # Pre-clean with SaucePan semantics.
@@ -195,7 +208,29 @@ TIERS: dict[str, type[Pan]] = {
 }
 
 
-def pick_pan(tier: str, source: Path | str | Iterable[str], **kwargs: str) -> Pan:
-    """Return a pan instance by tier name (``"frying-pan"``..``"wok"``)."""
-    cls = TIERS[tier.lower().replace("_", "-")]
-    return cls(source=source, **kwargs)
+def pick_pan(tier: str, source: Path | str | Iterable[str], **kwargs: Any) -> Pan:
+    """Return a pan instance by tier name (``"frying-pan"``..``"wok"``).
+
+    Raises :class:`ValueError` if ``tier`` is unknown (with the list of
+    valid tiers in the message) or if ``**kwargs`` contains a keyword
+    the selected pan doesn't accept (with the list of valid kwargs).
+    """
+    key = tier.lower().replace("_", "-")
+    if key not in TIERS:
+        raise ValueError(
+            f"unknown pan tier {tier!r}; valid tiers are: {sorted(TIERS)}"
+        )
+    cls = TIERS[key]
+    try:
+        return cls(source=source, **kwargs)
+    except TypeError as exc:
+        # Re-raise with a message that lists the keywords the tier
+        # actually accepts — the raw dataclass message ("unexpected
+        # keyword argument 'X'") doesn't say what *is* accepted.
+        import inspect
+        valid = [p for p in inspect.signature(cls).parameters if p != "source"]
+        raise ValueError(
+            f"{cls.__name__} rejected an argument ({exc}). "
+            f"Valid keyword arguments for {cls.__name__} (besides "
+            f"'source'): {valid}"
+        ) from exc
