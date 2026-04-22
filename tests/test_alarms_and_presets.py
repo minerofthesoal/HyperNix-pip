@@ -245,6 +245,70 @@ def test_auto_alarm_with_warmup_picks_modern() -> None:
     assert a.measured_step_seconds is not None
 
 
+# Regression: GasAlarm(preset="i7-7700hq") used to raise
+# "unexpected keyword argument 'preset'".  Every constructor / factory
+# now accepts ``preset=`` as a one-string shortcut that resolves
+# against GPU_PRESETS first, then CPU_PRESETS.
+
+
+def test_gas_alarm_accepts_preset_cpu() -> None:
+    from hypernix import smoke_alarm
+
+    a = smoke_alarm.GasAlarm(time_budget_seconds=3600.0, preset="i7-7700hq")
+    assert a.cpu is not None
+    assert a.cpu.name.startswith("Intel Core i7-7700HQ")
+    assert a.gpu is None
+
+
+def test_gas_alarm_accepts_preset_gpu() -> None:
+    from hypernix import smoke_alarm
+
+    a = smoke_alarm.GasAlarm(time_budget_seconds=3600.0, preset="rtx-3080-ti")
+    assert a.gpu is not None
+    assert a.gpu.name.startswith("NVIDIA GeForce RTX 3080 Ti")
+    assert a.cpu is None
+
+
+def test_gas_alarm_factory_accepts_preset() -> None:
+    from hypernix import smoke_alarm
+
+    a = smoke_alarm.gas_alarm(time_budget_seconds=3600.0, preset="h100")
+    assert a.gpu is not None
+    assert "H100" in a.gpu.name
+
+
+def test_auto_alarm_accepts_preset() -> None:
+    from hypernix import smoke_alarm
+
+    a = smoke_alarm.auto_alarm(
+        time_budget_seconds=3600.0, preset="i7-7700hq",
+        detect_hardware=False,
+    )
+    assert isinstance(a, smoke_alarm.GasAlarm)
+    assert a.cpu is not None
+
+
+def test_gas_alarm_unknown_preset_lists_valid() -> None:
+    import pytest
+
+    from hypernix import smoke_alarm
+
+    with pytest.raises(ValueError, match="unknown preset"):
+        smoke_alarm.GasAlarm(time_budget_seconds=3600.0, preset="not-real-cpu")
+
+
+def test_preset_does_not_override_explicit_cpu() -> None:
+    """Explicit ``cpu=`` wins over a conflicting ``preset=`` hint."""
+    from hypernix import smoke_alarm
+    from hypernix.freezer import cpu_preset
+
+    explicit = cpu_preset("i7-14700k")
+    a = smoke_alarm.GasAlarm(
+        time_budget_seconds=3600.0, cpu=explicit, preset="i7-7660u",
+    )
+    assert a.cpu is explicit
+
+
 def test_auto_alarm_with_gpu_name_picks_gas() -> None:
     from hypernix import smoke_alarm
 

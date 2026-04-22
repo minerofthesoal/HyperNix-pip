@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -199,19 +199,68 @@ class RadsAlarm(Alarm):
 
 
 # ---------------------------------------------------------------------------
+# Preset name resolution — shared by GasAlarm, AutoAlarm, and the
+# public factory helpers.  The ``preset=`` kwarg is the intuitive
+# single-string entry point ("give me the alarm for an i7-7700HQ" or
+# "give me the alarm for an H100"); it's resolved against GPU_PRESETS
+# first (GPU bandwidth is the dominant signal for training throughput)
+# and CPU_PRESETS as a fallback.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_preset(
+    preset: str | None,
+) -> tuple[CPUPreset | None, GPUPreset | None]:
+    """Resolve a single ``preset=`` string to ``(cpu, gpu)``.
+
+    GPU matches win over CPU matches.  Raises :class:`ValueError` with
+    a useful list of valid names when the string doesn't match any
+    preset.
+    """
+    if preset is None:
+        return None, None
+    g = gpu_preset(preset)
+    if g is not None:
+        return None, g
+    c = cpu_preset(preset)
+    if c is not None:
+        return c, None
+    raise ValueError(
+        f"unknown preset {preset!r}; valid GPU presets: "
+        f"{sorted(GPU_PRESETS)}; valid CPU presets: {sorted(CPU_PRESETS)}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # GasAlarm — mid tier
 # ---------------------------------------------------------------------------
 
 @dataclass
 class GasAlarm(Alarm):
     """Mid tier.  Looks up CPU and GPU presets and scales the per-step
-    estimate by their throughput vs. the generic baseline."""
+    estimate by their throughput vs. the generic baseline.
+
+    Accepts three equivalent ways to name the hardware:
+
+    * ``cpu=CPUPreset(...)``, ``gpu=GPUPreset(...)`` — explicit objects.
+    * ``cpu_name=``, ``gpu_name=`` via :meth:`from_names` or the
+      :func:`gas_alarm` factory.
+    * ``preset="i7-7700hq"`` / ``preset="h100"`` — single-string
+      shortcut, resolved against GPU first then CPU.
+    """
 
     cpu: CPUPreset | None = None
     gpu: GPUPreset | None = None
+    preset: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", "GasAlarm")
+        if self.preset is not None:
+            c, g = _resolve_preset(self.preset)
+            if c is not None and self.cpu is None:
+                self.cpu = c
+            if g is not None and self.gpu is None:
+                self.gpu = g
 
     @classmethod
     def from_names(
@@ -220,12 +269,14 @@ class GasAlarm(Alarm):
         *,
         cpu_name: str | None = None,
         gpu_name: str | None = None,
+        preset: str | None = None,
         **kwargs: Any,
     ) -> GasAlarm:
         return cls(
             time_budget_seconds=time_budget_seconds,
             cpu=cpu_preset(cpu_name) if cpu_name else None,
             gpu=gpu_preset(gpu_name) if gpu_name else None,
+            preset=preset,
             **kwargs,
         )
 
@@ -396,10 +447,20 @@ def gas_alarm(
     *,
     cpu_name: str | None = None,
     gpu_name: str | None = None,
+    preset: str | None = None,
     **kw: Any,
 ) -> GasAlarm:
+    """Construct a :class:`GasAlarm`.
+
+    ``cpu_name`` / ``gpu_name`` resolve against ``CPU_PRESETS`` /
+    ``GPU_PRESETS`` respectively.  ``preset`` is a one-string alias
+    that resolves against GPU first, then CPU — use it when you just
+    want "the alarm for my card / chip" without caring which registry
+    the name comes from.
+    """
     return GasAlarm.from_names(
-        time_budget_seconds, cpu_name=cpu_name, gpu_name=gpu_name, **kw,
+        time_budget_seconds,
+        cpu_name=cpu_name, gpu_name=gpu_name, preset=preset, **kw,
     )
 
 
@@ -423,6 +484,7 @@ def auto_alarm(
     *,
     cpu_name: str | None = None,
     gpu_name: str | None = None,
+    preset: str | None = None,
     warmup_step_fn: Callable[[], Any] | None = None,
     detect_hardware: bool = True,
     **kw: Any,
@@ -430,9 +492,24 @@ def auto_alarm(
     """Convenience entry point that returns a concrete alarm.
 
     When ``detect_hardware=True`` (the default) and no ``cpu_name`` /
-    ``gpu_name`` was supplied, :func:`detect_cpu_preset` and
-    :func:`detect_gpu_preset` are consulted first.
+    ``gpu_name`` / ``preset`` was supplied, :func:`detect_cpu_preset`
+    and :func:`detect_gpu_preset` are consulted first.
+
+    ``preset`` is the one-string shortcut — resolved against GPU
+    presets first and CPU presets second.
     """
+    if preset is not None:
+        c, g = _resolve_preset(preset)
+        if c is not None and cpu_name is None:
+            for k, v in CPU_PRESETS.items():
+                if v is c:
+                    cpu_name = k
+                    break
+        if g is not None and gpu_name is None:
+            for k, v in GPU_PRESETS.items():
+                if v is g:
+                    gpu_name = k
+                    break
     if detect_hardware and gpu_name is None:
         det_gpu = detect_gpu_preset()
         if det_gpu is not None:
