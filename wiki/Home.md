@@ -9,6 +9,7 @@ see the [top-level README](../README.md).
 |---|---|
 | [Ovens](Ovens.md) | `CodeOven`, `old_oven.preheat`, `new_oven`, `bake_code`, `fill_middle`, `save_pt` / `load_pt`. |
 | [Fridges](Fridges.md) | `old_fridge` (memory housekeeping), `mediocre_fridge` (judge-data synthesis), `new_fridge` (graphing). |
+| [Ranges](Ranges.md) | `new_range` / `old_range` / `industrial_range` — labeling rubrics from cheap heuristics up to LLM-as-judge. |
 | [Freezer](Freezer.md) | VRAM manager — `OldFreezer`, `NewFreezer`, `FlashFreezer`, `auto_freezer`, `probe_vram`. |
 | [Pascal](Pascal.md) | GTX 1080 / CUDA 6.1 / sm_61 training playbook. |
 | [Architectures](Architectures.md) | `ARCH_PRESETS` seed registry and `KNOWN_MODELS` short-name registry. |
@@ -70,6 +71,7 @@ see the [top-level README](../README.md).
 The project is semver-ish; minor bumps add features, patch bumps are
 bug fixes. Recent notable releases:
 
+- **0.42.0** — `new_range` / `old_range` / `industrial_range` labeling rubrics
 - **0.41.0** — CUDA 6.1 / Pascal helpers, HyperNix 1.5 (92.1 M) training script
 - **0.40.0** — `freezer` module (OldFreezer / NewFreezer / FlashFreezer)
 - **0.36.0** — `old_fridge` / `mediocre_fridge` / `new_fridge` + evaluator example

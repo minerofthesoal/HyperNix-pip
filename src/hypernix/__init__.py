@@ -20,6 +20,12 @@ to a trained, quantized, uploaded HuggingFace snapshot:
   :mod:`hypernix.new_fridge` — memory housekeeping
   (freeze / unfreeze / parameter_stats), judge-training dataset
   generation, and training-curve plotting.
+* :mod:`hypernix.new_range`, :mod:`hypernix.old_range`,
+  :mod:`hypernix.industrial_range` — labeling rubrics that drop in as
+  ``label_rule=...`` for :func:`mediocre_fridge.collect_responses_from`.
+  ``new_range`` is a zero-dep first-fail rubric, ``old_range`` is a
+  weighted-mean scored rubric with explainability, and
+  ``industrial_range`` is the LLM-as-judge wrapper.
 * :mod:`hypernix.freezer` — :class:`OldFreezer` (8-10 GB) /
   :class:`NewFreezer` (11 GB+) / :class:`FlashFreezer` (OOM-safe retry
   wrapper) + Pascal (sm_61 / CUDA 6.1) helpers:
@@ -32,7 +38,16 @@ See :doc:`/README.md` for the headline quickstart and
 """
 from __future__ import annotations
 
-from . import freezer, mediocre_fridge, new_fridge, old_fridge, old_oven
+from . import (
+    freezer,
+    industrial_range,
+    mediocre_fridge,
+    new_fridge,
+    new_range,
+    old_fridge,
+    old_oven,
+    old_range,
+)
 from .convert import convert_to_gguf
 from .download import (
     KNOWN_MODELS,
@@ -81,14 +96,17 @@ __all__ = [
     "fill_middle",
     "freezer",
     "generate_text",
+    "industrial_range",
     "init_from_scratch",
     "load_pt",
     "load_snapshot",
     "mediocre_fridge",
     "new_fridge",
     "new_oven",
+    "new_range",
     "old_fridge",
     "old_oven",
+    "old_range",
     "preheat",
     "quantize_gguf",
     "resolve_model_info",
@@ -99,5 +117,5 @@ __all__ = [
     "verify_snapshot",
 ]
 
-__version__ = "0.41.0"
+__version__ = "0.42.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

@@ -21,6 +21,7 @@ isolation.
 | `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
 | `hypernix.mediocre_fridge` | Judge-training dataset generation — `synthesize_judge_corpus`, `collect_responses_from`. |
 | `hypernix.new_fridge` | Training-curve graphing — `parse_training_log`, `plot_loss_curve`, `plot_score_distribution`. Matplotlib installed lazily. |
+| `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric with explainability, `industrial_range` is the LLM-as-judge wrapper. |
 | `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB), `NewFreezer` (11 GB+), `FlashFreezer` (OOM-safe retry wrapper). Pascal (sm_61 / CUDA 6.1) helpers built in. |
 | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
 | `hypernix.quantize` | `llama-quantize` driver for Q8_0, Q6_K, Q4_K_M, Q5_K_M. |
@@ -235,6 +236,7 @@ Topic-focused reference guides live in the `wiki/` directory:
 - [`wiki/Home.md`](wiki/Home.md) — index
 - [`wiki/Ovens.md`](wiki/Ovens.md) — `old_oven` / `new_oven` reference
 - [`wiki/Fridges.md`](wiki/Fridges.md) — `old_fridge` / `mediocre_fridge` / `new_fridge`
+- [`wiki/Ranges.md`](wiki/Ranges.md) — `new_range` / `old_range` / `industrial_range` (labeling rubrics)
 - [`wiki/Freezer.md`](wiki/Freezer.md) — VRAM manager (OldFreezer / NewFreezer / FlashFreezer)
 - [`wiki/Pascal.md`](wiki/Pascal.md) — CUDA 6.1 / GTX 1080 playbook
 - [`wiki/Architectures.md`](wiki/Architectures.md) — ARCH_PRESETS and KNOWN_MODELS
