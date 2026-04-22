@@ -7,11 +7,6 @@
 **End-to-end toolkit for the `ray0rf1re/hyper-nix.1` family of PyTorch
 language models.**
 
-`hypernix` started as a one-shot GGUF converter and has since grown into
-a small but opinionated framework covering the whole lifecycle — from a
-blank directory to a trained, quantized, uploaded HuggingFace snapshot.
-Every subsystem is a plain Python module you can pick up and use in
-isolation.
 
 | Subsystem | What it does |
 |---|---|
@@ -294,9 +289,9 @@ k-quant in the plan.
 
 ## Platform notes
 
-- **Linux**: full support, every distro tested (Ubuntu, Debian, Arch, Fedora, openSUSE, Alpine, NixOS).
-- **macOS**: Metal for inference, Homebrew for `llama-quantize`.
-- **Windows**: native support; doctor accepts Windows; `llama-quantize` auto-downloads Windows binaries; use scoop / chocolatey for system deps.
+- **Linux**: full support, every distro tested on: (Ubuntu, Debian, Arch.)
+- **macOS**: Metal for inference, Homebrew for `llama-quantize`. (untested)
+- **Windows**: native support; doctor accepts Windows; `llama-quantize` auto-downloads Windows binaries; use scoop / chocolatey for system deps. (untested)
 - **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal_mode_hints()` returns the full Pascal cheat sheet.
 
 ## Build / release
