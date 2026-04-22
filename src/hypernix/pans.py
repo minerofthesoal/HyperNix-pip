@@ -46,10 +46,33 @@ class Pan:
     the *second positional argument* of every subclass, which meant
     ``Skillet("file.txt", "instruct")`` silently set ``name="instruct"``
     instead of ``mode="instruct"`` and left the caller confused.
+
+    Every pan accepts two *keyword-only* length caps:
+
+    * ``max_chars`` — hard per-line character cap.  Longer lines are
+      truncated (not split).
+    * ``context_length`` — convenience for training-script callers.
+      Treated as an approximate token budget and converted to
+      ``max_chars = context_length * 4`` (a reasonable English-BPE
+      heuristic).  Takes precedence over ``max_chars`` when both are
+      set.  For precise chunking by tokens / chars use
+      :mod:`hypernix.food_processor` (``SliceBlade`` / ``ShredBlade``)
+      instead.
     """
 
     source: Path | str | Iterable[str]
+    max_chars: int | None = field(default=None, kw_only=True)
+    context_length: int | None = field(default=None, kw_only=True)
     name: ClassVar[str] = "Pan"
+
+    # Rough chars-per-token ratio for English BPE tokenizers.  Only
+    # used when ``context_length`` is set and ``max_chars`` is not.
+    _CHARS_PER_TOKEN: ClassVar[int] = 4
+
+    def _effective_max_chars(self) -> int | None:
+        if self.context_length is not None:
+            return self.context_length * self._CHARS_PER_TOKEN
+        return self.max_chars
 
     def _source_lines(self) -> Iterator[str]:
         if isinstance(self.source, (str, Path)):
@@ -64,10 +87,14 @@ class Pan:
         return line
 
     def iter(self) -> Iterator[str]:
+        cap = self._effective_max_chars()
         for raw in self._source_lines():
             out = self.cook(raw)
-            if out is not None:
-                yield out
+            if out is None:
+                continue
+            if cap is not None and len(out) > cap:
+                out = out[:cap]
+            yield out
 
     def __iter__(self) -> Iterator[str]:
         return self.iter()
@@ -182,6 +209,7 @@ class Wok(Pan):
     def iter(self) -> Iterator[str]:
         # Pre-clean with SaucePan semantics.
         rng = random.Random(self.seed)
+        cap = self._effective_max_chars()
         buffer: list[str] = []
         for raw in self._source_lines():
             line = _WS_RE.sub(" ", raw.strip())
@@ -189,10 +217,14 @@ class Wok(Pan):
                 buffer.append(line)
         rng.shuffle(buffer)
         for line in buffer:
-            if self.reverse_ratio > 0 and rng.random() < self.reverse_ratio:
-                yield " ".join(reversed(line.split()))
-            else:
-                yield line
+            out = (
+                " ".join(reversed(line.split()))
+                if self.reverse_ratio > 0 and rng.random() < self.reverse_ratio
+                else line
+            )
+            if cap is not None and len(out) > cap:
+                out = out[:cap]
+            yield out
 
 
 # ---------------------------------------------------------------------------

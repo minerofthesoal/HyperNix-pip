@@ -138,6 +138,63 @@ def test_pick_pan_bad_kwarg_lists_valid_ones() -> None:
         pans.pick_pan("skillet", source=["x"], min_chars=16)
 
 
+# Regression: v0.45 shipped without a context_length / max_chars knob,
+# so a training script calling ``FryingPan(context_length=256)`` got
+# a bare TypeError.  Every pan now accepts both as keyword-only fields.
+
+def test_frying_pan_accepts_context_length() -> None:
+    from hypernix import pans
+
+    long_line = "x" * 10_000
+    out = list(pans.FryingPan(source=[long_line], context_length=256))
+    # context_length=256 → max_chars = 256 * 4 = 1024.
+    assert len(out[0]) == 1024
+
+
+def test_pan_max_chars_truncates() -> None:
+    from hypernix import pans
+
+    long_line = "x" * 10_000
+    out = list(pans.SaucePan(source=[long_line], max_chars=500))
+    assert len(out[0]) == 500
+
+
+def test_pan_context_length_wins_over_max_chars() -> None:
+    from hypernix import pans
+
+    long_line = "x" * 10_000
+    out = list(pans.FryingPan(
+        source=[long_line], max_chars=99, context_length=50,
+    ))
+    # ctx=50 → 50 * 4 = 200, not 99.
+    assert len(out[0]) == 200
+
+
+def test_pan_length_cap_is_noop_when_unset() -> None:
+    from hypernix import pans
+
+    line = "x" * 10_000
+    out = list(pans.FryingPan(source=[line]))
+    assert len(out[0]) == 10_000
+
+
+def test_wok_honors_context_length() -> None:
+    from hypernix import pans
+
+    lines = ["x" * 10_000, "y" * 10_000]
+    out = list(pans.Wok(source=lines, seed=0, context_length=64))
+    # 64 * 4 = 256
+    assert all(len(s) <= 256 for s in out)
+
+
+def test_pick_pan_forwards_context_length() -> None:
+    from hypernix import pans
+
+    src = ["abcd " * 1000]
+    pan = pans.pick_pan("grill-pan", source=src, context_length=64)
+    assert all(len(s) <= 256 for s in pan)
+
+
 # ---------------------------------------------------------------------------
 # microwave
 # ---------------------------------------------------------------------------
