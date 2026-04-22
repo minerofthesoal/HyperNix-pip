@@ -202,6 +202,16 @@ ARCH_PRESETS.update({
         "rms_norm_eps": 1e-6,
         "tie_word_embeddings": True,
     },
+    # Gemma 4 (Apr 2026): local/global hybrid attention, per-layer embeddings on
+    # the E-series, 256k vocab. The preset here just reproduces the dense-path
+    # shape; real Gemma 4 checkpoints always load via AutoModelForCausalLM.
+    "gemma4": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
     "phi3": {
         "attention_bias": False,
         "model_type": "llama",
@@ -220,6 +230,23 @@ ARCH_PRESETS.update({
         "attention_bias": True,
         "model_type": "qwen2",  # GLM4's attention has a qkv bias like Qwen2
         "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    # GLM 5 / 5.1 (zai-org): MoE with dynamic sparse attention. For seeding a
+    # fresh parametric model we collapse to the dense Llama shape; real GLM-5
+    # weights go through AutoModel (model_type="glm_moe_dsa").
+    "glm5": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "glm5.1": {
+        "attention_bias": False,
+        "model_type": "llama",
+        "rope_theta": 1000000.0,
         "rms_norm_eps": 1e-5,
         "tie_word_embeddings": False,
     },
@@ -243,6 +270,44 @@ ARCH_PRESETS.update({
         "rope_theta": 500000.0,
         "rms_norm_eps": 1e-5,
         "tie_word_embeddings": False,
+    },
+    # ---- Qwen 3.5 / 3.6 --------------------------------------------------
+    # Qwen3.5 (model_type "qwen3_5"): Qwen-shape but with attention_bias=False
+    # and a much larger rope_theta (10M). Interleaves linear + full attention
+    # layers — real checkpoints must load via AutoModel; this preset is just
+    # the dense-shape seed used by ``new_oven``.
+    "qwen3.5": {
+        "attention_bias": False,
+        "model_type": "qwen2",
+        "rope_theta": 10000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    # Qwen3.6 ("qwen3_5_moe"): MoE variant with tie_word_embeddings=False.
+    "qwen3.6": {
+        "attention_bias": False,
+        "model_type": "qwen2",
+        "rope_theta": 10000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": False,
+    },
+    # ---- Nix (ray0rf1re/nix collection) ----------------------------------
+    # Nix models (1.0 through 2.7) are Qwen2-shape but with attention_bias
+    # disabled and tied embeddings. They fit our existing qwen2 code path
+    # directly; no AutoModel round-trip needed.
+    "nix": {
+        "attention_bias": False,
+        "model_type": "qwen2",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
+    },
+    "nix2": {  # alias for Nix 2.x
+        "attention_bias": False,
+        "model_type": "qwen2",
+        "rope_theta": 1000000.0,
+        "rms_norm_eps": 1e-6,
+        "tie_word_embeddings": True,
     },
 })
 

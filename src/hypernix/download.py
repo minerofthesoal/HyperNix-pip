@@ -81,6 +81,36 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
         "ray0rf1re/nano-nano-927-v3", "nano-nano",
         "Alias for nano-nano-927-v3.",
     ),
+    # ---- Nix family (ray0rf1re/nix collection) ----------------------------
+    # Qwen2-shape with attention_bias off + tied embeddings. All versions
+    # load natively through our qwen2 path; no AutoModel needed.
+    "nix2.5": ModelInfo(
+        "ray0rf1re/Nix2.5", "qwen2",
+        "Nix 2.5 — 3B Qwen2-shape, tied embeddings, no qkv bias.",
+    ),
+    "nix": ModelInfo(
+        "ray0rf1re/Nix2.5", "qwen2", "Alias for the latest ray0rf1re/Nix release.",
+    ),
+    # Nix-ai org: pretrained weights (GGUF variants live under
+    # mradermacher/*-GGUF; we point at the upstream HF repos here).
+    "nix2.6-m": ModelInfo(
+        "Nix-ai/Nix2.6-m", "qwen2",
+        "Nix 2.6-m (Nix-ai) — 2B Qwen2-shape.",
+    ),
+    "nix2.6-mm": ModelInfo(
+        "Nix-ai/Nix2.6-mm", "qwen2",
+        "Nix 2.6-mm (Nix-ai) — 3B Qwen2-shape.",
+    ),
+    "nix-2.7a": ModelInfo(
+        "Nix-ai/Nix-2.7a", "qwen2",
+        "Nix 2.7a (Nix-ai) — 2B Qwen2-shape.",
+    ),
+    "nix2.7": ModelInfo(
+        "Nix-ai/Nix-2.7a", "qwen2", "Alias for nix-2.7a.",
+    ),
+    "nix2.6": ModelInfo(
+        "Nix-ai/Nix2.6-mm", "qwen2", "Alias for nix2.6-mm.",
+    ),
     # ---- Llama 3 family ---------------------------------------------------
     "llama-3.1-8b": ModelInfo(
         "meta-llama/Llama-3.1-8B", "llama",
@@ -127,7 +157,43 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
         "Qwen/Qwen3-8B", "auto",
         "Qwen3 8B — loads via AutoModel.",
     ),
-    # ---- Gemma 2 / 3 ------------------------------------------------------
+    # ---- Qwen 3.5 (model_type "qwen3_5") ---------------------------------
+    # All Qwen3.5 checkpoints use a novel hybrid linear/full attention that's
+    # implemented in transformers.Qwen3_5ForConditionalGeneration; they always
+    # load via AutoModel.
+    "qwen3.5-0.8b": ModelInfo(
+        "Qwen/Qwen3.5-0.8B", "auto", "Qwen3.5 0.8B — AutoModel.",
+    ),
+    "qwen3.5-2b": ModelInfo(
+        "Qwen/Qwen3.5-2B", "auto", "Qwen3.5 2B — AutoModel.",
+    ),
+    "qwen3.5-4b": ModelInfo(
+        "Qwen/Qwen3.5-4B", "auto", "Qwen3.5 4B — AutoModel.",
+    ),
+    "qwen3.5-9b": ModelInfo(
+        "Qwen/Qwen3.5-9B", "auto", "Qwen3.5 9B — AutoModel.",
+    ),
+    "qwen3.5-27b": ModelInfo(
+        "Qwen/Qwen3.5-27B", "auto", "Qwen3.5 27B — AutoModel.",
+    ),
+    "qwen3.5-35b-a3b": ModelInfo(
+        "Qwen/Qwen3.5-35B-A3B", "auto",
+        "Qwen3.5 35B A3B MoE — AutoModel.",
+    ),
+    "qwen3.5-122b-a10b": ModelInfo(
+        "Qwen/Qwen3.5-122B-A10B", "auto",
+        "Qwen3.5 122B A10B MoE — AutoModel.",
+    ),
+    "qwen3.5-397b-a17b": ModelInfo(
+        "Qwen/Qwen3.5-397B-A17B", "auto",
+        "Qwen3.5 397B A17B MoE — AutoModel.",
+    ),
+    # ---- Qwen 3.6 (model_type "qwen3_5_moe") -----------------------------
+    "qwen3.6-35b-a3b": ModelInfo(
+        "Qwen/Qwen3.6-35B-A3B", "auto",
+        "Qwen3.6 35B A3B MoE — AutoModel.",
+    ),
+    # ---- Gemma 2 / 3 / 4 --------------------------------------------------
     "gemma-2-2b": ModelInfo(
         "google/gemma-2-2b", "auto",
         "Gemma 2 2B (gated).",
@@ -147,6 +213,25 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
     "gemma-3-4b": ModelInfo(
         "google/gemma-3-4b-it", "auto",
         "Gemma 3 4B instruction-tuned.",
+    ),
+    # Gemma 4 (model_type "gemma4"): hybrid full/sliding attention +
+    # per-layer embeddings on the E-series. AutoModel-only; Gemma4 support
+    # lives in transformers.Gemma4ForConditionalGeneration.
+    "gemma-4-e2b": ModelInfo(
+        "google/gemma-4-E2B-it", "auto",
+        "Gemma 4 E2B it (per-layer embeddings) — AutoModel.",
+    ),
+    "gemma-4-e4b": ModelInfo(
+        "google/gemma-4-E4B-it", "auto",
+        "Gemma 4 E4B it (per-layer embeddings) — AutoModel.",
+    ),
+    "gemma-4-26b-a4b": ModelInfo(
+        "google/gemma-4-26B-A4B-it", "auto",
+        "Gemma 4 26B A4B MoE — AutoModel.",
+    ),
+    "gemma-4-31b": ModelInfo(
+        "google/gemma-4-31B-it", "auto",
+        "Gemma 4 31B it dense — AutoModel.",
     ),
     # ---- Phi --------------------------------------------------------------
     "phi-3-mini": ModelInfo(
@@ -186,6 +271,20 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
     "glm-4.1v": ModelInfo(
         "THUDM/GLM-4.1V-9B-Thinking", "auto",
         "GLM-4.1V-9B Thinking (VLM — AutoModel).",
+    ),
+    # GLM-5 / 5.1 (zai-org): MoE with dynamic sparse attention
+    # (model_type "glm_moe_dsa"). 754B params; AutoModel-only.
+    "glm-5": ModelInfo(
+        "zai-org/GLM-5", "auto",
+        "GLM-5 754B MoE-DSA — AutoModel.",
+    ),
+    "glm-5.1": ModelInfo(
+        "zai-org/GLM-5.1", "auto",
+        "GLM-5.1 754B MoE-DSA — AutoModel.",
+    ),
+    "glm-5.1-fp8": ModelInfo(
+        "zai-org/GLM-5.1-FP8", "auto",
+        "GLM-5.1 754B FP8 — AutoModel.",
     ),
     # ---- Nvidia -----------------------------------------------------------
     "nemotron-4-15b": ModelInfo(
