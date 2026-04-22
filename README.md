@@ -22,7 +22,8 @@ isolation.
 | `hypernix.mediocre_fridge` | Judge-training dataset generation — `synthesize_judge_corpus`, `collect_responses_from`. |
 | `hypernix.new_fridge` | Training-curve graphing — `parse_training_log`, `plot_loss_curve`, `plot_score_distribution`. Matplotlib installed lazily. |
 | `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric with explainability, `industrial_range` is the LLM-as-judge wrapper. |
-| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB), `NewFreezer` (11 GB+), `FlashFreezer` (OOM-safe retry wrapper). Pascal (sm_61 / CUDA 6.1) helpers built in. |
+| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB), `NewFreezer` (11 GB+), `FlashFreezer` (OOM-safe retry wrapper). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core Ultra Series 1 & 2) + 20 GPU presets (H100/H200, RTX A4500-A6000, RTX PRO Ada/Blackwell, 4070 Ti Super, 4080 Super, 1660 Ti, 2080/2080 Super/2080 Ti, 3080 Ti, 1080/1080 Ti). |
+| `hypernix.smoke_alarm` | Training-step planner & monitor. `RadsAlarm` (constants, lightest), `GasAlarm` (CPU/GPU presets), `ModernAlarm` (warmup-measured), `AutoAlarm` (selector). Plus `storage_warning`, mid-run `check`. |
 | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
 | `hypernix.quantize` | `llama-quantize` driver for Q8_0, Q6_K, Q4_K_M, Q5_K_M. |
 | `hypernix.upload` | Push the produced artifacts back to a HuggingFace repo. |
@@ -238,6 +239,7 @@ Topic-focused reference guides live in the `wiki/` directory:
 - [`wiki/Fridges.md`](wiki/Fridges.md) — `old_fridge` / `mediocre_fridge` / `new_fridge`
 - [`wiki/Ranges.md`](wiki/Ranges.md) — `new_range` / `old_range` / `industrial_range` (labeling rubrics)
 - [`wiki/Freezer.md`](wiki/Freezer.md) — VRAM manager (OldFreezer / NewFreezer / FlashFreezer)
+- [`wiki/Alarms.md`](wiki/Alarms.md) — smoke alarms (Rads / Gas / Modern / Auto) + CPU / GPU preset tables
 - [`wiki/Pascal.md`](wiki/Pascal.md) — CUDA 6.1 / GTX 1080 playbook
 - [`wiki/Architectures.md`](wiki/Architectures.md) — ARCH_PRESETS and KNOWN_MODELS
 - [`wiki/Training.md`](wiki/Training.md) — scratch training, expansion, and fine-tuning flows

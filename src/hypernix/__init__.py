@@ -47,6 +47,7 @@ from . import (
     old_fridge,
     old_oven,
     old_range,
+    smoke_alarm,
 )
 from .convert import convert_to_gguf
 from .download import (
@@ -58,6 +59,14 @@ from .download import (
     verify_snapshot,
 )
 from .fetcher import fetch_llama_quantize
+from .freezer import (
+    CPU_PRESETS,
+    GPU_PRESETS,
+    CPUPreset,
+    GPUPreset,
+    cpu_preset,
+    gpu_preset,
+)
 from .generate import generate_text
 from .old_oven import (
     ARCH_PRESETS,
@@ -82,7 +91,11 @@ from .upload import upload_gguf
 
 __all__ = [
     "ARCH_PRESETS",
+    "CPU_PRESETS",
+    "CPUPreset",
     "CodeOven",
+    "GPU_PRESETS",
+    "GPUPreset",
     "HyperNixConfig",
     "HyperNixModel",
     "KNOWN_MODELS",
@@ -90,12 +103,14 @@ __all__ = [
     "QUANT_TYPES",
     "bake_code",
     "convert_to_gguf",
+    "cpu_preset",
     "download_model",
     "expand_checkpoint",
     "fetch_llama_quantize",
     "fill_middle",
     "freezer",
     "generate_text",
+    "gpu_preset",
     "industrial_range",
     "init_from_scratch",
     "load_pt",
@@ -112,10 +127,11 @@ __all__ = [
     "resolve_model_info",
     "resolve_repo_id",
     "save_snapshot",
+    "smoke_alarm",
     "train",
     "upload_gguf",
     "verify_snapshot",
 ]
 
-__version__ = "0.42.0"
+__version__ = "0.43.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

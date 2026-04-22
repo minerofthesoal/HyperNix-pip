@@ -357,3 +357,189 @@ def new_freezer() -> NewFreezer:
 
 def flash_freezer(**kwargs: Any) -> FlashFreezer:
     return FlashFreezer(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# CPU presets
+# ---------------------------------------------------------------------------
+# Per-CPU tuning hints used by the smoke alarms and by callers that
+# want sane BLAS / OpenMP defaults for a known chip.  Throughput numbers
+# are deliberately conservative — they're rough heuristics for
+# step-time estimation, not benchmark results.
+
+@dataclass(frozen=True)
+class CPUPreset:
+    name: str
+    cores: int
+    threads: int
+    base_clock_ghz: float
+    avx_levels: tuple[str, ...]
+    recommended_threads: int
+    #: Approximate fp32 GFLOPS per thread for the kernels hypernix
+    #: cares about (matmul-heavy AdamW training).  Multiply by
+    #: ``recommended_threads`` for a whole-CPU figure.
+    gflops_per_thread: float
+    notes: str = ""
+
+
+def _cpu(name, cores, threads, ghz, avx, threads_rec, gflops, notes=""):
+    return CPUPreset(
+        name=name, cores=cores, threads=threads, base_clock_ghz=ghz,
+        avx_levels=tuple(avx), recommended_threads=threads_rec,
+        gflops_per_thread=gflops, notes=notes,
+    )
+
+
+#: Lookup table — short name -> :class:`CPUPreset`.  Names are
+#: lowercased and ``-`` / ``_`` are equivalent at lookup time.
+CPU_PRESETS: dict[str, CPUPreset] = {
+    # ---- Intel 7th gen (Kaby Lake) ----
+    "i7-7660u": _cpu("Intel Core i7-7660U", 2, 4, 2.5, ["AVX", "AVX2"], 2,
+                     14.0, "15W ULV ultrabook (e.g. 13\" MBP, XPS 13)"),
+    "i7-7700hq": _cpu("Intel Core i7-7700HQ", 4, 8, 2.8, ["AVX", "AVX2"], 4,
+                      18.0, "45W mobile gaming/workstation"),
+    "i7-7700k": _cpu("Intel Core i7-7700K", 4, 8, 4.2, ["AVX", "AVX2"], 4,
+                     24.0, "91W desktop"),
+    # ---- 11th gen ----
+    "i7-11700k": _cpu("Intel Core i7-11700K", 8, 16, 3.6, ["AVX2", "AVX-512"], 8,
+                      30.0, "Rocket Lake desktop, AVX-512"),
+    "i7-11800h": _cpu("Intel Core i7-11800H", 8, 16, 2.3, ["AVX2"], 8,
+                      24.0, "Tiger Lake-H mobile"),
+    # ---- 12th gen (Alder Lake hybrid: P + E cores) ----
+    "i7-12700k": _cpu("Intel Core i7-12700K", 12, 20, 3.6, ["AVX2"], 8,
+                      30.0, "8 P-cores + 4 E-cores"),
+    "i7-12700h": _cpu("Intel Core i7-12700H", 14, 20, 2.3, ["AVX2"], 10,
+                      26.0, "6 P + 8 E mobile"),
+    # ---- 13th gen ----
+    "i7-13700k": _cpu("Intel Core i7-13700K", 16, 24, 3.4, ["AVX2"], 12,
+                      32.0, "8 P + 8 E desktop"),
+    "i7-13700h": _cpu("Intel Core i7-13700H", 14, 20, 2.4, ["AVX2"], 10,
+                      28.0, "6 P + 8 E mobile"),
+    # ---- 14th gen (Raptor Lake-R) ----
+    "i7-14700k": _cpu("Intel Core i7-14700K", 20, 28, 3.4, ["AVX2"], 14,
+                      34.0, "8 P + 12 E desktop"),
+    "i7-14700hx": _cpu("Intel Core i7-14700HX", 20, 28, 2.1, ["AVX2"], 14,
+                       30.0, "8 P + 12 E mobile-HX"),
+    # ---- Core Ultra Series 1 (Meteor Lake, last-gen) ----
+    "core-ultra-7-155h": _cpu("Intel Core Ultra 7 155H", 16, 22, 1.4,
+                              ["AVX2", "AVX-VNNI"], 12, 28.0,
+                              "Meteor Lake, 6P + 8E + 2LP-E + NPU"),
+    "core-ultra-7-165h": _cpu("Intel Core Ultra 7 165H", 16, 22, 1.4,
+                              ["AVX2", "AVX-VNNI"], 12, 30.0,
+                              "Meteor Lake, refresh of 155H"),
+    "core-ultra-7-258v": _cpu("Intel Core Ultra 7 258V", 8, 8, 2.2,
+                              ["AVX2", "AVX-VNNI"], 6, 24.0,
+                              "Lunar Lake, 4P + 4LP-E"),
+    # ---- Core Ultra Series 2 (Arrow Lake, newest gen) ----
+    "core-ultra-7-265k": _cpu("Intel Core Ultra 7 265K", 20, 20, 3.9,
+                              ["AVX2", "AVX-VNNI", "AVX10"], 14, 36.0,
+                              "Arrow Lake desktop, no SMT"),
+    "core-ultra-9-285k": _cpu("Intel Core Ultra 9 285K", 24, 24, 3.7,
+                              ["AVX2", "AVX-VNNI", "AVX10"], 16, 38.0,
+                              "Arrow Lake top SKU, no SMT"),
+}
+
+
+def _cpu_key(name: str) -> str:
+    return name.lower().replace("_", "-").replace(" ", "-")
+
+
+def cpu_preset(name: str) -> CPUPreset | None:
+    """Look up a CPU preset by short name (case- and dash-insensitive)."""
+    return CPU_PRESETS.get(_cpu_key(name))
+
+
+# ---------------------------------------------------------------------------
+# GPU presets
+# ---------------------------------------------------------------------------
+# Per-GPU tuning hints used by the smoke alarms and by callers that
+# want a known-good starting point without probing torch.cuda.
+
+@dataclass(frozen=True)
+class GPUPreset:
+    name: str
+    vram_gb: float
+    compute_capability: tuple[int, int]
+    preferred_dtype: torch.dtype
+    #: Approximate memory bandwidth in GB/s — the dominant signal for
+    #: training throughput on transformer workloads.
+    bandwidth_gb_s: float
+    #: "Old" or "New" — which freezer class fits this card.  Anything
+    #: with < 11 GB VRAM lands on Old; the Pascal/Volta/Turing fp16-only
+    #: cards stay on Old even when they have 12 GB.
+    freezer_class: str
+    notes: str = ""
+
+
+def _gpu(name, vram, cc, dtype, bw, fz_class, notes=""):
+    return GPUPreset(
+        name=name, vram_gb=vram, compute_capability=cc, preferred_dtype=dtype,
+        bandwidth_gb_s=bw, freezer_class=fz_class, notes=notes,
+    )
+
+
+GPU_PRESETS: dict[str, GPUPreset] = {
+    # ---- Hopper (sm_90) data-center ----
+    "h100": _gpu("NVIDIA H100 80GB", 80.0, (9, 0), torch.bfloat16, 3350.0, "New",
+                 "PCIe / SXM5 80GB"),
+    "h100-94": _gpu("NVIDIA H100 NVL 94GB", 94.0, (9, 0), torch.bfloat16, 3900.0, "New",
+                    "NVL variant, 94GB HBM3"),
+    "h200": _gpu("NVIDIA H200 141GB", 141.0, (9, 0), torch.bfloat16, 4800.0, "New",
+                 "HBM3e, 141GB"),
+    # ---- Ampere workstation (sm_86) ----
+    "rtx-a4500": _gpu("NVIDIA RTX A4500", 20.0, (8, 6), torch.bfloat16, 640.0, "New",
+                      "Ampere workstation"),
+    "rtx-a5000": _gpu("NVIDIA RTX A5000", 24.0, (8, 6), torch.bfloat16, 768.0, "New", ""),
+    "rtx-a5500": _gpu("NVIDIA RTX A5500", 24.0, (8, 6), torch.bfloat16, 768.0, "New", ""),
+    "rtx-a6000": _gpu("NVIDIA RTX A6000", 48.0, (8, 6), torch.bfloat16, 768.0, "New",
+                      "Ampere workstation flagship"),
+    # ---- RTX PRO (Ada Lovelace, sm_89) ----
+    "rtx-pro-4000-ada": _gpu("NVIDIA RTX PRO 4000 Ada", 20.0, (8, 9),
+                             torch.bfloat16, 360.0, "New", ""),
+    "rtx-pro-5000-ada": _gpu("NVIDIA RTX PRO 5000 Ada", 32.0, (8, 9),
+                             torch.bfloat16, 576.0, "New", ""),
+    "rtx-pro-6000-ada": _gpu("NVIDIA RTX PRO 6000 Ada", 48.0, (8, 9),
+                             torch.bfloat16, 960.0, "New",
+                             "Ada workstation flagship"),
+    # ---- RTX PRO Blackwell (sm_120) ----
+    "rtx-pro-6000-blackwell": _gpu("NVIDIA RTX PRO 6000 Blackwell", 96.0, (12, 0),
+                                   torch.bfloat16, 1792.0, "New",
+                                   "Blackwell workstation, 96GB"),
+    # ---- Ada Lovelace consumer (sm_89) ----
+    "rtx-4070-ti-super": _gpu("NVIDIA GeForce RTX 4070 Ti Super", 16.0, (8, 9),
+                              torch.bfloat16, 672.0, "New",
+                              "16GB GDDR6X"),
+    "rtx-4080-super": _gpu("NVIDIA GeForce RTX 4080 Super", 16.0, (8, 9),
+                           torch.bfloat16, 736.0, "New", ""),
+    # ---- Turing consumer (sm_75 — no native bf16) ----
+    "gtx-1660-ti": _gpu("NVIDIA GeForce GTX 1660 Ti", 6.0, (7, 5),
+                        torch.float16, 288.0, "Old",
+                        "Turing without RT cores; 6GB caps batch hard"),
+    "rtx-2080": _gpu("NVIDIA GeForce RTX 2080", 8.0, (7, 5),
+                     torch.float16, 448.0, "Old", ""),
+    "rtx-2080-super": _gpu("NVIDIA GeForce RTX 2080 Super", 8.0, (7, 5),
+                           torch.float16, 496.0, "Old", ""),
+    "rtx-2080-ti": _gpu("NVIDIA GeForce RTX 2080 Ti", 11.0, (7, 5),
+                        torch.float16, 616.0, "New",
+                        "11GB lands on the New side of the 11GB threshold"),
+    # ---- Ampere consumer (sm_86) ----
+    "rtx-3080-ti": _gpu("NVIDIA GeForce RTX 3080 Ti", 12.0, (8, 6),
+                        torch.bfloat16, 912.0, "New",
+                        "12GB GDDR6X; bf16 native"),
+    # ---- Pascal (kept for the GTX 1080 playbook) ----
+    "gtx-1080": _gpu("NVIDIA GeForce GTX 1080", 8.0, (6, 1),
+                     torch.float16, 320.0, "Old",
+                     "Pascal sm_61 — see wiki/Pascal.md"),
+    "gtx-1080-ti": _gpu("NVIDIA GeForce GTX 1080 Ti", 11.0, (6, 1),
+                        torch.float16, 484.0, "New",
+                        "Pascal sm_61, 11GB"),
+}
+
+
+def _gpu_key(name: str) -> str:
+    return name.lower().replace("_", "-").replace(" ", "-")
+
+
+def gpu_preset(name: str) -> GPUPreset | None:
+    """Look up a GPU preset by short name (case- and dash-insensitive)."""
+    return GPU_PRESETS.get(_gpu_key(name))
