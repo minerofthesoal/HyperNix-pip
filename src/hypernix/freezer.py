@@ -439,6 +439,98 @@ CPU_PRESETS: dict[str, CPUPreset] = {
                               "Arrow Lake top SKU, no SMT"),
 }
 
+# ---------------------------------------------------------------------------
+# v0.47: i5 and i9 family expansion (7th, 11th, 12th, 13th, 14th gen) +
+# Core Ultra 5 / Ultra 9 Series 1 and 2.  Added in one block so the
+# git diff is readable.
+# ---------------------------------------------------------------------------
+CPU_PRESETS.update({
+    # ---- 7th gen i5 (Kaby Lake) ----
+    "i5-7200u": _cpu("Intel Core i5-7200U", 2, 4, 2.5, ["AVX", "AVX2"], 2,
+                     12.0, "15W ULV ultrabook"),
+    "i5-7300hq": _cpu("Intel Core i5-7300HQ", 4, 4, 2.5, ["AVX", "AVX2"], 4,
+                      14.0, "45W mobile, no SMT"),
+    "i5-7400": _cpu("Intel Core i5-7400", 4, 4, 3.0, ["AVX", "AVX2"], 4,
+                    16.0, "65W desktop"),
+    "i5-7600k": _cpu("Intel Core i5-7600K", 4, 4, 3.8, ["AVX", "AVX2"], 4,
+                     20.0, "91W desktop, unlocked"),
+    # ---- 7th gen i9 (Skylake-X HEDT — same family as 7700K era) ----
+    "i9-7900x": _cpu("Intel Core i9-7900X", 10, 20, 3.3, ["AVX", "AVX2", "AVX-512"],
+                     10, 28.0, "HEDT, 140W"),
+    "i9-7980xe": _cpu("Intel Core i9-7980XE", 18, 36, 2.6,
+                      ["AVX", "AVX2", "AVX-512"], 18, 30.0,
+                      "HEDT flagship, 165W"),
+    # ---- 11th gen i5 (Rocket Lake) ----
+    "i5-11400": _cpu("Intel Core i5-11400", 6, 12, 2.6, ["AVX2", "AVX-512"], 6,
+                     22.0, "65W desktop"),
+    "i5-11600k": _cpu("Intel Core i5-11600K", 6, 12, 3.9, ["AVX2", "AVX-512"], 6,
+                      26.0, "125W desktop, unlocked"),
+    "i5-11320h": _cpu("Intel Core i5-11320H", 4, 8, 3.2, ["AVX2"], 4,
+                      18.0, "35W mobile"),
+    # ---- 11th gen i9 ----
+    "i9-11900k": _cpu("Intel Core i9-11900K", 8, 16, 3.5, ["AVX2", "AVX-512"],
+                      8, 32.0, "125W desktop, unlocked"),
+    # ---- 12th gen i5 (Alder Lake) ----
+    "i5-12400": _cpu("Intel Core i5-12400", 6, 12, 2.5, ["AVX2"], 6,
+                     22.0, "6 P-cores, no E-cores"),
+    "i5-12500": _cpu("Intel Core i5-12500", 6, 12, 3.0, ["AVX2"], 6,
+                     24.0, ""),
+    "i5-12600k": _cpu("Intel Core i5-12600K", 10, 16, 3.7, ["AVX2"], 8,
+                      28.0, "6 P + 4 E desktop"),
+    # ---- 12th gen i9 ----
+    "i9-12900k": _cpu("Intel Core i9-12900K", 16, 24, 3.2, ["AVX2"], 12,
+                      34.0, "8 P + 8 E desktop"),
+    "i9-12900hx": _cpu("Intel Core i9-12900HX", 16, 24, 2.3, ["AVX2"], 12,
+                       30.0, "8 P + 8 E mobile-HX"),
+    # ---- 13th gen i5 (Raptor Lake) ----
+    "i5-13400": _cpu("Intel Core i5-13400", 10, 16, 2.5, ["AVX2"], 8,
+                     24.0, "6 P + 4 E"),
+    "i5-13500": _cpu("Intel Core i5-13500", 14, 20, 2.5, ["AVX2"], 10,
+                     26.0, "6 P + 8 E"),
+    "i5-13600k": _cpu("Intel Core i5-13600K", 14, 20, 3.5, ["AVX2"], 10,
+                      30.0, "6 P + 8 E desktop"),
+    # ---- 13th gen i9 ----
+    "i9-13900k": _cpu("Intel Core i9-13900K", 24, 32, 3.0, ["AVX2"], 16,
+                      36.0, "8 P + 16 E desktop"),
+    "i9-13900hx": _cpu("Intel Core i9-13900HX", 24, 32, 2.2, ["AVX2"], 16,
+                       32.0, "8 P + 16 E mobile"),
+    # ---- 14th gen i5 (Raptor Lake-R) ----
+    "i5-14400": _cpu("Intel Core i5-14400", 10, 16, 2.5, ["AVX2"], 8,
+                     26.0, ""),
+    "i5-14500": _cpu("Intel Core i5-14500", 14, 20, 2.6, ["AVX2"], 10,
+                     28.0, ""),
+    "i5-14600k": _cpu("Intel Core i5-14600K", 14, 20, 3.5, ["AVX2"], 10,
+                      30.0, "6 P + 8 E desktop"),
+    # ---- 14th gen i9 ----
+    "i9-14900k": _cpu("Intel Core i9-14900K", 24, 32, 3.2, ["AVX2"], 16,
+                      38.0, "8 P + 16 E desktop"),
+    "i9-14900ks": _cpu("Intel Core i9-14900KS", 24, 32, 3.2, ["AVX2"], 16,
+                       40.0, "binned 6.2 GHz boost"),
+    "i9-14900hx": _cpu("Intel Core i9-14900HX", 24, 32, 2.2, ["AVX2"], 16,
+                       34.0, "8 P + 16 E mobile"),
+    # ---- Core Ultra 5 Series 1 (Meteor Lake) ----
+    "core-ultra-5-125h": _cpu("Intel Core Ultra 5 125H", 14, 18, 1.2,
+                              ["AVX2", "AVX-VNNI"], 10, 24.0,
+                              "4 P + 8 E + 2 LP-E, NPU"),
+    "core-ultra-5-135h": _cpu("Intel Core Ultra 5 135H", 14, 18, 1.2,
+                              ["AVX2", "AVX-VNNI"], 10, 26.0,
+                              "refresh of 125H"),
+    "core-ultra-5-228v": _cpu("Intel Core Ultra 5 228V", 8, 8, 2.0,
+                              ["AVX2", "AVX-VNNI"], 6, 22.0,
+                              "Lunar Lake"),
+    # ---- Core Ultra 5 Series 2 (Arrow Lake) ----
+    "core-ultra-5-225k": _cpu("Intel Core Ultra 5 225K", 10, 10, 3.3,
+                              ["AVX2", "AVX-VNNI", "AVX10"], 8, 28.0,
+                              "Arrow Lake desktop, no SMT"),
+    "core-ultra-5-235k": _cpu("Intel Core Ultra 5 235K", 14, 14, 3.4,
+                              ["AVX2", "AVX-VNNI", "AVX10"], 10, 30.0,
+                              "Arrow Lake desktop, no SMT"),
+    # ---- Core Ultra 9 Series 1 ----
+    "core-ultra-9-185h": _cpu("Intel Core Ultra 9 185H", 16, 22, 2.3,
+                              ["AVX2", "AVX-VNNI"], 12, 32.0,
+                              "Meteor Lake top SKU"),
+})
+
 
 def _cpu_key(name: str) -> str:
     return name.lower().replace("_", "-").replace(" ", "-")
@@ -534,6 +626,143 @@ GPU_PRESETS: dict[str, GPUPreset] = {
                         torch.float16, 484.0, "New",
                         "Pascal sm_61, 11GB"),
 }
+
+# ---------------------------------------------------------------------------
+# v0.47: GPU preset expansion — fuller GTX 10 / RTX 20 / 30 / 40 / 50
+# coverage + Apple M-series unified memory + AMD Instinct + consumer
+# Radeon.  For Apple cards the "VRAM" field is unified memory;
+# freezer_class is set by whether the box typically has ≥11 GB free.
+# ---------------------------------------------------------------------------
+GPU_PRESETS.update({
+    # ---- Remaining Pascal (sm_61) ----
+    "gtx-1050": _gpu("NVIDIA GeForce GTX 1050", 2.0, (6, 1),
+                     torch.float16, 112.0, "Old",
+                     "2GB, desktop / laptop low-end"),
+    "gtx-1050-ti": _gpu("NVIDIA GeForce GTX 1050 Ti", 4.0, (6, 1),
+                        torch.float16, 112.0, "Old", "4GB entry"),
+    "gtx-1060": _gpu("NVIDIA GeForce GTX 1060 6GB", 6.0, (6, 1),
+                     torch.float16, 192.0, "Old", ""),
+    "gtx-1070": _gpu("NVIDIA GeForce GTX 1070", 8.0, (6, 1),
+                     torch.float16, 256.0, "Old", ""),
+    "gtx-1070-ti": _gpu("NVIDIA GeForce GTX 1070 Ti", 8.0, (6, 1),
+                        torch.float16, 256.0, "Old", ""),
+
+    # ---- Remaining Turing (sm_75) ----
+    "gtx-1650": _gpu("NVIDIA GeForce GTX 1650", 4.0, (7, 5),
+                     torch.float16, 128.0, "Old", ""),
+    "gtx-1650-super": _gpu("NVIDIA GeForce GTX 1650 SUPER", 4.0, (7, 5),
+                           torch.float16, 192.0, "Old", ""),
+    "gtx-1660": _gpu("NVIDIA GeForce GTX 1660", 6.0, (7, 5),
+                     torch.float16, 192.0, "Old", ""),
+    "gtx-1660-super": _gpu("NVIDIA GeForce GTX 1660 SUPER", 6.0, (7, 5),
+                           torch.float16, 336.0, "Old", ""),
+    "rtx-2060": _gpu("NVIDIA GeForce RTX 2060", 6.0, (7, 5),
+                     torch.float16, 336.0, "Old", ""),
+    "rtx-2060-super": _gpu("NVIDIA GeForce RTX 2060 SUPER", 8.0, (7, 5),
+                           torch.float16, 448.0, "Old", ""),
+    "rtx-2070": _gpu("NVIDIA GeForce RTX 2070", 8.0, (7, 5),
+                     torch.float16, 448.0, "Old", ""),
+    "rtx-2070-super": _gpu("NVIDIA GeForce RTX 2070 SUPER", 8.0, (7, 5),
+                           torch.float16, 448.0, "Old", ""),
+
+    # ---- Ampere consumer (sm_86) ----
+    "rtx-3050": _gpu("NVIDIA GeForce RTX 3050 8GB", 8.0, (8, 6),
+                     torch.bfloat16, 224.0, "Old", ""),
+    "rtx-3060": _gpu("NVIDIA GeForce RTX 3060 12GB", 12.0, (8, 6),
+                     torch.bfloat16, 360.0, "New",
+                     "12GB GDDR6 — the 8GB variant has only 8GB"),
+    "rtx-3060-ti": _gpu("NVIDIA GeForce RTX 3060 Ti", 8.0, (8, 6),
+                        torch.bfloat16, 448.0, "Old", ""),
+    "rtx-3070": _gpu("NVIDIA GeForce RTX 3070", 8.0, (8, 6),
+                     torch.bfloat16, 448.0, "Old", ""),
+    "rtx-3070-ti": _gpu("NVIDIA GeForce RTX 3070 Ti", 8.0, (8, 6),
+                        torch.bfloat16, 608.0, "Old", ""),
+    "rtx-3080": _gpu("NVIDIA GeForce RTX 3080 10GB", 10.0, (8, 6),
+                     torch.bfloat16, 760.0, "Old",
+                     "10GB — OldFreezer territory"),
+    "rtx-3090": _gpu("NVIDIA GeForce RTX 3090", 24.0, (8, 6),
+                     torch.bfloat16, 936.0, "New", ""),
+    "rtx-3090-ti": _gpu("NVIDIA GeForce RTX 3090 Ti", 24.0, (8, 6),
+                        torch.bfloat16, 1008.0, "New", ""),
+
+    # ---- Ada Lovelace consumer (sm_89) ----
+    "rtx-4060": _gpu("NVIDIA GeForce RTX 4060", 8.0, (8, 9),
+                     torch.bfloat16, 272.0, "Old", ""),
+    "rtx-4060-ti-8g": _gpu("NVIDIA GeForce RTX 4060 Ti 8GB", 8.0, (8, 9),
+                           torch.bfloat16, 288.0, "Old", ""),
+    "rtx-4060-ti-16g": _gpu("NVIDIA GeForce RTX 4060 Ti 16GB", 16.0, (8, 9),
+                            torch.bfloat16, 288.0, "New",
+                            "16GB variant"),
+    "rtx-4070": _gpu("NVIDIA GeForce RTX 4070", 12.0, (8, 9),
+                     torch.bfloat16, 504.0, "New", ""),
+    "rtx-4070-ti": _gpu("NVIDIA GeForce RTX 4070 Ti", 12.0, (8, 9),
+                        torch.bfloat16, 504.0, "New", ""),
+    "rtx-4080": _gpu("NVIDIA GeForce RTX 4080", 16.0, (8, 9),
+                     torch.bfloat16, 717.0, "New", ""),
+    "rtx-4090": _gpu("NVIDIA GeForce RTX 4090", 24.0, (8, 9),
+                     torch.bfloat16, 1008.0, "New", ""),
+
+    # ---- Blackwell consumer (sm_120) ----
+    "rtx-5070": _gpu("NVIDIA GeForce RTX 5070", 12.0, (12, 0),
+                     torch.bfloat16, 672.0, "New", ""),
+    "rtx-5070-ti": _gpu("NVIDIA GeForce RTX 5070 Ti", 16.0, (12, 0),
+                        torch.bfloat16, 896.0, "New", ""),
+    "rtx-5080": _gpu("NVIDIA GeForce RTX 5080", 16.0, (12, 0),
+                     torch.bfloat16, 960.0, "New", ""),
+    "rtx-5090": _gpu("NVIDIA GeForce RTX 5090", 32.0, (12, 0),
+                     torch.bfloat16, 1792.0, "New", ""),
+
+    # ---- Apple Silicon / MPS ----
+    # Compute capability is the conventional (0, 0) sentinel for MPS
+    # (not a CUDA device); VRAM is *unified memory* on Apple silicon,
+    # so "free" is fluid.  Bandwidth is the memory bus.
+    "apple-m1": _gpu("Apple M1 8GB", 8.0, (0, 0), torch.float16,
+                     68.0, "Old", "MPS, unified memory"),
+    "apple-m1-pro": _gpu("Apple M1 Pro 16GB", 16.0, (0, 0), torch.float16,
+                         200.0, "New", "MPS"),
+    "apple-m1-max": _gpu("Apple M1 Max 32GB", 32.0, (0, 0), torch.float16,
+                         400.0, "New", "MPS"),
+    "apple-m1-ultra": _gpu("Apple M1 Ultra 64GB", 64.0, (0, 0), torch.float16,
+                           800.0, "New", "MPS, 2-chip"),
+    "apple-m2": _gpu("Apple M2 8GB", 8.0, (0, 0), torch.float16,
+                     100.0, "Old", "MPS"),
+    "apple-m2-pro": _gpu("Apple M2 Pro 16GB", 16.0, (0, 0), torch.float16,
+                         200.0, "New", "MPS"),
+    "apple-m2-max": _gpu("Apple M2 Max 32GB", 32.0, (0, 0), torch.float16,
+                         400.0, "New", "MPS"),
+    "apple-m3": _gpu("Apple M3", 8.0, (0, 0), torch.float16,
+                     100.0, "Old", "MPS"),
+    "apple-m3-pro": _gpu("Apple M3 Pro", 18.0, (0, 0), torch.float16,
+                         150.0, "New", "MPS, reduced bandwidth vs M2 Pro"),
+    "apple-m3-max": _gpu("Apple M3 Max", 36.0, (0, 0), torch.float16,
+                         400.0, "New", "MPS"),
+    "apple-m4": _gpu("Apple M4", 16.0, (0, 0), torch.float16,
+                     120.0, "New", "MPS"),
+    "apple-m4-pro": _gpu("Apple M4 Pro", 24.0, (0, 0), torch.float16,
+                         273.0, "New", "MPS"),
+    "apple-m4-max": _gpu("Apple M4 Max", 48.0, (0, 0), torch.float16,
+                         546.0, "New", "MPS"),
+
+    # ---- AMD Radeon (ROCm / DirectML) ----
+    # compute_capability (0, 0) sentinel — these aren't CUDA devices.
+    # freezer_class is set by raw VRAM.
+    "radeon-rx-6800-xt": _gpu("AMD Radeon RX 6800 XT", 16.0, (0, 0),
+                              torch.float16, 512.0, "New",
+                              "RDNA 2, 16GB"),
+    "radeon-rx-6900-xt": _gpu("AMD Radeon RX 6900 XT", 16.0, (0, 0),
+                              torch.float16, 512.0, "New", "RDNA 2"),
+    "radeon-rx-7900-xt": _gpu("AMD Radeon RX 7900 XT", 20.0, (0, 0),
+                              torch.float16, 800.0, "New", "RDNA 3"),
+    "radeon-rx-7900-xtx": _gpu("AMD Radeon RX 7900 XTX", 24.0, (0, 0),
+                               torch.float16, 960.0, "New", "RDNA 3 flagship"),
+    # AMD Instinct (data-center, CDNA)
+    "instinct-mi250x": _gpu("AMD Instinct MI250X", 128.0, (0, 0),
+                            torch.bfloat16, 3277.0, "New",
+                            "CDNA 2, 2×64GB HBM"),
+    "instinct-mi300x": _gpu("AMD Instinct MI300X", 192.0, (0, 0),
+                            torch.bfloat16, 5300.0, "New",
+                            "CDNA 3, 192GB HBM3"),
+})
 
 
 def _gpu_key(name: str) -> str:

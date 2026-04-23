@@ -75,6 +75,8 @@ see the [top-level README](../README.md).
 Recent releases (see [Changelog](Changelog.md) for the full per-release
 notes going all the way back to 0.2.0):
 
+- **0.47.0** — `deep_fryer` (weight-noise) + `cake_pan` (CPU+GPU training guard) + 32 new CPU presets (i5, i9, Ultra 5/9) + 51 new GPU presets (full GTX 10 / RTX 20/30/40/50 lineups, Apple M-series, AMD Instinct + Radeon)
+- **0.46.1** — `nix` short-name fallback chain: 2.7a → 2.6-mm → 2.5
 - **0.46.0** — `salt_shaker` / `pepper_shaker` augmenters + `torch_compat` shim for old Intel Macs with torch 1.13
 - **0.45.3** — `smoke_alarm` accepts `preset=` one-string kwarg
 - **0.45.2** — pans accept `context_length` / `max_chars` (kw-only)

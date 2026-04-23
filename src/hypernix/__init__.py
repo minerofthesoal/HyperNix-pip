@@ -40,7 +40,9 @@ from __future__ import annotations
 
 from . import (
     blender,
+    cake_pan,
     coffee_maker,
+    deep_fryer,
     espresso_maker,
     food_processor,
     freezer,
@@ -118,7 +120,9 @@ __all__ = [
     "QUANT_TYPES",
     "bake_code",
     "blender",
+    "cake_pan",
     "coffee_maker",
+    "deep_fryer",
     "convert_to_gguf",
     "cpu_preset",
     "download_model",
@@ -163,5 +167,5 @@ __all__ = [
     "verify_snapshot",
 ]
 
-__version__ = "0.46.1"
+__version__ = "0.47.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

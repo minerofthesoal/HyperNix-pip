@@ -17,6 +17,70 @@ next release header.
 
 ---
 
+## 0.47.0
+
+✨ **`deep_fryer`** — 2-tier model-weight perturbation.  `LightFry`
+(t1): 2% of elements, 0.1× param-std Gaussian noise — use as a
+regulariser between epochs.  `HeavyFry` (t2): 30% of elements,
+0.5× noise, plus configurable zero-rate for sparse destruction —
+use to generate deliberately-bad-model negatives for training a
+judge, or for robustness testing.  Both are in-place and reversible
+via `save_pristine()` / `un_fry()`.
+
+✨ **`cake_pan`** — hybrid CPU + GPU training guard.  Wraps each
+step in `bake(fn)` which catches NaN / Inf in the loss (and
+optionally gradients), enforces a wall-time watchdog via SIGALRM,
+monitors GPU memory and offloads matching modules when pressure
+passes `free_gb_trip`, and rolls back to the last pristine state
+on trouble — raising `BakeOff(reason, step)` for the caller.
+`CakePan.oven(batches, step_fn)` is the fire-and-forget loop
+wrapper with automatic retry + skip.
+
+✨ **CPU preset expansion — now 48 total** (was 16, **×3**).
+Adds 7th-gen i5 (7200U, 7300HQ, 7400, 7600K), i9 (7900X, 7980XE);
+11th-gen i5 (11400, 11600K, 11320H), i9 (11900K); 12th-gen i5
+(12400, 12500, 12600K), i9 (12900K, 12900HX); 13th-gen i5 (13400,
+13500, 13600K), i9 (13900K, 13900HX); 14th-gen i5 (14400, 14500,
+14600K), i9 (14900K, 14900KS, 14900HX); Core Ultra 5 Series 1
+(125H, 135H, 228V), Series 2 (225K, 235K); Core Ultra 9 Series 1
+(185H).
+
+✨ **GPU preset expansion — now 71 total** (was 20, **×3.5**).
+Adds the rest of GTX 10 (1050, 1050 Ti, 1060, 1070, 1070 Ti), GTX
+16 (1650, 1650 Super, 1660, 1660 Super), RTX 20 (2060, 2060 Super,
+2070, 2070 Super), full RTX 30 (3050, 3060, 3060 Ti, 3070, 3070
+Ti, 3080, 3090, 3090 Ti), full RTX 40 (4060, 4060 Ti 8/16GB, 4070,
+4070 Ti, 4080, 4090), full Blackwell consumer RTX 50 (5070, 5070
+Ti, 5080, 5090).  **Apple Silicon** via MPS: M1 / M1 Pro / M1 Max
+/ M1 Ultra, M2 / M2 Pro / M2 Max, M3 / M3 Pro / M3 Max, M4 / M4
+Pro / M4 Max.  **AMD**: Radeon RX 6800 XT / 6900 XT / 7900 XT /
+7900 XTX, Instinct MI250X / MI300X.  Non-CUDA devices (Apple,
+AMD) use the `(0, 0)` sentinel for `compute_capability`.
+
+Tests (`tests/test_v047_deep_fryer_cake_pan_presets.py`, 76 tests):
+every fryer tier + pattern filter + unknown-tier error; cake_pan
+loss/grad NaN detection, snapshot writes, oven retry counting,
+pristine rollback; every new CPU preset spec + preset count bound;
+every new GPU preset vram + count bound; compute-capability
+sentinels for Apple + AMD.  **Full suite 447 passed**, 1 skipped
+(matplotlib).
+
+---
+
+## 0.46.1
+
+🛡️ **`nix` short-name fallback chain.**
+`KNOWN_MODELS["nix"]` now points at `Nix-ai/Nix-2.7a` (was
+`ray0rf1re/Nix2.5`).  `download_model("nix")` consults a new
+`FALLBACK_CHAINS` registry and tries in order:
+`Nix-ai/Nix-2.7a` → `Nix-ai/Nix2.6-mm` → `ray0rf1re/Nix2.5`,
+falling through only when an earlier candidate 404s / is gated /
+hits a network error.  Explicit `org/repo` ids bypass the chain.
+Six regression tests in `tests/test_nix_fallback.py` cover the
+happy path, fallthrough, exhaustion, and explicit-repo bypass.
+
+---
+
 ## 0.46.0
 
 ✨ **`salt_shaker`** — 3-tier gentle data augmentation.
