@@ -48,6 +48,7 @@ from . import (
     freezer,
     industrial_range,
     instant_pot,
+    lunchbox,
     mediocre_fridge,
     microwave,
     new_fridge,
@@ -139,6 +140,7 @@ __all__ = [
     "instant_pot",
     "load_pt",
     "load_snapshot",
+    "lunchbox",
     "mediocre_fridge",
     "microwave",
     "new_fridge",
@@ -167,5 +169,5 @@ __all__ = [
     "verify_snapshot",
 ]
 
-__version__ = "0.48.0"
+__version__ = "0.49.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

@@ -17,6 +17,62 @@ next release header.
 
 ---
 
+## 0.49.0
+
+✨ **`hypernix.lunchbox` — consistent-schema dataset packager.**
+Reported: the Hub dataset viewer on a hypernix-built
+``ray0rf1re/eval`` dataset crashed with
+
+  Error code: StreamingRowsError
+  Exception:  CastError
+  Message:    Couldn't cast … because column names don't match
+
+The actual column layout (11 cols incl. ``latency_s``,
+``keyword_score``, ``pipeline_meta``) didn't match the
+``huggingface`` metadata blob embedded inside the Parquet shards
+(only 4 cols).  That happens when shards written at different
+schema versions get concatenated.  ``Lunchbox`` makes that
+impossible by construction:
+
+  * ``add(**fields)`` collects plain dicts.
+  * ``normalize()`` fills every missing cell with ``None``.
+  * ``validate()`` rejects mixed non-None types per column
+    (str+float in the same column is a Parquet write error).
+  * ``pack(path)`` routes through
+    ``datasets.Dataset.from_list(...).to_parquet(...)`` so the
+    embedded ``huggingface`` metadata is always in sync with the
+    actual column set.
+  * ``push_to_hub(repo_id)`` does the same for direct uploads.
+  * ``Lunchbox.for_eval()`` pre-loads the recommended eval-dataset
+    schema (``EVAL_SCHEMA``: id / category / difficulty / tier /
+    prompt / reference / model_response / keyword_score /
+    latency_s / variant / pipeline_meta).
+  * ``pack_jsonl(path)`` writes the same normalised rows as JSON
+    Lines — no pyarrow / datasets install required.
+
+``datasets`` is a **lazy** dependency: the first pack / push call
+routes through :func:`hypernix.deps.ensure`, respecting
+``HYPERNIX_AUTO_INSTALL=0``.
+
+🧪 **+31 new coverage tests** (`tests/test_coverage_beef.py`)
+touching gaps in the existing per-module suites: lunchbox
+edge cases (empty box, 10 000-row normalise, unicode,
+duplicate rows, mixed-types rejection, push-URL shape),
+pressure_cooker (amsgrad wiring, closure-form step, foreach
+state persistence, repr text), deep_fryer (frozen-param
+handling, multi-cycle save/restore, HeavyFry fries frozen
+weights), cake_pan (CPU memory-guard no-op, oven-all-bad
+zero count, step_count monotonicity), freezer presets (every
+CPU has AVX, every GPU has positive bandwidth, lookup-key
+normalisation), shakers (determinism, rate=0 identity, empty-
+line passthrough), smoke_alarm (time_hours math, save_every=0
+silence, unknown-preset error content), plus an end-to-end
+evaluator→Lunchbox→JSONL→Table round trip.
+
+Full suite 515 passed, 1 skipped (matplotlib).
+
+---
+
 ## 0.48.0
 
 ✨ **`pressure_cooker` rewrite — 4 device-tuned tiers + universal
