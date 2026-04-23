@@ -90,7 +90,16 @@ pip install hypernix
 # CPU-only
 pip install --index-url https://download.pytorch.org/whl/cpu torch
 pip install hypernix
+
+# Old Intel Mac / torch 1.13 — the compat shim takes over.
+pip install --index-url https://download.pytorch.org/whl/cpu 'torch==1.13.1'
+pip install 'hypernix[legacy-torch]'
 ```
+
+The main `install_requires` is `torch>=1.13,<3` — 2.7+ is the
+recommended version (native `nn.RMSNorm`, fused SDPA), but 1.13+
+works via `hypernix.torch_compat`. See
+[`wiki/macOS-legacy.md`](wiki/macOS-legacy.md) for the full story.
 
 Sanity-check the environment:
 

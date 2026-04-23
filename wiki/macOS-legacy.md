@@ -19,10 +19,12 @@ The installer:
 
 1. Creates `.venv/` if missing.
 2. Pins `torch==1.13.1` from the PyPI CPU wheel.
-3. Installs `hypernix[legacy-torch]` with `--no-deps` (so pip doesn't
-   pull torch 2.x out from under you), then pulls the smaller
-   companion deps (`numpy<2`, `safetensors>=0.3.1`, etc.) at versions
-   known to co-install with torch 1.13.
+3. Installs `hypernix[legacy-torch]` — as of 0.47.1 the main
+   `install_requires` accepts `torch>=1.13`, so pip honours the pin
+   from step 2 automatically (no `--no-deps` hack).  The
+   `[legacy-torch]` extra pulls the smaller companion deps
+   (`numpy<2`, `safetensors>=0.3.1`, etc.) at versions known to
+   co-install with torch 1.13.
 4. Runs `hypernix.torch_compat.describe()` as a smoke check.
 
 ## What the compat shim covers
@@ -81,15 +83,18 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade 'pip<24' wheel
 
-# torch 1.13.1 FIRST — do not let pip resolve torch from hypernix's
-# main `torch>=2.7` pin.
+# torch 1.13.1 FIRST — pinned so pip doesn't pick a 2.x wheel when
+# it resolves hypernix's ``torch>=1.13,<3`` requirement.
 python -m pip install --index-url https://download.pytorch.org/whl/cpu \
     'torch==1.13.1'
 
-# hypernix itself, no-deps so the torch pin isn't overridden.
-python -m pip install 'hypernix[legacy-torch]' --no-deps
+# hypernix + the legacy-torch extra.  No --no-deps needed: the main
+# torch pin is now `>=1.13,<3`, so the already-installed torch
+# 1.13.1 satisfies the requirement.
+python -m pip install 'hypernix[legacy-torch]'
 
-# Companion deps at versions that co-install with torch 1.13.
+# (Optional) If you prefer not to use the extra, pin the companion
+# deps explicitly:
 python -m pip install \
     'numpy>=1.21,<2' \
     'safetensors>=0.3.1' \

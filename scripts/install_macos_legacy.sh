@@ -52,17 +52,13 @@ python -m pip install \
     --index-url https://download.pytorch.org/whl/cpu \
     "torch==1.13.1"
 
-# Core hypernix + the legacy-torch extra.  --no-deps for hypernix
-# itself to avoid pip yanking torch 1.13 out from under us when it
-# sees the main pin of torch>=2.7 in the wheel metadata.
-python -m pip install "hypernix[legacy-torch]" --no-deps
-python -m pip install \
-    "numpy>=1.21,<2" \
-    "safetensors>=0.3.1" \
-    "huggingface-hub>=0.16" \
-    "gguf>=0.10.0" \
-    "tqdm>=4.64" \
-    "sentencepiece>=0.1.99"
+# Core hypernix + the legacy-torch extra.  As of 0.47.1 the main
+# install_requires accepts torch>=1.13, so pip will honour the pin
+# from the previous step and reuse torch 1.13.1 — no --no-deps
+# hack required.  The [legacy-torch] extra adds looser numpy /
+# huggingface-hub / sentencepiece pins that co-install cleanly
+# with torch 1.13.
+python -m pip install "hypernix[legacy-torch]"
 
 echo
 echo "[legacy] smoke-testing hypernix.torch_compat:"
