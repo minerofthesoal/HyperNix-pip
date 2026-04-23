@@ -89,7 +89,9 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
         "Nix 2.5 — 3B Qwen2-shape, tied embeddings, no qkv bias.",
     ),
     "nix": ModelInfo(
-        "ray0rf1re/Nix2.5", "qwen2", "Alias for the latest ray0rf1re/Nix release.",
+        "Nix-ai/Nix-2.7a", "qwen2",
+        "Alias for the latest Nix release; download_model falls back "
+        "through 2.7a → 2.6-mm → 2.5 if earlier choices are unreachable.",
     ),
     # Nix-ai org: pretrained weights (GGUF variants live under
     # mradermacher/*-GGUF; we point at the upstream HF repos here).
@@ -320,6 +322,21 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
 }
 
 
+#: Short names that should try multiple repos in order until one is
+#: reachable.  Each tuple is an ordered fallback chain — entry 0 is
+#: the preferred target, later entries are mirrors / older versions
+#: used only when the preferred repo 404s, is gated, or hits a
+#: network error.  ``resolve_repo_id`` still returns the first
+#: entry; the chain is consulted by :func:`download_model` alone.
+FALLBACK_CHAINS: dict[str, tuple[str, ...]] = {
+    "nix": (
+        "Nix-ai/Nix-2.7a",
+        "Nix-ai/Nix2.6-mm",
+        "ray0rf1re/Nix2.5",
+    ),
+}
+
+
 def resolve_repo_id(name_or_repo_id: str) -> str:
     """Resolve a short name (``"nano-mini"``) to a full ``org/repo`` id.
 
@@ -446,22 +463,49 @@ def download_model(
         if not quiet:
             print(f"[hypernix] {msg}", file=sys.stderr)
 
-    resolved = resolve_repo_id(repo_id)
-    if resolved != repo_id:
-        log(f"resolved short name {repo_id!r} -> {resolved}")
-    repo_id = resolved
+    # Build the candidate list.  When the short name has an entry in
+    # FALLBACK_CHAINS (e.g. "nix" → 2.7a → 2.6-mm → 2.5), each repo
+    # is tried in order until snapshot_download succeeds.  Otherwise
+    # there's just the single resolved repo.
+    short_key = repo_id.lower() if "/" not in repo_id else None
+    chain: list[str] = list(FALLBACK_CHAINS.get(short_key or "", ()))
+    if not chain:
+        resolved = resolve_repo_id(repo_id)
+        if resolved != repo_id:
+            log(f"resolved short name {repo_id!r} -> {resolved}")
+        chain = [resolved]
+    else:
+        log(f"resolved short name {repo_id!r} -> fallback chain {chain}")
 
-    log(f"downloading {repo_id} ...")
-    path = Path(
-        snapshot_download(
-            repo_id=repo_id,
-            revision=revision,
-            cache_dir=cache_dir,
-            local_dir=local_dir,
-            token=token,
-            allow_patterns=REQUIRED_PATTERNS,
-        )
-    )
+    last_exc: Exception | None = None
+    path: Path | None = None
+    for attempt, candidate in enumerate(chain):
+        try:
+            log(f"downloading {candidate} ...")
+            path = Path(
+                snapshot_download(
+                    repo_id=candidate,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    local_dir=local_dir,
+                    token=token,
+                    allow_patterns=REQUIRED_PATTERNS,
+                )
+            )
+            repo_id = candidate
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            remaining = chain[attempt + 1 :]
+            if remaining:
+                log(f"WARNING: {candidate} failed ({exc}); trying {remaining[0]}")
+            else:
+                log(f"ERROR: exhausted fallback chain; last failure: {exc}")
+    if path is None:
+        raise RuntimeError(
+            f"download_model: all candidates in the fallback chain "
+            f"failed for {short_key or chain[0]!r}: {chain}",
+        ) from last_exc
 
     # Safety net: some repos put ``config.json`` behind a non-default branch
     # or embed it only in a README; if it wasn't picked up by the glob,

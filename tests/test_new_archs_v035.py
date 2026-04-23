@@ -108,8 +108,10 @@ def test_new_oven_nix_builds_without_qkv_bias(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("short_name", "expected_repo_id"),
     [
-        # Nix family (ray0rf1re/nix collection)
-        ("nix", "ray0rf1re/Nix2.5"),
+        # Nix family (ray0rf1re/nix collection) — "nix" alias now resolves
+        # to the newest release (2.7a); older versions keep their explicit
+        # short names.
+        ("nix", "Nix-ai/Nix-2.7a"),
         ("nix2.5", "ray0rf1re/Nix2.5"),
         ("nix2.6-m", "Nix-ai/Nix2.6-m"),
         ("nix2.6-mm", "Nix-ai/Nix2.6-mm"),
