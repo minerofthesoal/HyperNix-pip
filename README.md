@@ -34,7 +34,7 @@ language models.**
 | `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
 | `hypernix.salt_shaker` | 3-tier gentle data augmentation: `FromTheBag` / `HandCrusher` / `PoshSaltDish`. |
 | `hypernix.pepper_shaker` | 3-tier sharp perturbations: `SmallShaker` (MLM-style mask) / `Dish` (typos) / `TallHandmade` (negation). |
-| `hypernix.pressure_cooker` | Custom optimizer: AdamW + warmup / plateau / cosine cooldown + lookahead. |
+| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector. Grad accumulation, GradScaler integration, fused/foreach AdamW, optional CUDA-graph capture on Pro. |
 | `hypernix.torch_compat` | Portability shim (RMSNorm + SDPA) for running on old Intel Macs with torch 1.13. See [`wiki/macOS-legacy.md`](wiki/macOS-legacy.md). |
 | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
 | `hypernix.quantize` | `llama-quantize` driver for Q8_0, Q6_K, Q4_K_M, Q5_K_M. |

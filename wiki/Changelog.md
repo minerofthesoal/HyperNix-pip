@@ -17,6 +17,74 @@ next release header.
 
 ---
 
+## 0.48.0
+
+✨ **`pressure_cooker` rewrite — 4 device-tuned tiers + universal
+selector + 5 new knobs.**  The base :class:`PressureCooker` keeps
+the v0.47 API exactly (warmup / plateau / cosine cooldown + optional
+lookahead); on top of it ship four specialised classes and a
+selector:
+
+* **`StovetopCooker`** (CPU tier 1) — minimum-memory path:
+  ``foreach=False``, ``fused=False``, no AMP.  Use on RAM-
+  constrained boxes and old Intel Macs.
+* **`ElectricCooker`** (CPU tier 2) — ``foreach=True`` multi-tensor
+  path (torch ≥ 1.12) for fast CPU updates when you have the RAM.
+* **`InductionCooker`** (GPU tier 1) — ``foreach=True`` +
+  ``fused=True`` AdamW kernel on torch ≥ 2.0 + first-class
+  ``torch.cuda.amp.GradScaler`` integration.  Pass
+  ``grad_scaler=torch.cuda.amp.GradScaler()`` and the cooker
+  unscales, inf-skips, and advances the scaler automatically.
+* **`ProCooker`** (GPU tier 2) — InductionCooker plus optional
+  CUDA-graph capture via ``warmup_graph(step_fn)`` /
+  ``replay_graph()`` for a material speedup on fixed-shape steps.
+
+✨ **`universal_cooker(params, prefer_speed=True)`** — probes the
+first parameter's device and returns `ElectricCooker` on CPU (or
+`StovetopCooker` with `prefer_speed=False`), `ProCooker` on CUDA
+(or `InductionCooker`).
+
+✨ **New base-class knobs (opt-in, all backward-compatible):**
+
+* ``grad_scaler=`` — unscales, skips on inf, advances the scaler.
+* ``grad_accum_steps=N`` — only the N-th ``step()`` runs the
+  optimizer; earlier calls just bump the counter.
+* ``foreach=True | False | None`` — selects the multi-tensor path.
+* ``fused=True | False | None`` — selects the fused CUDA kernel
+  when torch supports it (torch ≥ 2.0, all params on the same
+  CUDA device).
+* ``amsgrad=`` — forwarded to the inner AdamW.
+
+✨ **Factory convenience:** ``pressure_cooker(params, tier="...")``
+accepts any of ``"pressure-cooker"`` / ``"stovetop"`` / ``"electric"``
+/ ``"induction"`` / ``"pro"``.  Unknown tiers raise
+``ValueError`` with the full list.
+
+🔧 `describe()` method on the base class returns a dict of the
+active knobs for logging / provenance.
+
+Tests (`tests/test_pressure_cooker_v048.py`, 19 new):
+
+* v0.47 signature + LR schedule + phase labels unchanged (backward
+  compat).
+* Every tier's defaults (`foreach`, `fused`, `grad_scaler`) verified.
+* Universal selector picks Electric on CPU (fast) or Stovetop
+  (safe).
+* Grad-accumulation: N-1 no-op steps then one real update.
+* GradScaler: skip-on-inf path *and* update-on-finite path via a
+  fake scaler so we don't need CUDA to test.
+* Scalar vs. foreach inner path produce the same weight update to
+  within fp rounding.
+* Factory tier lookup + error paths.
+* Lookahead slow-weight population survives the rewrite.
+
+Full suite 469 passed, 1 skipped (matplotlib).
+
+Docs: README subsystem table row rewritten to list all five tiers,
+wiki/Home.md version history picks up 0.48.0 + backfills 0.47.1.
+
+---
+
 ## 0.47.0
 
 ✨ **`deep_fryer`** — 2-tier model-weight perturbation.  `LightFry`
