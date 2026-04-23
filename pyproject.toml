@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.45.3"
+version = "0.46.0"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
@@ -53,6 +53,19 @@ dependencies = [
 llama-cpp = ["llama-cpp-python>=0.2.90"]
 train = ["transformers>=4.44", "accelerate>=0.33"]
 dev = ["pytest>=8", "ruff>=0.5", "build>=1.2", "twine>=5"]
+# Old Intel Macs / anywhere torch 2.x won't install.  This extra does
+# NOT relax the main torch pin — the compat shims in
+# ``hypernix.torch_compat`` run on torch 1.13+, but you must pin
+# torch *before* installing hypernix (see
+# ``scripts/install_macos_legacy.sh``).  The extra pulls the smaller
+# companion deps in versions known to work with torch 1.13.
+legacy-torch = [
+    "numpy>=1.21,<2",
+    "safetensors>=0.3.1",
+    "huggingface-hub>=0.16",
+    "tqdm>=4.64",
+    "sentencepiece>=0.1.99",
+]
 
 [project.scripts]
 hypernix = "hypernix.cli:main"

@@ -54,12 +54,15 @@ from . import (
     old_oven,
     old_range,
     pans,
+    pepper_shaker,
     pressure_cooker,
+    salt_shaker,
     sink,
     smoke_alarm,
     smoker,
     table,
     toaster,
+    torch_compat,
 )
 from .convert import convert_to_gguf
 from .download import (
@@ -141,21 +144,24 @@ __all__ = [
     "old_oven",
     "old_range",
     "pans",
+    "pepper_shaker",
     "pressure_cooker",
     "preheat",
     "quantize_gguf",
     "resolve_model_info",
     "resolve_repo_id",
+    "salt_shaker",
     "save_snapshot",
     "sink",
     "smoke_alarm",
     "smoker",
     "table",
     "toaster",
+    "torch_compat",
     "train",
     "upload_gguf",
     "verify_snapshot",
 ]
 
-__version__ = "0.45.3"
+__version__ = "0.46.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"

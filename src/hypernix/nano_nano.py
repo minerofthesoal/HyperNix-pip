@@ -33,6 +33,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .torch_compat import RMSNorm as _RMSNorm
+from .torch_compat import scaled_dot_product_attention as _sdpa
+
 
 @dataclass
 class NanoNanoConfig:
@@ -147,7 +150,7 @@ class _NanoAttn(nn.Module):
         k = _apply_rotary(k, cos, sin)
         k = k.repeat_interleave(self.num_groups, dim=1)
         v = v.repeat_interleave(self.num_groups, dim=1)
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        out = _sdpa(q, k, v, is_causal=True)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         return self.o_proj(out)
 
@@ -167,9 +170,9 @@ class _NanoMLP(nn.Module):
 class _NanoBlock(nn.Module):
     def __init__(self, cfg: NanoNanoConfig) -> None:
         super().__init__()
-        self.attn_norm = nn.RMSNorm(cfg.dim, eps=cfg.rms_norm_eps)
+        self.attn_norm = _RMSNorm(cfg.dim, eps=cfg.rms_norm_eps)
         self.attn = _NanoAttn(cfg)
-        self.ffn_norm = nn.RMSNorm(cfg.dim, eps=cfg.rms_norm_eps)
+        self.ffn_norm = _RMSNorm(cfg.dim, eps=cfg.rms_norm_eps)
         self.ffn = _NanoMLP(cfg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -192,7 +195,7 @@ class NanoNanoModel(nn.Module):
         self.vocab_size = cfg.vocab_size
         self.tok_embeddings = nn.Embedding(cfg.vocab_size, cfg.dim)
         self.layers = nn.ModuleList([_NanoBlock(cfg) for _ in range(cfg.num_layers)])
-        self.norm = nn.RMSNorm(cfg.dim, eps=cfg.rms_norm_eps)
+        self.norm = _RMSNorm(cfg.dim, eps=cfg.rms_norm_eps)
         self.output = nn.Linear(cfg.dim, cfg.vocab_size, bias=False)
         if cfg.tie_word_embeddings:
             self.output.weight = self.tok_embeddings.weight

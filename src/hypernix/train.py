@@ -31,6 +31,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from safetensors.torch import load_file, save_file
 
+from .torch_compat import scaled_dot_product_attention as _sdpa
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -205,7 +207,7 @@ class Attention(nn.Module):
             repeat = self.n_head // self.n_kv
             k = k.repeat_interleave(repeat, dim=1)
             v = v.repeat_interleave(repeat, dim=1)
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        out = _sdpa(q, k, v, is_causal=True)
         out = out.transpose(1, 2).contiguous().view(B, T, -1)
         return self.o_proj(out)
 

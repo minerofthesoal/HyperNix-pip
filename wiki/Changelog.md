@@ -17,6 +17,52 @@ next release header.
 
 ---
 
+## 0.46.0
+
+✨ **`salt_shaker`** — 3-tier gentle data augmentation.
+
+- `FromTheBag` (t1): per-character substitution at `rate`, preserves
+  line length.
+- `HandCrusher` (t2): adjacent-token swaps at `rate`.
+- `PoshSaltDish` (t3): independent drop / duplicate / swap rates
+  with word-level granularity.
+
+All three share a `Shaker` base, a deterministic `seed`, and plug
+into `sink.Sink.pour(...)` like the pans.
+
+✨ **`pepper_shaker`** — 3-tier sharp perturbations.
+
+- `SmallShaker` (t1): random token masking with configurable
+  `mask_token` (default `[MASK]`).
+- `Dish` (t2): typo injection (drop / duplicate an internal char);
+  preserves first + last character so words stay recognisable.
+- `TallHandmade` (t3): negation injection; prepends `negator`
+  (default `"NOT"`) at `rate`.
+
+✨ **`torch_compat`** — portability shim for **old Intel Macs with
+torch 1.13**.  Provides version-gated fallbacks for
+`torch.nn.RMSNorm` (needs ≥ 2.4) and
+`torch.nn.functional.scaled_dot_product_attention` (needs ≥ 2.0).
+`HyperNixModel` + `NanoNanoModel` now route through the shim, so
+identical outputs on modern and legacy torch.
+
+✨ **`[legacy-torch]` extra** — companion dep pins that co-install
+with torch 1.13: `numpy<2`, `safetensors>=0.3.1`,
+`huggingface-hub>=0.16`, `tqdm>=4.64`, `sentencepiece>=0.1.99`.
+Does **not** relax the main torch pin; you must install torch 1.13
+first yourself.  See `scripts/install_macos_legacy.sh`.
+
+🔧 **`scripts/install_macos_legacy.sh`** — one-shot installer that
+pins torch 1.13.1 CPU, installs hypernix with `--no-deps`, then
+pulls the legacy-torch extras, and smoke-tests
+`torch_compat.describe()`.
+
+📚 New `wiki/macOS-legacy.md` documents what works, what doesn't,
+and how to size training on old Intel Macs (`OldFreezer` + a
+`GasAlarm(preset="i7-7660u")`-style budget).
+
+---
+
 ## 0.45.3
 
 🛡️ **`smoke_alarm.GasAlarm` accepts `preset=`.** One-string shortcut

@@ -426,6 +426,76 @@ hypernix brew recipe.json --set device='"cuda"' --set batch_size=2
 be quoted with double quotes inside single quotes on the shell).
 Non-JSON values are used as plain strings.
 
+## salt_shaker
+
+Three tiers of **gentle data augmentation**.  Every shaker reads
+lines from `source`, perturbs them, and yields strings — same
+iterator shape as a pan, so they plug into `sink.Sink.pour(...)`
+identically.
+
+| Tier | Class | What it does |
+|---|---|---|
+| t1 | `FromTheBag` | per-character substitution at `rate`, preserves length |
+| t2 | `HandCrusher` | adjacent-token swaps at `rate` |
+| t3 | `PoshSaltDish` | independent drop / duplicate / swap rates at word granularity |
+
+```python
+from hypernix import salt_shaker, sink
+
+# t1 — coarsest: random char substitutions
+sink.Sink("noisy.txt").pour(
+    salt_shaker.FromTheBag(source="clean.txt", rate=0.02, seed=0)
+)
+
+# t3 — finest: word-level drop/dup/swap
+shaker = salt_shaker.PoshSaltDish(
+    source="clean.txt",
+    drop_rate=0.01, duplicate_rate=0.005, swap_rate=0.01, seed=0,
+)
+```
+
+`salt_shaker.salt_shaker(tier, source, **kw)` picks a tier by short
+name (`"from-the-bag"`, `"hand-crusher"`, `"posh-salt-dish"`).
+
+## pepper_shaker
+
+Three tiers of **sharp perturbations** — mask-language-model
+training, typo robustness, negation-aware classifiers.
+
+| Tier | Class | What it does |
+|---|---|---|
+| t1 | `SmallShaker` | random word masking; configurable `mask_token` (default `[MASK]`) |
+| t2 | `Dish` | typo injection (drop / duplicate an internal char); preserves first + last |
+| t3 | `TallHandmade` | negation injection; prepends `negator` (default `"NOT"`) at `rate` |
+
+```python
+from hypernix import pepper_shaker
+
+masked = pepper_shaker.SmallShaker(
+    source="cleaned.txt", rate=0.15, mask_token="[MASK]", seed=0,
+)
+typos = pepper_shaker.Dish(source="cleaned.txt", rate=0.05, seed=0)
+negated = pepper_shaker.TallHandmade(source="cleaned.txt", rate=0.1, seed=0)
+```
+
+`pepper_shaker.pepper_shaker(tier, source, **kw)` picks a tier.
+
+## Chaining shakers
+
+Shakers compose by chaining their output iterators:
+
+```python
+from hypernix import pepper_shaker, salt_shaker, sink
+
+salted = salt_shaker.HandCrusher(source="clean.txt", rate=0.02, seed=0)
+peppered = pepper_shaker.SmallShaker(source=list(salted), rate=0.1, seed=1)
+sink.Sink("augmented.txt").pour(peppered)
+```
+
+Each shaker takes a file path **or** any iterable of strings as
+`source`, so the output of one becomes the input of the next without
+a temp file.
+
 ## End-to-end example
 
 ```python
