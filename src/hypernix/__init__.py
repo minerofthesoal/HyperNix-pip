@@ -1,8 +1,10 @@
 """hypernix — end-to-end toolkit for HyperNix-family PyTorch models.
 
 The package grew out of a one-shot ``ray0rf1re/hyper-nix.1`` → GGUF
-converter and now covers the whole lifecycle from a blank directory
-to a trained, quantized, uploaded HuggingFace snapshot:
+converter (v1 is still fully supported) and now covers the whole
+lifecycle for the chat-tuned ``ray0rf1re/hyper-Nix.2`` (current
+default) and every related model — from a blank directory to a
+trained, quantized, uploaded HuggingFace snapshot:
 
 * :mod:`hypernix.download` / :func:`download_model` — pull snapshots
   from the Hub; :data:`KNOWN_MODELS` resolves short names like
@@ -104,7 +106,14 @@ from .old_oven import (
     new_oven,
     preheat,
 )
-from .quantize import QUANT_TYPES, quantize_gguf
+from .quantize import CATALOG as QUANT_CATALOG  # noqa: I001
+from .quantize import QUANT_TYPES, QuantSpec, quantize_gguf
+from .quantize import by_category as quant_by_category
+from .quantize import estimate_size as quant_estimate_size
+from .quantize import for_size as quant_for_size
+from .quantize import list_types as quant_list_types
+from .quantize import recommended as quant_recommended
+from .quantize import resolve_spec as quant_resolve_spec
 from .train import (
     HyperNixConfig,
     HyperNixModel,
@@ -127,7 +136,9 @@ __all__ = [
     "HyperNixModel",
     "KNOWN_MODELS",
     "ModelInfo",
+    "QUANT_CATALOG",
     "QUANT_TYPES",
+    "QuantSpec",
     "apron",
     "bake_code",
     "bell",
@@ -169,6 +180,12 @@ __all__ = [
     "pepper_shaker",
     "pressure_cooker",
     "preheat",
+    "quant_by_category",
+    "quant_estimate_size",
+    "quant_for_size",
+    "quant_list_types",
+    "quant_recommended",
+    "quant_resolve_spec",
     "quantize_gguf",
     "recipe_book",
     "resolve_model_info",
@@ -187,5 +204,5 @@ __all__ = [
     "whisk",
 ]
 
-__version__ = "0.51.2.1"
+__version__ = "0.51.3"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"

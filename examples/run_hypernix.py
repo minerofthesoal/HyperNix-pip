@@ -1,4 +1,4 @@
-"""Portable runner for ray0rf1re/hyper-nix.1 in pure PyTorch.
+"""Portable runner for any HyperNix model (default: hyper-Nix.2; v1 still works) in pure PyTorch.
 
 The bootstrap flow (run once on a machine with network access):
 
@@ -63,7 +63,10 @@ def _get_oven(cfg: dict[str, Any], config_dir: Path):
         file=sys.stderr,
     )
     oven = old_oven.preheat(
-        repo_id=cfg.get("repo_id", "ray0rf1re/hyper-nix.1"),
+        # Default to the chat-tuned hyper-Nix.2 (current headline model).
+        # Pass repo_id=ray0rf1re/hyper-nix.1 in your config to use the
+        # original v1 instead — both are still fully supported.
+        repo_id=cfg.get("repo_id", "ray0rf1re/hyper-Nix.2"),
         revision=cfg.get("revision"),
         local_dir=local_dir,
         token=cfg.get("token"),

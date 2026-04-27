@@ -17,6 +17,85 @@ next release header.
 
 ---
 
+## 0.51.3
+
+✨ **`hypernix.quantize` rewrite — full llama.cpp catalog.**
+
+The 6-type alias dict from 0.51.2 grew into a structured 30-entry
+``QUANT_CATALOG`` of frozen ``QuantSpec`` dataclasses, one per
+distinct llama-quantize target type, with bits-per-weight,
+category, size factor (relative to fp16), human-readable notes,
+and a ``recommended`` flag for the curated short-list.
+
+* **Floats:** ``F32``, ``F16``, ``BF16``.
+* **Legacy quants:** ``Q4_0``, ``Q4_1``, ``Q5_0``, ``Q5_1``,
+  ``Q8_0``.
+* **K-quants:** ``Q2_K``, ``Q2_K_S``, ``Q3_K_S``, ``Q3_K_M``,
+  ``Q3_K_L``, ``Q4_K_S``, ``Q4_K_M``, ``Q5_K_S``, ``Q5_K_M``,
+  ``Q6_K``.
+* **IQ-quants (newer, importance-matrix friendly):** ``IQ1_S``,
+  ``IQ1_M``, ``IQ2_XXS``, ``IQ2_XS``, ``IQ2_S``, ``IQ2_M``,
+  ``IQ3_XXS``, ``IQ3_XS``, ``IQ3_S``, ``IQ3_M``, ``IQ4_NL``,
+  ``IQ4_XS``.
+
+49 aliases (incl. the original ``q4km`` / ``q5km`` shortcuts and
+the dash-form ``q4-k-m``) all resolve through the catalog.  The
+old ``QUANT_TYPES`` dict is preserved unchanged at the alias
+layer — pre-0.51.3 callers keep working.
+
+New helper API:
+
+* ``quant_recommended()`` — curated short-list (F16, Q8_0,
+  Q6_K, Q5_K_M, Q4_K_M).
+* ``quant_by_category("float" | "legacy" | "k" | "iq")`` — every
+  spec in a category, sorted ascending by bpw.
+* ``quant_for_size(target_size_bytes, fp16_size_bytes)`` —
+  picks the largest non-float spec that fits the byte budget;
+  falls back to the smallest IQ tier if nothing fits.
+* ``quant_estimate_size(quant_type, fp16_size_bytes)`` —
+  pure-arithmetic size estimate (no llama-quantize required).
+* ``quant_resolve_spec(alias)`` — alias → ``QuantSpec`` lookup
+  with case-insensitive matching and dash/underscore normalisation.
+* ``quant_list_types()`` — sorted list of every canonical name
+  in the catalog.
+
+``QuantSpec``, ``QUANT_CATALOG``, and all six helpers are
+re-exported at the top level (``hypernix.QuantSpec``,
+``hypernix.QUANT_CATALOG``, ``hypernix.quant_recommended``,
+etc.).
+
+🛡️ **37 new tests** in ``tests/test_v051_3.py`` covering:
+
+* Catalog completeness (≥ 30 specs, every alias resolves, every
+  spec has a positive bpw / known category / non-empty notes).
+* ``QuantSpec`` is a frozen dataclass.
+* ``recommended()`` short-list contents.
+* ``by_category()`` sorted-by-bpw ordering and unknown-category
+  empty return.
+* ``for_size()`` happy path, tiny-target fallback, zero-fp16
+  rejection.
+* ``estimate_size()`` math against expected ranges.
+* ``resolve_spec()`` canonical / short-alias / dash-alias /
+  case-insensitive / unknown-raises paths.
+* Backward-compat: every pre-0.51.3 alias still resolves,
+  ``quantize_gguf`` still raises ``ValueError`` on unknown
+  targets.
+* Top-level re-exports present and identity-equal to the
+  underlying objects.
+
+📚 **README + wiki refreshed.**  README's quant-aliases table and
+the ``hypernix.quantize`` row now describe the new catalog.
+``wiki/Quantization.md`` opens with a v0.51.3 callout, the type
+table covers every recommended bpw tier, and a new "Catalog
+helpers" section shows ``quant_recommended`` /
+``quant_by_category`` / ``quant_for_size`` /
+``quant_estimate_size`` / ``quant_resolve_spec`` in action.
+README also broadens the headline tagline to mention both the
+chat-tuned ``ray0rf1re/hyper-Nix.2`` (current default) **and**
+the original ``ray0rf1re/hyper-nix.1`` (still fully supported).
+
+---
+
 ## 0.51.2.1
 
 🐛 **PyPI logo broken-image fix (carried over from 0.51.1.2).**  The 0.51.1 / 0.51.1.1

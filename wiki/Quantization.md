@@ -1,8 +1,19 @@
 # Quantization — the GGUF pipeline
 
-The original reason `hypernix` exists: take a PyTorch snapshot of the
-`ray0rf1re/hyper-nix.1` family and emit GGUF files that `llama.cpp`,
-`ollama`, LM Studio, and friends can load directly.
+The original reason `hypernix` exists: take a PyTorch snapshot of any
+HyperNix-family model — the chat-tuned `ray0rf1re/hyper-Nix.2` (current
+default) or the original `ray0rf1re/hyper-nix.1` (still fully supported)
+— and emit GGUF files that `llama.cpp`, `ollama`, LM Studio, and friends
+can load directly.
+
+> **v0.51.3** rewrote the catalog: 30 distinct `QuantSpec` types
+> (49 aliases) covering floats (`F32` / `F16` / `BF16`), legacy
+> RTN quants (`Q4_0` … `Q8_0`), the full k-quant ladder
+> (`Q2_K` … `Q6_K`), and the newer IQ-quants
+> (`IQ1_S` … `IQ4_XS`). Helpers: `quant_recommended()`,
+> `quant_by_category("k")`, `quant_for_size(target_bytes,
+> fp16_bytes)`, `quant_estimate_size("q4km", fp16_bytes)`,
+> `quant_resolve_spec("q4km")`. See **Catalog** below.
 
 ## The pipeline, in three stages
 
@@ -58,17 +69,61 @@ pure-Python `gguf` library. Produces fp32 or fp16 tensors.
 
 ## `quantize_gguf`
 
-Drives the `llama-quantize` binary. Accepts any k-quant supported by
-the upstream:
+Drives the `llama-quantize` binary. The full alias table lives in
+`hypernix.QUANT_TYPES` (49 entries → 30 distinct quant types in
+`hypernix.QUANT_CATALOG`). Recommended starting points:
 
-| Alias | llama.cpp enum | Typical use |
-|---|---|---|
-| `fp32` / `f32` | F32 | Reference / debugging |
-| `fp16` / `f16` | F16 | Default intermediate |
-| `q8` / `q8_0` | Q8_0 | Small model, near-lossless |
-| `q6` / `q6_k` | Q6_K | Balanced accuracy/size |
-| `q4km` / `q4_k_m` | Q4_K_M | Most common small-GPU choice |
-| `q5km` / `q5_k_m` | Q5_K_M | A notch above Q4_K_M |
+| Alias | llama.cpp enum | bpw | Typical use |
+|---|---|---|---|
+| `fp32` / `f32` | F32 | 32.0 | Reference / debugging |
+| `fp16` / `f16` | F16 | 16.0 | Default intermediate |
+| `bf16` | BF16 | 16.0 | Better range than F16 |
+| `q8` / `q8_0` | Q8_0 | 8.5 | Small model, near-lossless |
+| `q6` / `q6_k` | Q6_K | 6.56 | Balanced accuracy/size |
+| `q5km` / `q5_k_m` | Q5_K_M | 5.83 | A notch above Q4_K_M |
+| `q4km` / `q4_k_m` | Q4_K_M | 4.83 | Most common small-GPU choice |
+| `iq4_xs` | IQ4_XS | 4.25 | New IQ family, sub-Q4_K_M tier |
+| `q3_k_m` | Q3_K_M | 3.75 | Aggressive size reduction |
+| `iq3_s` | IQ3_S | 3.44 | Beats Q3_K_M at similar size |
+| `q2_k` | Q2_K | 2.625 | Smallest k-quant, significant loss |
+| `iq2_m` | IQ2_M | 2.7 | 2-bit IQ, beats Q2_K |
+| `iq1_s` | IQ1_S | 1.5625 | Extreme size reduction |
+
+## Catalog helpers (v0.51.3)
+
+```python
+from hypernix import (
+    QUANT_CATALOG, quant_recommended,
+    quant_by_category, quant_for_size,
+    quant_estimate_size, quant_resolve_spec,
+)
+
+# 30 specs total
+print(len(QUANT_CATALOG))                       # 30
+
+# Curated short-list (F16, Q8_0, Q4_K_M, Q5_K_M, Q6_K)
+for s in quant_recommended():
+    print(s.name, s.bits_per_weight, s.notes)
+
+# All k-quants, sorted ascending by bpw
+for s in quant_by_category("k"):
+    print(s.name, s.bits_per_weight)
+
+# Pick the largest quant that fits in a target byte budget
+fp16_bytes = 2_000_000_000  # 2 GB
+spec = quant_for_size(target_size_bytes=900_000_000, fp16_size_bytes=fp16_bytes)
+print("recommend:", spec.name)                   # e.g. "Q4_K_M"
+
+# Estimate output size without running llama-quantize
+print(quant_estimate_size("q4km", fp16_bytes))   # ≈ 603 MB
+
+# Look up a single spec from any alias
+print(quant_resolve_spec("q4km"))                # QuantSpec(name='Q4_K_M', ...)
+```
+
+`QuantSpec` is a frozen dataclass with `name`, `bits_per_weight`,
+`category` (`"float" / "legacy" / "k" / "iq"`), `size_factor`
+(`bpw / 16`), `notes`, and `recommended`.
 
 ### `llama-quantize` binary resolution
 

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import fetcher
@@ -73,25 +74,186 @@ def _install_hint() -> str:
         return f"{_DISTRO_HINTS[distro]}\nFallback:\n{generic}"
     return generic
 
-# Canonical friendly name -> llama-quantize enum string.
+# Canonical friendly name -> llama-quantize enum string.  v0.51.3
+# expanded the catalog from the original 6 types (F32 / F16 / Q8_0 /
+# Q6_K / Q4_K_M / Q5_K_M) to cover every type llama.cpp's
+# ``llama-quantize`` driver currently accepts.  See :data:`CATALOG`
+# for richer per-type metadata (bits-per-weight, category, notes).
 QUANT_TYPES: dict[str, str] = {
-    "fp32": "F32",
-    "f32": "F32",
-    "fp16": "F16",
-    "f16": "F16",
-    "q8": "Q8_0",
-    "q8_0": "Q8_0",
-    "q6": "Q6_K",
-    "q6_k": "Q6_K",
-    "q4km": "Q4_K_M",
-    "q4_k_m": "Q4_K_M",
-    "q5km": "Q5_K_M",
-    "q5_k_m": "Q5_K_M",
+    # ---- floats ----
+    "fp32": "F32", "f32": "F32",
+    "fp16": "F16", "f16": "F16",
+    "bf16": "BF16",
+    # ---- legacy quants (round-to-nearest) ----
+    "q4_0": "Q4_0", "q4-0": "Q4_0",
+    "q4_1": "Q4_1", "q4-1": "Q4_1",
+    "q5_0": "Q5_0", "q5-0": "Q5_0",
+    "q5_1": "Q5_1", "q5-1": "Q5_1",
+    "q8":   "Q8_0", "q8_0": "Q8_0", "q8-0": "Q8_0",
+    # ---- k-quants ----
+    "q2_k":   "Q2_K",   "q2km":  "Q2_K",
+    "q2_k_s": "Q2_K_S", "q2ks":  "Q2_K_S",
+    "q3_k_s": "Q3_K_S", "q3ks":  "Q3_K_S",
+    "q3_k_m": "Q3_K_M", "q3km":  "Q3_K_M",
+    "q3_k_l": "Q3_K_L", "q3kl":  "Q3_K_L",
+    "q4_k_s": "Q4_K_S", "q4ks":  "Q4_K_S",
+    "q4_k_m": "Q4_K_M", "q4km":  "Q4_K_M",
+    "q5_k_s": "Q5_K_S", "q5ks":  "Q5_K_S",
+    "q5_k_m": "Q5_K_M", "q5km":  "Q5_K_M",
+    "q6":     "Q6_K",   "q6_k":  "Q6_K",   "q6km":  "Q6_K",
+    # ---- IQ-quants (importance-matrix friendly, newer in llama.cpp) ----
+    "iq1_s":   "IQ1_S",
+    "iq1_m":   "IQ1_M",
+    "iq2_xxs": "IQ2_XXS",
+    "iq2_xs":  "IQ2_XS",
+    "iq2_s":   "IQ2_S",
+    "iq2_m":   "IQ2_M",
+    "iq3_xxs": "IQ3_XXS",
+    "iq3_xs":  "IQ3_XS",
+    "iq3_s":   "IQ3_S",
+    "iq3_m":   "IQ3_M",
+    "iq4_nl":  "IQ4_NL",
+    "iq4_xs":  "IQ4_XS",
 }
 
 
 class QuantizerNotFoundError(RuntimeError):
     pass
+
+
+# ---------------------------------------------------------------------------
+# Quant catalog (v0.51.3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class QuantSpec:
+    """Metadata for one llama-quantize target type.
+
+    Attributes:
+        name:          The canonical llama.cpp enum string (e.g. ``"Q4_K_M"``).
+        bits_per_weight: Approximate bits per weight, including k/iq overhead.
+        category:      One of ``"float" / "legacy" / "k" / "iq"``.
+        size_factor:   Resulting GGUF size relative to fp16 (≈ bpw / 16).
+        notes:         Short human-readable summary.
+        recommended:   ``True`` if this is on the short-list of "use this"
+                       types we surface in :func:`recommended`.
+    """
+
+    name: str
+    bits_per_weight: float
+    category: str
+    notes: str
+    recommended: bool = False
+
+    @property
+    def size_factor(self) -> float:
+        return self.bits_per_weight / 16.0
+
+
+#: Canonical metadata for every llama-quantize target.  Keys are the
+#: llama.cpp enum strings (the values in :data:`QUANT_TYPES`).
+CATALOG: dict[str, QuantSpec] = {
+    # ---- floats ----
+    "F32":  QuantSpec("F32",  32.0, "float",  "fp32 — reference / lossless"),
+    "F16":  QuantSpec("F16",  16.0, "float",  "fp16 — half-precision baseline", recommended=True),
+    "BF16": QuantSpec("BF16", 16.0, "float",  "bfloat16 — better range than F16"),
+    # ---- legacy quants ----
+    "Q4_0": QuantSpec("Q4_0",  4.5, "legacy", "4-bit RTN, smallest legacy quant"),
+    "Q4_1": QuantSpec("Q4_1",  5.0, "legacy", "4-bit RTN with non-zero offset"),
+    "Q5_0": QuantSpec("Q5_0",  5.5, "legacy", "5-bit RTN"),
+    "Q5_1": QuantSpec("Q5_1",  6.0, "legacy", "5-bit RTN with offset"),
+    "Q8_0": QuantSpec("Q8_0",  8.5, "legacy", "8-bit RTN — near-lossless", recommended=True),
+    # ---- k-quants ----
+    "Q2_K":   QuantSpec("Q2_K",   2.625, "k", "smallest k-quant — significant quality loss"),
+    "Q2_K_S": QuantSpec("Q2_K_S", 2.5,   "k", "Q2_K small variant — tightest fit"),
+    "Q3_K_S": QuantSpec("Q3_K_S", 3.5,   "k", "3-bit k-quant, small"),
+    "Q3_K_M": QuantSpec("Q3_K_M", 3.75,  "k", "3-bit k-quant, medium — better ppl than Q3_K_S"),
+    "Q3_K_L": QuantSpec("Q3_K_L", 4.0,   "k", "3-bit k-quant, large"),
+    "Q4_K_S": QuantSpec("Q4_K_S", 4.5,   "k", "4-bit k-quant, small — strong size/quality"),
+    "Q4_K_M": QuantSpec("Q4_K_M", 4.83,  "k", "4-bit k-quant, medium — sweet spot for chat",
+                        recommended=True),
+    "Q5_K_S": QuantSpec("Q5_K_S", 5.5,   "k", "5-bit k-quant, small"),
+    "Q5_K_M": QuantSpec("Q5_K_M", 5.83,  "k", "5-bit k-quant, medium — minimal quality loss",
+                        recommended=True),
+    "Q6_K":   QuantSpec("Q6_K",   6.56,  "k", "6-bit k-quant — very close to fp16",
+                        recommended=True),
+    # ---- IQ-quants (newer, importance-matrix friendly) ----
+    "IQ1_S":   QuantSpec("IQ1_S",   1.5625, "iq", "1.5-bit IQ — extreme size reduction"),
+    "IQ1_M":   QuantSpec("IQ1_M",   1.75,   "iq", "1.75-bit IQ"),
+    "IQ2_XXS": QuantSpec("IQ2_XXS", 2.0625, "iq", "2-bit IQ XXS — needs imatrix"),
+    "IQ2_XS":  QuantSpec("IQ2_XS",  2.3125, "iq", "2-bit IQ XS — needs imatrix"),
+    "IQ2_S":   QuantSpec("IQ2_S",   2.5,    "iq", "2-bit IQ S — better than Q2_K at the same size"),
+    "IQ2_M":   QuantSpec("IQ2_M",   2.7,    "iq", "2-bit IQ M"),
+    "IQ3_XXS": QuantSpec("IQ3_XXS", 3.06,   "iq", "3-bit IQ XXS"),
+    "IQ3_XS":  QuantSpec("IQ3_XS",  3.3,    "iq", "3-bit IQ XS"),
+    "IQ3_S":   QuantSpec("IQ3_S",   3.44,   "iq", "3-bit IQ S — beats Q3_K_M at similar size"),
+    "IQ3_M":   QuantSpec("IQ3_M",   3.66,   "iq", "3-bit IQ M"),
+    "IQ4_NL":  QuantSpec("IQ4_NL",  4.5,    "iq", "4-bit IQ non-linear"),
+    "IQ4_XS":  QuantSpec("IQ4_XS",  4.25,   "iq", "4-bit IQ XS — recommended sub-Q4_K_M tier"),
+}
+
+
+def resolve_spec(quant_type: str) -> QuantSpec:
+    """Look up a :class:`QuantSpec` from any accepted alias.
+
+    Accepts the canonical enum (``"Q4_K_M"``), short forms
+    (``"q4km"``), and case-insensitive variants (``"q4_K_m"``).
+    Raises ``ValueError`` for unknown aliases.
+    """
+    key = quant_type.lower().replace("-", "_")
+    target = QUANT_TYPES.get(key) or QUANT_TYPES.get(key.upper().lower())
+    if target is None and quant_type.upper() in CATALOG:
+        target = quant_type.upper()
+    if target is None:
+        raise ValueError(
+            f"Unknown quant type {quant_type!r}. Valid: {sorted(set(QUANT_TYPES))}",
+        )
+    return CATALOG[target]
+
+
+def recommended() -> list[QuantSpec]:
+    """Return the curated short-list (``F16``, ``Q8_0``, ``Q6_K``,
+    ``Q5_K_M``, ``Q4_K_M``) — the types most users actually want."""
+    return [s for s in CATALOG.values() if s.recommended]
+
+
+def by_category(category: str) -> list[QuantSpec]:
+    """Return every spec in a category (``"float" / "legacy" / "k" / "iq"``),
+    sorted by bits-per-weight ascending."""
+    cat = category.lower()
+    out = [s for s in CATALOG.values() if s.category == cat]
+    return sorted(out, key=lambda s: s.bits_per_weight)
+
+
+def for_size(target_size_bytes: int, fp16_size_bytes: int) -> QuantSpec:
+    """Pick the largest quant spec that fits inside ``target_size_bytes``,
+    given the model's fp16 GGUF size.  Falls back to the smallest IQ
+    type if even that doesn't fit.
+    """
+    if fp16_size_bytes <= 0:
+        raise ValueError("fp16_size_bytes must be > 0")
+    candidates = sorted(
+        (s for s in CATALOG.values() if s.category != "float"),
+        key=lambda s: s.bits_per_weight, reverse=True,
+    )
+    for spec in candidates:
+        if spec.size_factor * fp16_size_bytes <= target_size_bytes:
+            return spec
+    # Nothing fit — return the smallest available.
+    return min(CATALOG.values(), key=lambda s: s.bits_per_weight)
+
+
+def estimate_size(quant_type: str, fp16_size_bytes: int) -> int:
+    """Estimate the resulting GGUF size for ``quant_type`` given the
+    fp16 reference size.  Pure arithmetic; doesn't run llama-quantize."""
+    spec = resolve_spec(quant_type)
+    return int(round(spec.size_factor * fp16_size_bytes))
+
+
+def list_types() -> list[str]:
+    """Sorted list of every canonical type name in :data:`CATALOG`."""
+    return sorted(CATALOG.keys())
 
 
 def _candidate_binary_names() -> list[str]:
@@ -320,12 +482,7 @@ def quantize_gguf(
     output = Path(output_gguf)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    key = quant_type.lower().replace("-", "_")
-    target = QUANT_TYPES.get(key)
-    if target is None:
-        raise ValueError(
-            f"Unknown quant type {quant_type!r}. Valid: {sorted(set(QUANT_TYPES))}"
-        )
+    target = resolve_spec(quant_type).name
 
     binary = _find_llama_quantize(llama_quantize_bin, auto_fetch=auto_fetch, auto=auto)
     cmd: list[str] = [binary]

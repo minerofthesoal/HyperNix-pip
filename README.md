@@ -8,9 +8,11 @@
 [![Python](https://img.shields.io/pypi/pyversions/hypernix.svg)](https://pypi.org/project/hypernix/)
 [![License](https://img.shields.io/pypi/l/hypernix.svg)](https://github.com/minerofthesoal/hypernix-pip/blob/main/LICENSE)
 
-**End-to-end toolkit for the `ray0rf1re/hyper-Nix.2` chat-tuned family of
-PyTorch language models** — download, chat, fine-tune, evaluate, quantize,
-and ship.
+**End-to-end toolkit for the HyperNix family of PyTorch language models** —
+the chat-tuned `ray0rf1re/hyper-Nix.2` (current default) and the original
+`ray0rf1re/hyper-nix.1` (still fully supported via the same `preheat()` /
+`download_model()` paths) — covering download, chat, fine-tune, evaluate,
+quantize, and ship.
 
 
 | Subsystem | What it does |
@@ -52,7 +54,7 @@ and ship.
 | `hypernix.flour` | Chat-quality logits processor — repetition penalty, frequency / presence penalty, no-repeat n-gram, bad-word suppression, role-leak suppression (cuts hallucinated `user:` follow-ups), decoded-text stop-sequence detection. `Flour.smart_default(template="hyper-nix.2")` applies all of them in one knob. This is the bit that makes hypernix's chat surface *better than raw transformers* for chatting. |
 | `hypernix.torch_compat` | Portability shim (RMSNorm + SDPA) for running on old Intel Macs with torch 1.13. See [`wiki/macOS-legacy.md`](wiki/macOS-legacy.md). |
 | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
-| `hypernix.quantize` | `llama-quantize` driver for Q8_0, Q6_K, Q4_K_M, Q5_K_M. |
+| `hypernix.quantize` | `llama-quantize` driver. v0.51.3 ships a 30-type `QUANT_CATALOG` (`QuantSpec` dataclass per type with bits-per-weight, category, recommendation) covering floats (`F32` / `F16` / `BF16`), legacy quants (`Q4_0` / `Q4_1` / `Q5_0` / `Q5_1` / `Q8_0`), k-quants (`Q2_K` … `Q6_K`), and IQ-quants (`IQ1_S` … `IQ4_XS`). Helpers: `quant_recommended()`, `quant_by_category("k")`, `quant_for_size(target_bytes, fp16_bytes)`, `quant_estimate_size(name, fp16_bytes)`, `quant_resolve_spec("q4km")`. |
 | `hypernix.upload` | Push the produced artifacts back to a HuggingFace repo. |
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.13.
@@ -227,16 +229,24 @@ hypernix <subcommand> [options]
   chat                  interactive chat REPL against any supported model
 ```
 
-Quant aliases accepted by `--quants` and `hypernix quantize`:
+Quant aliases accepted by `--quants` and `hypernix quantize` (v0.51.3
+ships 49 aliases mapping to 30 distinct quant types — the table below
+shows the headline subset; `hypernix.quant_list_types()` returns the
+full list at runtime, and `hypernix.QUANT_CATALOG[name]` gives you the
+full `QuantSpec` for any one):
 
-| Alias | llama.cpp enum |
-|---|---|
-| `fp32`, `f32` | F32 |
-| `fp16`, `f16` | F16 |
-| `q8`, `q8_0` | Q8_0 |
-| `q6`, `q6_k` | Q6_K |
-| `q4km`, `q4_k_m` | Q4_K_M |
-| `q5km`, `q5_k_m` | Q5_K_M |
+| Alias | llama.cpp enum | bpw | Recommended? |
+|---|---|---|---|
+| `fp32`, `f32` | F32 | 32.0 | reference |
+| `fp16`, `f16` | F16 | 16.0 | ✓ baseline |
+| `bf16` | BF16 | 16.0 |  |
+| `q4_0`, `q4_1`, `q5_0`, `q5_1` | Q4_0 / Q4_1 / Q5_0 / Q5_1 | 4.5 – 6.0 | legacy |
+| `q8`, `q8_0` | Q8_0 | 8.5 | ✓ near-lossless |
+| `q2_k`, `q2_k_s`, `q3_k_s`, `q3_k_m`, `q3_k_l` | Q2_K … Q3_K_L | 2.5 – 4.0 |  |
+| `q4_k_s`, `q4km`, `q4_k_m` | Q4_K_S, Q4_K_M | 4.5, 4.83 | ✓ chat sweet spot |
+| `q5_k_s`, `q5km`, `q5_k_m` | Q5_K_S, Q5_K_M | 5.5, 5.83 | ✓ |
+| `q6`, `q6_k` | Q6_K | 6.56 | ✓ near-fp16 |
+| `iq1_s`, `iq1_m`, `iq2_*`, `iq3_*`, `iq4_nl`, `iq4_xs` | IQ1_S … IQ4_XS | 1.56 – 4.5 | imatrix-friendly |
 
 ## Supported model families
 
