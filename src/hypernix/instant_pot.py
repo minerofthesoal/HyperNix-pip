@@ -65,6 +65,17 @@ def brew(recipe: dict[str, Any]) -> Path:
     out_dir = recipe.get("out_dir")
     if out_dir is None:
         raise KeyError("instant_pot.brew: 'out_dir' is required")
+    # Pass 2 (v0.50): fail fast on a missing dataset file with a
+    # message that points at the path the caller actually passed,
+    # rather than letting train() raise a deeper "no chunks" error
+    # twenty stack frames down.
+    dataset_path = Path(dataset)
+    if not dataset_path.exists():
+        raise FileNotFoundError(
+            f"instant_pot.brew: dataset {str(dataset_path)!r} does not "
+            f"exist (resolved to {dataset_path.resolve()}).  Pass an "
+            f"existing raw-text file via the recipe's 'dataset' key.",
+        )
 
     # 1) Preheat the oven.
     oven = old_oven.preheat(

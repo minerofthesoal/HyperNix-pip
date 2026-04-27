@@ -204,32 +204,50 @@ class PressureCooker(Optimizer):
         lr = self.scheduled_lr(self._step)
         for group in self.param_groups:
             group["lr"] = lr
-            beta1, beta2 = group["betas"]
-            eps = group["eps"]
-            wd = group["weight_decay"]
-            for p in group["params"]:
-                if p.grad is None:
-                    continue
-                state = self.state[p]
-                if "exp_avg" not in state:
-                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                    state["step"] = 0
-                    if self.lookahead_k > 0:
-                        state["slow"] = p.detach().clone()
-                state["step"] += 1
-                step_t = state["step"]
-                exp_avg = state["exp_avg"]
-                exp_avg_sq = state["exp_avg_sq"]
-                if wd != 0:
-                    p.mul_(1.0 - lr * wd)
-                exp_avg.mul_(beta1).add_(p.grad, alpha=1.0 - beta1)
-                exp_avg_sq.mul_(beta2).addcmul_(p.grad, p.grad, value=1.0 - beta2)
-                bias1 = 1.0 - beta1 ** step_t
-                bias2 = 1.0 - beta2 ** step_t
-                denom = (exp_avg_sq.sqrt() / math.sqrt(bias2)).add_(eps)
-                step_size = lr / bias1
-                p.addcdiv_(exp_avg, denom, value=-step_size)
+            self._adamw_scalar_for(
+                [p for p in group["params"] if p.grad is not None],
+                group,
+            )
+
+    def _adamw_scalar_for(
+        self, params: list[torch.nn.Parameter], group: dict,
+    ) -> None:
+        """Per-group scalar AdamW.  Used both by :meth:`_adamw_scalar`
+        and by :meth:`_adamw_multitensor` as a fallback when the
+        private ``torch.optim._functional.adamw`` API is unavailable
+        or has changed signature."""
+        lr = group["lr"]
+        beta1, beta2 = group["betas"]
+        eps = group["eps"]
+        wd = group["weight_decay"]
+        for p in params:
+            if p.grad is None:
+                continue
+            state = self.state[p]
+            if "exp_avg" not in state:
+                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] = 0
+                if self.lookahead_k > 0:
+                    state["slow"] = p.detach().clone()
+            # Tolerate ``state["step"]`` being a tensor or int.
+            current = state["step"]
+            current_value = (
+                current.item() if isinstance(current, torch.Tensor) else current
+            )
+            state["step"] = current_value + 1
+            step_t = state["step"]
+            exp_avg = state["exp_avg"]
+            exp_avg_sq = state["exp_avg_sq"]
+            if wd != 0:
+                p.mul_(1.0 - lr * wd)
+            exp_avg.mul_(beta1).add_(p.grad, alpha=1.0 - beta1)
+            exp_avg_sq.mul_(beta2).addcmul_(p.grad, p.grad, value=1.0 - beta2)
+            bias1 = 1.0 - beta1 ** step_t
+            bias2 = 1.0 - beta2 ** step_t
+            denom = (exp_avg_sq.sqrt() / math.sqrt(bias2)).add_(eps)
+            step_size = lr / bias1
+            p.addcdiv_(exp_avg, denom, value=-step_size)
 
     def _adamw_multitensor(self) -> None:
         """Dispatch to ``torch.optim.AdamW`` in foreach / fused mode so
@@ -270,34 +288,45 @@ class PressureCooker(Optimizer):
             fused_ok = bool(self.fused) and _HAS_FUSED_ADAMW and all(
                 p.is_cuda for p in params
             )
+            # Pass 1 (v0.50): the private ``torch.optim._functional``
+            # signature has shifted between torch 2.0 / 2.2 / 2.4 / 2.7.
+            # If we can't import it or call it cleanly, fall back to
+            # the scalar path rather than raising — the user gets the
+            # right answer either way, just slower.
+            functional_adamw = None
             try:
-                from torch.optim._functional import adamw as _functional_adamw
+                from torch.optim._functional import adamw as functional_adamw
             except ImportError:
-                from torch.optim._functional import (
-                    adamw as _functional_adamw,  # type: ignore[no-redef]
+                pass
+            if functional_adamw is None:
+                self._adamw_scalar_for(params, group)
+                continue
+            try:
+                functional_adamw(
+                    params,
+                    [p.grad for p in params],
+                    exp_avgs,
+                    exp_avg_sqs,
+                    [],                              # max_exp_avg_sqs (amsgrad)
+                    state_steps,
+                    amsgrad=self.amsgrad,
+                    beta1=beta1,
+                    beta2=beta2,
+                    lr=lr,
+                    weight_decay=group["weight_decay"],
+                    eps=group["eps"],
+                    maximize=False,
+                    foreach=self.foreach is not False,
+                    capturable=False,
+                    differentiable=False,
+                    fused=fused_ok,
+                    grad_scale=None,
+                    found_inf=None,
                 )
-
-            _functional_adamw(
-                params,
-                [p.grad for p in params],
-                exp_avgs,
-                exp_avg_sqs,
-                [],                                  # max_exp_avg_sqs (amsgrad)
-                state_steps,
-                amsgrad=self.amsgrad,
-                beta1=beta1,
-                beta2=beta2,
-                lr=lr,
-                weight_decay=group["weight_decay"],
-                eps=group["eps"],
-                maximize=False,
-                foreach=self.foreach is not False,
-                capturable=False,
-                differentiable=False,
-                fused=fused_ok,
-                grad_scale=None,
-                found_inf=None,
-            )
+            except TypeError:
+                # Older / newer torch dropped or added kwargs — degrade
+                # to the scalar path, no exception leaks to the caller.
+                self._adamw_scalar_for(params, group)
 
     def _lookahead_update(self) -> None:
         k = self.lookahead_k

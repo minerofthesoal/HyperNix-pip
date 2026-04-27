@@ -100,6 +100,11 @@ class Fryer:
         provenance.  Zero-perturbation params (all-zero tensors) are
         left untouched since the Gaussian would be degenerate.
         """
+        # Pass 1 (v0.50): use a torch.Generator seeded from
+        # ``self.seed`` so the noise is reproducible regardless of
+        # the global torch RNG state.  Previously two callers with
+        # the same seed but different global RNG states got
+        # different noise.
         rng_py = random.Random(self.seed)
         touched: dict[str, int] = {}
         for pname, p in self.model.named_parameters():
@@ -118,8 +123,13 @@ class Fryer:
             std = float(flat.std().item())
             if std == 0.0:
                 continue
-            noise = torch.randn(k, device=flat.device, dtype=flat.dtype) \
-                * (self.noise_std * std)
+            # Per-parameter generator on the parameter's device so the
+            # noise is reproducible on both CPU and CUDA.
+            torch_rng = torch.Generator(device=flat.device)
+            torch_rng.manual_seed(self.seed + sum(map(ord, pname)))
+            noise = torch.randn(
+                k, device=flat.device, dtype=flat.dtype, generator=torch_rng,
+            ) * (self.noise_std * std)
             flat[idx] += noise
             self._apply_extra(flat, idx, rng_py)
             touched[pname] = k

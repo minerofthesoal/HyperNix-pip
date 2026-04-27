@@ -17,6 +17,139 @@ next release header.
 
 ---
 
+## 0.50.0
+
+✨ **Four new kitchen modules.**
+
+* **`hypernix.whisk` — checkpoint averaging.**
+  Three modes for blending N saved snapshots into one set of
+  weights, all working on plain ``dict[str, Tensor]``:
+    * ``swa_average(items)`` — uniform Stochastic Weight Average
+      (mean across all N).
+    * ``ema(items, decay=0.99)`` — exponential moving average;
+      later inputs weighted ``decay ** (N-1-i)``.
+    * ``geometric_mean(items)`` — element-wise geometric mean
+      (clamped at ``eps`` for non-positives).
+  Inputs may be in-memory state dicts **or** paths to ``.pt`` /
+  ``.safetensors``.  Mismatched keys are intersected with a
+  warning unless ``strict=True``.  Integer tensors are taken from
+  the first checkpoint (averaging them is meaningless).
+  ``whisk(items, mode="swa"|"ema"|"geometric-mean")`` is the
+  one-shot factory; ``whisk_to_snapshot(items, out_dir, ...)``
+  whisks **and** writes a full HF-style snapshot directory in one
+  call (best-effort config recovery from a sibling
+  ``config.json``).
+
+* **`hypernix.cutting_board` — train / val / test splitting.**
+    * ``CuttingBoard(train_ratio, val_ratio, test_ratio,
+      seed, shuffle)`` — deterministic random split.  Ratios are
+      renormalised if they don't sum to 1.0; ``test_ratio=0`` is
+      allowed (you'll get train + val and an empty test slice).
+      ``.slice(source)`` returns ``{"train": [...], "val": [...],
+      "test": [...]}`` from a corpus path or any iterable of
+      strings; ``.slice_to_files(out_dir, suffix=".txt")`` writes
+      each slice to its own file.
+    * ``StratifiedBoard(label_key="label")`` — stratified split
+      that preserves the class distribution from labelled records
+      (each unique label is shuffled and split independently,
+      then per-class slices are concatenated and shuffled once
+      more so the output isn't grouped by class).
+    * Convenience: ``cutting_board(source, train=…, val=…,
+      test=…, seed=…)`` returns the slice dict directly when
+      ``source`` is given, else returns a configured board.
+
+* **`hypernix.apron` — RNG-state guard.**
+  An apron protects what's underneath while you cook.  Captures
+  every random-number source hypernix or your script might touch
+  (Python ``random``, NumPy if installed, PyTorch CPU, every
+  CUDA device's RNG) and restores it on exit.  Two ways to use
+  it:
+
+      with apron(seed=0):
+          # everything inside is deterministic; nothing leaks out.
+          random.shuffle(my_list)
+          torch.randn(10)
+
+      a = Apron.snapshot(seed=0)
+      ...
+      a.restore()
+
+  Use it any time a step in your pipeline wants to perturb the
+  global RNG (e.g. an evaluator that uses ``torch.randn`` for
+  sampling) without leaking the perturbation back to the caller.
+
+* **`hypernix.recipe_book` — named-config registry.**
+  Save 12-key brew recipes once, refer to them by name forever.
+  ``RecipeBook.add(name, recipe)`` / ``get(name)`` /
+  ``remove(name)`` / ``save(path)`` / ``load(path)``.
+  ``cook(name, **overrides)`` looks up, applies overrides on top,
+  and dispatches by ``kind`` field:
+    * ``"instant_pot"`` → ``hypernix.instant_pot.brew``
+    * ``"cold_brew"`` → ``hypernix.coffee_maker.cold_brew(...).brew()``
+    * ``"espresso"`` → ``hypernix.espresso_maker.espresso_maker(...).pull(prompts)``
+  ``RecipeBook.from_builtins()`` ships a handful of ready-to-use
+  recipes (``evaluator-quick``, ``ftune-pascal``,
+  ``nightly-coldbrew``, ``espresso-eval``).
+
+🐛 **Three bug-fix passes across the codebase.**
+
+Pass 1 — runtime correctness:
+
+* `pressure_cooker._adamw_multitensor`: the private
+  ``torch.optim._functional.adamw`` API is **not** stable across
+  torch 1.13 → 2.x.  Now wrapped in a try/except (both
+  ``ImportError`` on the import and ``TypeError`` at call time),
+  with a graceful fall-through to a hand-written
+  ``_adamw_scalar_for(params, group)`` so the optimizer keeps
+  working on torch versions where the private name was renamed
+  or had its signature changed.
+* `deep_fryer.LightFry` / `HeavyFry`: replaced the global
+  ``torch.manual_seed`` mutation with a per-parameter
+  ``torch.Generator(device=flat.device)`` keyed on
+  ``self.seed + sum(map(ord, pname))``.  Two consecutive fries
+  with the same seed now produce identical noise **without** also
+  perturbing the user's training RNG state.
+* `food_processor.SliceBlade`: previously accepted any
+  ``overlap_chars`` and produced a zero-length step (infinite
+  loop) when ``overlap_chars >= slice_chars``.  Now raises
+  ``ValueError`` at chunk time with a clear message.
+* `industrial_range._parse_pairwise`: the pairwise parser used
+  to insist that "tie/tied/equal" be the first character of the
+  judge response.  Real judges write things like "Tied — both
+  responses are correct" or "Equal quality" — those now correctly
+  return ``"T"``.
+
+Pass 2 — UX / error-message clarity:
+
+* `instant_pot.brew`: when ``recipe["dataset"]`` doesn't exist on
+  disk, the old behaviour was a confusing ``KeyError`` deep inside
+  ``train`` after a 30-second model download.  Now fast-fails with
+  ``FileNotFoundError("instant_pot.brew: dataset … does not
+  exist")`` before the download starts.
+* `microwave._preheat`: a string repo id like ``"nix2.5"`` that
+  happened to coincide with an existing local directory was being
+  treated as a path even when the directory didn't contain a
+  ``config.json``.  The path branch now also requires
+  ``config.json`` before short-circuiting the Hub download.
+* `cake_pan` `step_timeout` handler: the SIGALRM handler used to
+  raise ``BakeOff`` directly without first restoring pristine
+  state, leaving the model with a half-applied gradient step.
+  Now calls ``self.roll_back()`` before raising.
+
+Pass 3 — discovered during smoke-testing the new modules:
+
+* `apron.Apron.snapshot`: the previous implementation seeded the
+  RNGs **before** capturing state, so the ``with apron(seed=42):``
+  context-manager exit restored to the seeded state instead of
+  the caller's pre-call state.  Now snapshots first, then
+  optionally seeds, so exit truly returns the caller to whatever
+  they were doing before.
+
+🛡️ **36 new tests** in ``tests/test_v050.py`` covering all four
+new modules plus regressions for every bug fix above.
+
+---
+
 ## 0.49.0
 
 ✨ **`hypernix.lunchbox` — consistent-schema dataset packager.**

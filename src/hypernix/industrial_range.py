@@ -162,8 +162,18 @@ class IndustrialRange:
 
     @staticmethod
     def _parse_pairwise(text: str) -> str:
-        """Return ``"A"`` / ``"B"`` / ``"T"`` from a free-form reply."""
-        head = text.strip()[:32]
+        """Return ``"A"`` / ``"B"`` / ``"T"`` from a free-form reply.
+
+        Pass 1 (v0.50): also accept ``"tie"`` / ``"tied"`` /
+        ``"equal"`` anywhere in the head, not just a leading ``T``.
+        Previously ``"I think it's a tie"`` parsed as B.
+        """
+        head = text.strip()[:64]
+        head_lower = head.lower()
+        # Explicit tie words anywhere in the head win — they're
+        # unambiguous.
+        if any(w in head_lower for w in ("tie", "tied", "equal")):
+            return "T"
         if head[:1].upper() == "T":
             return "T"
         ma = _VERDICT_A.search(head)

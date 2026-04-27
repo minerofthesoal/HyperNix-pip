@@ -179,9 +179,13 @@ class CakePan:
         self.step_count += 1
 
         # Wall-time watchdog via SIGALRM (Linux / macOS only).
+        # Pass 2 (v0.50): when the alarm fires mid-step the model
+        # may be partly updated; roll back inside the handler before
+        # raising so the caller doesn't have to remember to.
         prev_handler = None
         if self.step_timeout_s > 0 and hasattr(signal, "SIGALRM"):
             def _timeout_handler(signum, frame):  # noqa: ANN001
+                self.roll_back()
                 raise BakeOff(
                     f"step exceeded {self.step_timeout_s:.0f}s",
                     self.step_count,

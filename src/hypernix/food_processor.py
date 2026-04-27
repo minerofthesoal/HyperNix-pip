@@ -72,7 +72,18 @@ class SliceBlade:
         text = _read_text(self.source)
         if self.slice_chars <= 0:
             raise ValueError("slice_chars must be > 0")
-        step = max(1, self.slice_chars - self.overlap_chars)
+        # Pass 1 (v0.50): catch the easy footgun where the user passes
+        # ``overlap_chars >= slice_chars`` — the loop would otherwise
+        # silently emit duplicate windows that step by 1 character.
+        if self.overlap_chars < 0:
+            raise ValueError("overlap_chars must be >= 0")
+        if self.overlap_chars >= self.slice_chars:
+            raise ValueError(
+                f"overlap_chars ({self.overlap_chars}) must be < "
+                f"slice_chars ({self.slice_chars}) to make forward "
+                f"progress; would otherwise emit duplicate windows.",
+            )
+        step = self.slice_chars - self.overlap_chars
         for i in range(0, len(text), step):
             piece = text[i : i + self.slice_chars]
             if piece.strip():

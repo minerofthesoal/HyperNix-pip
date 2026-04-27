@@ -38,13 +38,28 @@ def _preheat(
     dtype: str,
     quiet: bool,
 ):
+    """Resolve ``repo_id_or_dir`` and call old_oven.preheat.
+
+    Pass 2 (v0.50): require the candidate directory to contain a
+    ``config.json`` before treating it as a snapshot path.
+    Previously *any* string that happened to resolve to an existing
+    directory got the path treatment, which silently shadowed
+    short-name lookups when the cwd had a same-named directory.
+    """
     local_dir: Path | None = None
     repo_id = str(repo_id_or_dir)
-    if isinstance(repo_id_or_dir, Path) or (
-        isinstance(repo_id_or_dir, str) and Path(repo_id_or_dir).exists()
-    ):
-        local_dir = Path(repo_id_or_dir)
+    if isinstance(repo_id_or_dir, Path):
+        local_dir = repo_id_or_dir
         repo_id = "ray0rf1re/hyper-nix.1"
+    elif isinstance(repo_id_or_dir, str):
+        candidate = Path(repo_id_or_dir)
+        if (
+            candidate.exists()
+            and candidate.is_dir()
+            and (candidate / "config.json").exists()
+        ):
+            local_dir = candidate
+            repo_id = "ray0rf1re/hyper-nix.1"
     return old_oven.preheat(
         repo_id=repo_id, local_dir=local_dir, device=device, dtype=dtype,
         quiet=quiet,
