@@ -17,6 +17,81 @@ next release header.
 
 ---
 
+## 0.51.1
+
+🐛 **Five bug-fix patches across three review passes** — one
+by-hand source-read pass and two hand-driven testing passes,
+including a memory-leak / Pascal-GPU / CPU-leak audit.
+
+* **`bell.Bell._iter_from_ids` — stop-marker leak.**  The
+  stop-sequence check ran *after* yielding the offending token,
+  so consumers wired up via ``iter_chat`` / ``iter_complete``
+  saw ``"<|im_end|>"`` (or whatever the stop string was) appear
+  in their stream before generation halted.  Fix: check the
+  *candidate* decoded text BEFORE yielding the token.
+
+* **`countertop.Countertop._trim` — wipes the just-added user
+  turn.**  Aggressive trimming with a small ``max_history_tokens``
+  could ``del self.history[:2]`` when ``len(history) == 2``,
+  leaving an empty history right before the call to
+  ``oven.chat(messages)``.  Fix: cap the drop count at
+  ``len(self.history) - 1`` so the most-recent message always
+  survives.
+
+* **`cookbook._HYPER_NIX_2` — dict-aliasing footgun.**
+  ``_HYPER_NIX_2`` was constructed with
+  ``role_prefixes=_CHATML.role_prefixes`` (and same for
+  ``role_suffixes``), so the two templates literally shared the
+  same dict object.  Mutating ``COOKBOOK.get("chatml")``'s
+  prefix table silently corrupted ``hyper-nix.2``.  Fix: copy
+  the dicts at construction time.
+
+* **`flour.Flour.process` — crashes on tensor input.**  The
+  guard ``if produced_ids:`` raised
+  ``RuntimeError: Boolean value of Tensor with more than one
+  value is ambiguous`` when callers passed a ``torch.Tensor``.
+  Fix: normalise ``produced_ids`` to a plain ``list[int]`` at
+  the top of ``process`` and switch the gating to a length
+  check; tensors, numpy arrays, and one-shot generators now all
+  work.
+
+* **`pressure_cooker.UniversalCooker.select` — breaks Pascal
+  (sm_61) GPUs.**  The selector unconditionally returned
+  ``ProCooker`` (which inherits ``InductionCooker`` with
+  ``fused=True`` + CUDA graphs) on any CUDA device, but fused
+  AdamW and ``torch.cuda.CUDAGraph`` both require compute
+  capability ≥ 7.0.  A 1080 / 1080 Ti / Titan Xp user calling
+  ``universal_cooker(model.parameters())`` would crash with
+  ``RuntimeError: fused=True requires CUDA capability >= 7.0``.
+  Fix: new ``_is_pre_volta(device)`` helper; the selector now
+  detects Pascal and forces ``fused=False`` (with
+  ``foreach=_HAS_FOREACH``) on a plain ``InductionCooker``.
+
+🛡️ **14 new regression tests** in ``tests/test_v051_1.py`` —
+one per behavioural requirement of the fixes (stop-marker
+absence in stream / token-callback / done-callback; trim
+preserves freshest user; cookbook dicts are independent and
+non-aliasing; flour accepts torch tensors / generators / empty
+inputs; ``_is_pre_volta`` returns False on CPU and the Pascal
+selector path forces ``fused=False``).
+
+🎨 **Project logo wired in.**  ``assets/logo.png`` is now
+referenced from the top of the README (with a raw GitHub URL so
+PyPI renders it on the project page) and is shipped in the sdist
+via ``MANIFEST.in``.  ``DEFAULT_REPO_ID`` and the ``Homepage``
+URL also updated to point at ``ray0rf1re/hyper-Nix.2``.
+
+🔧 **Memory-leak audit (CPU + Pascal-GPU paths).**  Manually
+exercised ``deep_fryer.LightFry`` (fry / un_fry over 50 iters,
+``torch.Generator`` and ``torch.Tensor`` object counts both
+delta-zero), ``Bell.iter_complete`` (20 streaming runs,
+delta-zero), ``CodeOven.chat`` (10 turns, delta-zero).  No leaks
+introduced by the v0.51.0 chat surface.
+
+Final: 621 tests pass, 1 skipped (matplotlib).
+
+---
+
 ## 0.51.0
 
 ✨ **Chat-first release.** Five new modules + first-class support

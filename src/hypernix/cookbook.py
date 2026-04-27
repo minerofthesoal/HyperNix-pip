@@ -127,8 +127,11 @@ _CHATML = ChatTemplate(
 
 _HYPER_NIX_2 = ChatTemplate(
     name="hyper-nix.2",
-    role_prefixes=_CHATML.role_prefixes,
-    role_suffixes=_CHATML.role_suffixes,
+    # Patch (0.51.1): copy the dicts so mutating one template's
+    # role tables doesn't leak into the other (was an aliasing bug
+    # in 0.51.0).
+    role_prefixes=dict(_CHATML.role_prefixes),
+    role_suffixes=dict(_CHATML.role_suffixes),
     assistant_prefix=_CHATML.assistant_prefix,
     eos=_CHATML.eos,
     default_system=(

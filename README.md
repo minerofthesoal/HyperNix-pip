@@ -1,11 +1,16 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/assets/logo.png" alt="hypernix logo" width="240" />
+</p>
+
 # hypernix
 
 [![PyPI](https://img.shields.io/pypi/v/hypernix.svg)](https://pypi.org/project/hypernix/)
 [![Python](https://img.shields.io/pypi/pyversions/hypernix.svg)](https://pypi.org/project/hypernix/)
 [![License](https://img.shields.io/pypi/l/hypernix.svg)](https://github.com/minerofthesoal/hypernix-pip/blob/main/LICENSE)
 
-**End-to-end toolkit for the `ray0rf1re/hyper-nix.1` family of PyTorch
-language models.**
+**End-to-end toolkit for the `ray0rf1re/hyper-Nix.2` chat-tuned family of
+PyTorch language models** — download, chat, fine-tune, evaluate, quantize,
+and ship.
 
 
 | Subsystem | What it does |

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.51.0"
+version = "0.51.1"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
@@ -75,9 +75,10 @@ hypernix = "hypernix.cli:main"
 hypernix-quantize = "hypernix.cli:main"
 
 [project.urls]
-Homepage = "https://huggingface.co/ray0rf1re/hyper-nix.1"
+Homepage = "https://huggingface.co/ray0rf1re/hyper-Nix.2"
 Source = "https://github.com/minerofthesoal/hypernix-pip"
 Issues = "https://github.com/minerofthesoal/hypernix-pip/issues"
+Logo = "https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/assets/logo.png"
 
 # ---------------------------------------------------------------------------
 # Setuptools: src/ layout + include extra files in the sdist via MANIFEST.in

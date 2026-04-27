@@ -520,6 +520,24 @@ def _flatten_params(params) -> list[torch.nn.Parameter]:
     return out
 
 
+def _is_pre_volta(device: torch.device) -> bool:
+    """True for CUDA devices with compute capability < 7.0 — i.e.
+    Pascal (sm_61, GTX 1080 / 1080 Ti / Titan Xp) and earlier.
+
+    Patch (0.51.1): used by :class:`UniversalCooker.select` so a
+    1080 user doesn't get the fused/foreach/CUDA-graph stack that
+    silently requires sm_70+ and would crash with
+    ``RuntimeError: fused=True requires CUDA capability >= 7.0``.
+    """
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return False
+    try:
+        major, _minor = torch.cuda.get_device_capability(device)
+    except Exception:  # noqa: BLE001
+        return False
+    return major < 7
+
+
 class UniversalCooker:
     """Factory that returns the right tier for the model's device.
 
@@ -533,6 +551,15 @@ class UniversalCooker:
         listed = _flatten_params(list(params))
         dev = listed[0].device if listed else torch.device("cpu")
         if dev.type == "cuda":
+            # Patch (0.51.1): Pascal (sm_61, e.g. GTX 1080) does not
+            # support fused AdamW or CUDA graphs.  Force the safer
+            # foreach-only InductionCooker variant with fused=False
+            # so the optimizer actually runs on a 1080.  ProCooker is
+            # gated on Volta+ (sm_70+, V100 / RTX 20-series and up).
+            if _is_pre_volta(dev):
+                kwargs.setdefault("fused", False)
+                kwargs.setdefault("foreach", _HAS_FOREACH)
+                return InductionCooker(listed, **kwargs)
             return ProCooker(listed, **kwargs) if prefer_speed else InductionCooker(listed, **kwargs)
         return ElectricCooker(listed, **kwargs) if prefer_speed else StovetopCooker(listed, **kwargs)
 

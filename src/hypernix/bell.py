@@ -218,13 +218,18 @@ class Bell:
                         break
                     produced.append(nid)
                     tok = oven._decode([nid])
-                    decoded_so_far += tok
+                    candidate_decoded = decoded_so_far + tok
+                    # Patch (0.51.1): check the stop sequence on the
+                    # *candidate* decoded text BEFORE yielding the
+                    # token, so the marker doesn't leak into the
+                    # consumer's stream.
+                    if self.flour is not None and self.flour.matched_stop(candidate_decoded):
+                        break
+                    decoded_so_far = candidate_decoded
                     for fn in self.token_callbacks:
                         fn(tok, i)
                     yield tok
                     cur = torch.cat([cur, next_id.view(1, 1)], dim=1)
-                    if self.flour is not None and self.flour.matched_stop(decoded_so_far):
-                        break
         finally:
             if was_training:
                 model.train()

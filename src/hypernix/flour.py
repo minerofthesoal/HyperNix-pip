@@ -226,10 +226,17 @@ class Flour:
             logits = logits.unsqueeze(0)
         out = logits.clone()
 
+        # Patch (0.51.1): normalise produced_ids to a plain list of
+        # ints up front so callers can pass a torch.Tensor / numpy
+        # array / generator without tripping the ``if produced_ids``
+        # ambiguity (was a TypeError on tensor input in 0.51.0).
+        ids_list: list[int] = [int(t) for t in produced_ids]
+        has_history = len(ids_list) > 0
+
         # 1. Repetition penalty (multiplicative).
-        if self.repetition_penalty and self.repetition_penalty != 1.0 and produced_ids:
+        if self.repetition_penalty and self.repetition_penalty != 1.0 and has_history:
             ids = torch.tensor(
-                list(set(int(i) for i in produced_ids)),
+                sorted(set(ids_list)),
                 device=out.device, dtype=torch.long,
             )
             seen = out[:, ids]
@@ -240,10 +247,10 @@ class Flour:
             )
 
         # 2. Frequency penalty (linear in count).
-        if self.frequency_penalty and produced_ids:
+        if self.frequency_penalty and has_history:
             counts: dict[int, int] = {}
-            for tid in produced_ids:
-                counts[int(tid)] = counts.get(int(tid), 0) + 1
+            for tid in ids_list:
+                counts[tid] = counts.get(tid, 0) + 1
             ids_l = list(counts.keys())
             ids_t = torch.tensor(ids_l, device=out.device, dtype=torch.long)
             cnts_t = torch.tensor(
@@ -253,22 +260,21 @@ class Flour:
             out[:, ids_t] -= self.frequency_penalty * cnts_t
 
         # 3. Presence penalty (linear, once per unique token).
-        if self.presence_penalty and produced_ids:
+        if self.presence_penalty and has_history:
             uniq = torch.tensor(
-                list(set(int(i) for i in produced_ids)),
+                sorted(set(ids_list)),
                 device=out.device, dtype=torch.long,
             )
             out[:, uniq] -= self.presence_penalty
 
         # 4. No-repeat n-gram.
-        if self.no_repeat_ngram and len(produced_ids) >= self.no_repeat_ngram:
+        if self.no_repeat_ngram and len(ids_list) >= self.no_repeat_ngram:
             n = self.no_repeat_ngram
-            tail = tuple(int(t) for t in produced_ids[-(n - 1):])
+            tail = tuple(ids_list[-(n - 1):])
             banned: set[int] = set()
-            ids = [int(t) for t in produced_ids]
-            for i in range(len(ids) - n + 1):
-                if tuple(ids[i : i + n - 1]) == tail:
-                    banned.add(ids[i + n - 1])
+            for i in range(len(ids_list) - n + 1):
+                if tuple(ids_list[i : i + n - 1]) == tail:
+                    banned.add(ids_list[i + n - 1])
             if banned:
                 ban_t = torch.tensor(
                     sorted(banned), device=out.device, dtype=torch.long,

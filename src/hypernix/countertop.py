@@ -215,10 +215,14 @@ class Countertop:
 
     def _trim(self) -> None:
         """Drop the oldest user/assistant pair while the rendered
-        transcript exceeds ``max_history_tokens`` characters."""
+        transcript exceeds ``max_history_tokens`` characters.
+
+        Patch (0.51.1): never drop below 1 history element so the
+        most-recently-appended user turn always survives, even when
+        the budget is smaller than a single rendered turn.
+        """
         if not self.max_history_tokens:
             return
-        # Keep at least the most recent user turn.
         while len(self.history) > 1:
             rendered = self._template().apply(
                 self._messages_with_system(),
@@ -226,9 +230,11 @@ class Countertop:
             )
             if len(rendered) <= self.max_history_tokens:
                 return
-            # Drop the oldest non-system pair (history doesn't include
-            # system; system lives on the dataclass).
-            drop = 2 if len(self.history) >= 2 else 1
+            # Drop the oldest non-system pair, but stop when only the
+            # most recent message remains.  Cap the drop count so the
+            # final element (always the freshly-appended user turn in
+            # ``say``) is preserved.
+            drop = min(2, len(self.history) - 1)
             del self.history[:drop]
 
 
