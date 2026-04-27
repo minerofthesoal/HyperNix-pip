@@ -58,6 +58,7 @@ from . import (
     food_processor,
     freezer,
     industrial_range,
+    injection,
     instant_pot,
     lunchbox,
     mediocre_fridge,
@@ -71,6 +72,7 @@ from . import (
     outage,
     pans,
     pepper_shaker,
+    plasma,
     pressure_cooker,
     recipe_book,
     salt_shaker,
@@ -84,6 +86,7 @@ from . import (
     toaster,
     torch_compat,
     tv,
+    ups,
     whisk,
 )
 from .convert import convert_to_gguf
@@ -174,6 +177,7 @@ __all__ = [
     "gpu_preset",
     "industrial_range",
     "init_from_scratch",
+    "injection",
     "instant_pot",
     "load_pt",
     "load_snapshot",
@@ -190,6 +194,7 @@ __all__ = [
     "outage",
     "pans",
     "pepper_shaker",
+    "plasma",
     "pressure_cooker",
     "preheat",
     "quant_by_category",
@@ -215,10 +220,11 @@ __all__ = [
     "torch_compat",
     "train",
     "tv",
+    "ups",
     "upload_gguf",
     "verify_snapshot",
     "whisk",
 ]
 
-__version__ = "0.60.0"
+__version__ = "0.61.0b1"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"

@@ -190,10 +190,25 @@ class TestTV:
     def test_render_produces_string(self, tmp_path: Path) -> None:
         log = tmp_path / "train.log"
         log.write_text("step 50/100 loss=0.5\n", encoding="utf-8")
-        tvt = tv.TVTop(log_path=log, color=False)
+        tvt = tv.TVTop(log_path=log, color=False, width=100)
         out = tvt.render(tvt.latest_frame())
+        # 0.61.0b1 panel layout: "step    50 / 100" + bar + "loss  0.5000".
         assert "step" in out
-        assert "loss=0.5000" in out
+        assert "0.5000" in out
+        assert "training" in out  # panel title
+        assert "loss curve" in out  # graph panel title
+
+    def test_render_multi_row_graph(self, tmp_path: Path) -> None:
+        log = tmp_path / "train.log"
+        log.write_text(
+            "\n".join(f"step {i}/20 loss={2.0 - i * 0.05}" for i in range(20)),
+            encoding="utf-8",
+        )
+        tvt = tv.TVTop(log_path=log, color=False, width=100)
+        tvt.latest_frame()
+        out = tvt.render(tvt.latest_frame())
+        # The multi-row graph contributes Unicode block-bar characters.
+        assert "█" in out
 
     def test_run_one_frame_max(self, tmp_path: Path) -> None:
         log = tmp_path / "train.log"

@@ -17,6 +17,115 @@ next release header.
 
 ---
 
+## 0.61.0b1 (beta)
+
+🐍 **Python 3.14 support.**  ``requires-python`` bumped to
+``>=3.10,<3.15``; classifiers gain
+``Programming Language :: Python :: 3.14``.  No code changes
+needed — every module imports clean on the 3.14 release
+candidate.
+
+✨ **Three new modules.**
+
+* **`hypernix.ups`** — uninterruptible-power-supply mode.
+  Checks two real-world signals every ``check_interval_seconds``
+  (default 5 minutes):
+    * **Weather** — open-meteo (free, no API key).  Forces a
+      checkpoint when the WMO weather code is in
+      :data:`SEVERE_WEATHER_CODES` (heavy rain 65/66/67, heavy
+      snow 75, violent rain showers 82, thunderstorm 95/96/99).
+    * **Scheduled outage** — pluggable
+      ``outage_check_fn(address) -> bool`` callback so a user
+      can wire in their utility's "scheduled maintenance" lookup.
+  On a panic transition (was-clear → severe / outage), the UPS
+  fires the user-supplied ``snapshot_fn`` exactly once, then
+  shrinks ``save_every`` by ``cadence_multiplier`` (default 3 →
+  "save 3× more often") for as long as the threat persists.
+  Auto-locates via ipapi.co IP-geolocation when no
+  latitude/longitude is supplied.  ``offline=True`` (or
+  ``HYPERNIX_UPS_OFFLINE=1``) skips every HTTP call.
+
+* **`hypernix.injection`** — token / phrase splicers for chat
+  scaffolding tokens.  Four variants:
+    * ``ThinkingInjector`` — wraps in ``<think>...</think>`` —
+      the convention HyperNix-2 / Qwen-3 thinking mode /
+      DeepSeek-R1 distilled checkpoints share.
+    * ``TestingInjector`` — prepends ``<|test|>`` to short-
+      circuit a chat oven into eval mode.
+    * ``SystemOverrideInjector`` — appends a one-shot
+      ``<|system_override|>...`` without disturbing the
+      caller's persistent system prompt.
+    * ``CustomInjector`` — generic open / close / mode triple.
+  Two scopes: :meth:`inject_messages` for
+  ``[{"role", "content"}, ...]`` lists, :meth:`inject_text`
+  for already-rendered prompt strings.  Each injection is
+  recorded in :attr:`history` for provenance.
+
+* **`hypernix.plasma`** — quick GPU benchmark for sharper
+  ETAs.  Runs a 6-step Llama-shape forward + loss + backward
+  + AdamW.step loop sized to fit on a laptop GPU (and to
+  finish in ~2 s on CPU), returning a :class:`PlasmaResult`
+  with ``step_ms`` (median), ``tokens_per_sec``, and a
+  ``calibration_factor``.  ``calibrate_alarm(alarm, result)``
+  rebinds ``alarm.estimate_step_seconds`` so further calls
+  scale by the measured factor — turns a generic
+  ``GasAlarm(cpu_preset="i7-7700hq")`` ETA into one that
+  reflects what the actual machine can do.  Autocast handled
+  on CUDA so fp16 / bf16 configs don't explode on bf16-broken
+  cross-entropy paths.
+
+🖥️ **`tvtop` visual rewrite (the headline polish).**
+The 0.60 dashboard worked but looked thin and got tripped by
+non-training logs.  0.61.0b1 reworks the layout to btop++-style:
+
+* **Multi-panel layout** — rounded-corner framed panels
+  (``╭`` / ``╮`` / ``╰`` / ``╯``).  Side-by-side ``hardware``
+  panel (CPU / RAM / GPU / VRAM bars + numbers) and
+  ``training`` panel (step + progress bar, loss / lr / tput,
+  elapsed / ETA).  Below: a full-width ``loss curve`` panel
+  with a **5-row block-bar graph** (the new
+  :func:`multi_row_graph` helper, quantised to ``height × 8``
+  sub-pixels via the ``▁ ▂ ▃ ▄ ▅ ▆ ▇ █`` ladder), then a
+  full-width ``recent log`` panel with the last 6 lines.
+* **Auto-detect filter** — :func:`_looks_like_training_log`
+  reads the first 16 KiB of each candidate log and keeps only
+  the ones containing a ``step N/M loss=…`` match.  Ranks
+  shaped logs above name-matched logs above arbitrary newest.
+  Stops the dashboard from latching onto a Konsole / browser
+  / system log.
+* **Binary sanitisation** — ``_sanitise()`` replaces every
+  byte in ``[0x00–0x08, 0x0B–0x1F, 0x7F–0x9F]`` with ``?``,
+  so a binary-laced log can't render as ``�`` garbage.
+* **Empty-state** — when no training data has been parsed
+  yet, the training panel shows
+  ``⏳ waiting for training data…`` instead of a fake
+  ``step 0 / loss=—``.
+* **Performance** — ``nvidia-smi`` cached for 3 seconds (was
+  shelling out every 1-second refresh); cursor-home + per-line
+  clear instead of full-screen erase per tick (less flicker);
+  frame-diff suppression so the renderer skips writes when
+  nothing visible changed.
+* **ASCII fallback** — ``--ascii`` swaps every Unicode block
+  char to ``# . : - = + *`` so non-UTF terminals stay readable.
+* Rounded panel chars + colour gauges (green < 60% < yellow
+  < 85% < red) make the panels actually pleasant to watch.
+
+🛡️ **32 new tests** in ``tests/test_v061_b1.py`` covering
+every UPS state transition (offline / panic-once-on-edge /
+cadence triple / no-panic passthrough / history /
+multiplier-floor), every Injection mode (text / messages /
+prefix / suffix / wrap / factory / one-shot helper / history),
+every Plasma path (returns shape / positive throughput /
+summary string / alarm calibration / object-without-method
+rejection / alias), and every tv polish bit
+(``multi_row_graph`` shape / empty / constant / log
+sanitisation / training-log autodetect filter / panel frames /
+empty-state header).
+
+Final: 800 tests pass, 1 skipped (matplotlib).
+
+---
+
 ## 0.60.0
 
 ✨ **Eight new modules — four headline + four multi-tier.**

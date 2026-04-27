@@ -3,31 +3,48 @@
 Run with the ``tvtop`` console script (registered in
 ``pyproject.toml``)::
 
-    tvtop                       # tail the latest run under ./trained-*
+    tvtop                       # auto-detect a hypernix training log
     tvtop --log path/to.log     # explicit log path
-    tvtop --no-color            # ASCII-only render (CI / log files)
+    tvtop --no-color            # no ANSI colour
+    tvtop --ascii               # ASCII bars + sparkline (no Unicode)
 
 Or programmatically::
 
-    from hypernix.tv import TVTop, Frame
-    tv = TVTop(log_path="train.log")
-    tv.run()                    # blocks until the log finishes / Ctrl-C
+    from hypernix.tv import TVTop
+    TVTop(log_path="train.log").run()    # blocks until Ctrl-C
 
-What it shows:
+What it shows (when actual hypernix training data is present):
 
-* Current training step / total / percent complete.
-* Sparkline of the most recent loss values.
-* Live ETA, throughput (steps/sec), wall time, peak memory (when
-  the log records it).
-* Hardware vitals: CPU%, RAM%, GPU memory + utilisation when
-  available (``nvidia-smi`` queried at the same cadence as the
-  log poll).
-* Recent log tail (last N lines).
+* Current training step / total / percent complete with progress bar.
+* Loss + LR + throughput row, plus an inline sparkline of the most
+  recent loss values.
+* Live elapsed wall time + ETA.
+* Hardware vitals: CPU% / RAM% / GPU util% / VRAM (via
+  ``nvidia-smi`` when available, throttled to once every 3s).
+* Recent log tail (last 8 lines, binary chars sanitised).
 
-Zero hard dependencies — uses only the stdlib (``curses``-free,
-plain ANSI escape codes), so it runs anywhere a terminal works.
-On a non-TTY stdout (CI, redirect to file) the renderer
-gracefully degrades to a one-line-per-frame text mode.
+When a log doesn't contain any parsable training lines yet, the
+dashboard renders a clean "waiting for training data…" state
+instead of misleading zeros.
+
+Zero hard dependencies — pure stdlib + ANSI escape codes, no
+curses, runs in any TTY.  On a non-TTY stdout (CI, redirect to
+file) the renderer gracefully degrades to a one-line-per-frame
+text mode.
+
+Patches in 0.61.0b1:
+
+* Auto-detect skips logs that have no ``step … loss=…`` lines
+  (avoids accidentally tailing a Konsole / browser dev log).
+* Log lines are sanitised — non-printable bytes are replaced with
+  ``?`` so binary garbage can't corrupt the render.
+* Empty-state header when no training data has been parsed yet.
+* Two-column hardware bar with mini gauges instead of cramped
+  single-line text.
+* ``nvidia-smi`` cached for 3 seconds so a 1-second refresh
+  doesn't shell out 60×/min.
+* Frame-diff render: only writes lines that changed, with cursor-
+  home + per-line clear instead of a full screen flush each tick.
 """
 from __future__ import annotations
 
@@ -42,12 +59,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Terminal helpers (ANSI / no-curses)
+# Terminal helpers
 # ---------------------------------------------------------------------------
 
 CSI = "\x1b["
 CLEAR_SCREEN = f"{CSI}2J{CSI}H"
 CLEAR_LINE = f"{CSI}2K"
+CURSOR_HOME = f"{CSI}H"
 HIDE_CURSOR = f"{CSI}?25l"
 SHOW_CURSOR = f"{CSI}?25h"
 
@@ -63,13 +81,9 @@ def _bold(text: str, *, enabled: bool = True) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Log parsing
+# Log parsing — generous regex so any "step N/M loss=X" line matches.
 # ---------------------------------------------------------------------------
 
-#: Match log lines like ``step 100/2000 loss=2.345 lr=3e-4``.  The
-#: regex is generous — the training pipeline emits ``[hypernix
-#: train] step …`` and freshly-printed ``loss=…`` updates; both
-#: shapes are picked up.
 _STEP_RE = re.compile(
     r"step\s+(?P<step>\d+)\s*(?:/\s*(?P<total>\d+))?\s+loss\s*=\s*(?P<loss>[-\d.eE+]+)"
     r"(?:\s+lr\s*=\s*(?P<lr>[-\d.eE+]+))?"
@@ -78,15 +92,46 @@ _STEP_RE = re.compile(
 )
 
 
+def _looks_like_training_log(path: Path, *, peek_bytes: int = 16384) -> bool:
+    """Cheap classifier — read the first peek_bytes and look for at
+    least one ``step ... loss=...`` match.  Used by autodetect to
+    skip Konsole / browser / system logs."""
+    try:
+        with path.open("rb") as fh:
+            buf = fh.read(peek_bytes)
+    except OSError:
+        return False
+    try:
+        text = buf.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(_STEP_RE.search(text))
+
+
+_PRINTABLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _sanitise(line: str, *, width: int = 200) -> str:
+    """Replace non-printable bytes with ``?`` and trim to ``width``."""
+    if not line:
+        return ""
+    line = _PRINTABLE.sub("?", line)
+    if len(line) > width:
+        line = line[: width - 1] + "…"
+    return line
+
+
+# ---------------------------------------------------------------------------
+# Frame model
+# ---------------------------------------------------------------------------
+
 @dataclass
 class Frame:
-    """One snapshot of training state derived from the log tail."""
-
     step: int = 0
     total_steps: int | None = None
     loss: float | None = None
     lr: float | None = None
-    throughput: float | None = None  # steps / sec
+    throughput: float | None = None
     elapsed_seconds: float = 0.0
     eta_seconds: float | None = None
     cpu_percent: float | None = None
@@ -96,6 +141,7 @@ class Frame:
     gpu_mem_total_mib: int | None = None
     recent_losses: list[float] = field(default_factory=list)
     log_tail: list[str] = field(default_factory=list)
+    has_training_data: bool = False
 
     @property
     def progress(self) -> float:
@@ -127,6 +173,70 @@ def sparkline(values: Iterable[float], *, ascii_only: bool = False) -> str:
     return "".join(out)
 
 
+def multi_row_graph(
+    values: Iterable[float],
+    *,
+    width: int,
+    height: int,
+    ascii_only: bool = False,
+) -> list[str]:
+    """Render a btop++-style multi-row block graph.
+
+    Each column maps to one value; column heights are quantised to
+    ``height * 8`` sub-pixels using the Unicode lower-block ladder
+    (``▁ ▂ ▃ ▄ ▅ ▆ ▇ █``).  Returns a list of exactly ``height``
+    strings, each ``width`` chars wide.
+
+    With ``ascii_only=True`` the block ladder degrades to ``# +``
+    fills so non-UTF terminals still get a readable graph.
+    """
+    if width <= 0 or height <= 0:
+        return [""] * max(0, height)
+    vs = [float(v) for v in values]
+    if not vs:
+        return [" " * width] * height
+
+    # Decimate / pad to width.
+    if len(vs) > width:
+        stride = len(vs) / width
+        vs = [vs[min(len(vs) - 1, int(i * stride))] for i in range(width)]
+    elif len(vs) < width:
+        # Right-align the data: pad with the floor on the left.
+        vs = [vs[0]] * (width - len(vs)) + vs
+
+    lo, hi = min(vs), max(vs)
+    rng = max(1e-9, hi - lo)
+    if ascii_only:
+        bars = (" ", ".", ":", "-", "=", "+", "*", "#", "#")
+        full = "#"
+    else:
+        bars = (" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")
+        full = "█"
+
+    # For each value compute a "tower" of total sub-pixels.  Then
+    # render row by row, top-down.
+    sub_total = height * 8
+    towers = [
+        max(0, min(sub_total, int(round((v - lo) / rng * sub_total))))
+        for v in vs
+    ]
+
+    rows: list[str] = []
+    for r in range(height):  # 0 = top, height-1 = bottom
+        bottom_subs = (height - 1 - r) * 8           # this row's floor
+        top_subs = bottom_subs + 8                    # this row's ceiling
+        line: list[str] = []
+        for t in towers:
+            if t >= top_subs:
+                line.append(full)
+            elif t <= bottom_subs:
+                line.append(" ")
+            else:
+                line.append(bars[t - bottom_subs])
+        rows.append("".join(line))
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Hardware probes (no hard deps)
 # ---------------------------------------------------------------------------
@@ -140,23 +250,16 @@ def _safe_psutil_percent() -> tuple[float | None, float | None]:
 
 
 def _read_proc_stat_cpu() -> float | None:
-    """Lightweight /proc/stat sampler so we get a CPU % even without
-    psutil.  Returns None on non-Linux."""
     try:
         with open("/proc/stat", encoding="utf-8") as fh:
             line = fh.readline()
-        parts = line.split()[1:8]
-        nums = [int(x) for x in parts]
-        idle = nums[3]
-        total = sum(nums)
-        # Cheap one-shot — the "live" CPU% requires two samples.  We
-        # store the previous sample on the function attribute.
+        nums = [int(x) for x in line.split()[1:8]]
+        idle, total = nums[3], sum(nums)
         prev = getattr(_read_proc_stat_cpu, "_prev", None)
         _read_proc_stat_cpu._prev = (idle, total)  # type: ignore[attr-defined]
         if prev is None:
             return None
-        d_idle = idle - prev[0]
-        d_total = total - prev[1]
+        d_idle, d_total = idle - prev[0], total - prev[1]
         if d_total <= 0:
             return None
         return max(0.0, 100.0 * (1.0 - d_idle / d_total))
@@ -180,10 +283,19 @@ def _read_meminfo_percent() -> float | None:
         return None
 
 
+# Throttled nvidia-smi cache so we don't shell out every refresh.
+_NVIDIA_CACHE: dict[str, object] = {"at": 0.0, "value": (None, None, None)}
+_NVIDIA_TTL_SECONDS = 3.0
+
+
 def _query_nvidia_smi() -> tuple[int | None, int | None, float | None]:
-    """Returns ``(mem_used_mib, mem_total_mib, util_percent)`` or
-    triple None if nvidia-smi isn't available."""
+    """Throttled to once per 3 seconds."""
+    now = time.time()
+    if now - float(_NVIDIA_CACHE["at"]) < _NVIDIA_TTL_SECONDS:
+        return _NVIDIA_CACHE["value"]  # type: ignore[return-value]
     if shutil.which("nvidia-smi") is None:
+        _NVIDIA_CACHE["at"] = now
+        _NVIDIA_CACHE["value"] = (None, None, None)
         return (None, None, None)
     try:
         out = subprocess.run(
@@ -195,43 +307,63 @@ def _query_nvidia_smi() -> tuple[int | None, int | None, float | None]:
             capture_output=True, text=True, check=False, timeout=2,
         )
         if out.returncode != 0:
-            return (None, None, None)
-        first = out.stdout.strip().splitlines()[0]
-        used, total, util = (s.strip() for s in first.split(","))
-        return (int(used), int(total), float(util))
+            value = (None, None, None)
+        else:
+            first = out.stdout.strip().splitlines()[0]
+            used, total, util = (s.strip() for s in first.split(","))
+            value = (int(used), int(total), float(util))
     except Exception:  # noqa: BLE001
-        return (None, None, None)
+        value = (None, None, None)
+    _NVIDIA_CACHE["at"] = now
+    _NVIDIA_CACHE["value"] = value
+    return value
 
 
 # ---------------------------------------------------------------------------
-# Log tail reader
+# Log tail reader — tracks file-position and the latest parsed step
 # ---------------------------------------------------------------------------
 
 @dataclass
 class LogTail:
     path: Path
-    history_size: int = 12
+    history_size: int = 8
     _last_size: int = field(default=0, init=False)
     _buf: deque[str] = field(default=None, init=False)  # type: ignore[assignment]
+    latest_match: re.Match[str] | None = field(default=None, init=False)
+    losses: deque[float] = field(default=None, init=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         self._buf = deque(maxlen=self.history_size)
+        self.losses = deque(maxlen=120)
 
     def poll(self) -> list[str]:
-        """Return any new log lines since the last poll."""
         if not self.path.exists():
             return []
         new_size = self.path.stat().st_size
         if new_size < self._last_size:
-            self._last_size = 0  # log was rotated / truncated
-        with self.path.open("r", encoding="utf-8", errors="replace") as fh:
-            fh.seek(self._last_size)
-            chunk = fh.read()
-            self._last_size = fh.tell()
-        lines = [line for line in chunk.splitlines() if line.strip()]
-        for line in lines:
+            self._last_size = 0  # rotated / truncated
+        try:
+            with self.path.open("r", encoding="utf-8", errors="replace") as fh:
+                fh.seek(self._last_size)
+                chunk = fh.read()
+                self._last_size = fh.tell()
+        except OSError:
+            return []
+        new_lines: list[str] = []
+        for raw in chunk.splitlines():
+            line = _sanitise(raw)
+            if not line.strip():
+                continue
             self._buf.append(line)
-        return lines
+            new_lines.append(line)
+            m = _STEP_RE.search(line)
+            if m:
+                self.latest_match = m
+                try:
+                    self.losses.append(float(m.group("loss")))
+                except ValueError:
+                    pass
+        return new_lines
 
     @property
     def tail(self) -> list[str]:
@@ -250,43 +382,40 @@ class TVTop:
     ascii_only: bool = False
     width: int | None = None
     started_at: float = field(default_factory=time.time)
-    losses: deque[float] = field(default_factory=lambda: deque(maxlen=80))
     log_tail: LogTail | None = field(default=None, init=False)
+    _prev_render: str = field(default="", init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.log_path is not None:
-            self.log_tail = LogTail(Path(self.log_path), history_size=12)
+            self.log_tail = LogTail(Path(self.log_path), history_size=8)
 
     # ------------------------------------------------------------------
-    # Frame construction
+    # Frame
     # ------------------------------------------------------------------
 
     def latest_frame(self) -> Frame:
         f = Frame()
         if self.log_tail is not None:
             self.log_tail.poll()
-            for line in self.log_tail.tail:
-                m = _STEP_RE.search(line)
-                if m:
-                    f.step = int(m.group("step"))
-                    if m.group("total"):
-                        f.total_steps = int(m.group("total"))
-                    if m.group("loss"):
-                        loss = float(m.group("loss"))
-                        f.loss = loss
-                        if not self.losses or self.losses[-1] != loss:
-                            self.losses.append(loss)
-                    if m.group("lr"):
-                        f.lr = float(m.group("lr"))
-                    if m.group("tput"):
-                        f.throughput = float(m.group("tput"))
+            m = self.log_tail.latest_match
+            if m is not None:
+                f.has_training_data = True
+                f.step = int(m.group("step"))
+                if m.group("total"):
+                    f.total_steps = int(m.group("total"))
+                if m.group("loss"):
+                    f.loss = float(m.group("loss"))
+                if m.group("lr"):
+                    f.lr = float(m.group("lr"))
+                if m.group("tput"):
+                    f.throughput = float(m.group("tput"))
+            f.recent_losses = list(self.log_tail.losses)
             f.log_tail = list(self.log_tail.tail)
         f.elapsed_seconds = time.time() - self.started_at
-        if f.throughput is None and f.step > 0 and f.elapsed_seconds > 0:
+        if f.has_training_data and f.throughput is None and f.step > 0 and f.elapsed_seconds > 0:
             f.throughput = f.step / f.elapsed_seconds
-        if f.total_steps and f.throughput and f.throughput > 0:
+        if f.has_training_data and f.total_steps and f.throughput and f.throughput > 0:
             f.eta_seconds = max(0.0, (f.total_steps - f.step) / f.throughput)
-        # Hardware
         cpu, ram = _safe_psutil_percent()
         if cpu is None:
             cpu = _read_proc_stat_cpu()
@@ -298,95 +427,58 @@ class TVTop:
         f.gpu_mem_used_mib = used
         f.gpu_mem_total_mib = total
         f.gpu_util_percent = util
-        f.recent_losses = list(self.losses)
         return f
 
     # ------------------------------------------------------------------
-    # Rendering
+    # Layout helpers
     # ------------------------------------------------------------------
 
     def _term_width(self) -> int:
         if self.width is not None:
             return self.width
         try:
-            return shutil.get_terminal_size((80, 24)).columns
+            return shutil.get_terminal_size((100, 24)).columns
         except Exception:  # noqa: BLE001
-            return 80
+            return 100
 
-    def _bar(self, frac: float, width: int) -> str:
+    def _bar(self, frac: float, width: int, *, fill: str | None = None) -> str:
+        frac = max(0.0, min(1.0, frac))
         filled = int(round(frac * width))
         empty = width - filled
-        ch_full = "█" if not self.ascii_only else "#"
-        ch_empty = "░" if not self.ascii_only else "."
+        if self.ascii_only:
+            ch_full = fill or "#"
+            ch_empty = "."
+        else:
+            ch_full = fill or "█"
+            ch_empty = "░"
         return ch_full * filled + ch_empty * empty
 
-    def render(self, f: Frame) -> str:
-        w = self._term_width()
+    def _gauge(self, label: str, pct: float | None, width: int) -> str:
         c = self.color and not self.ascii_only
-        lines: list[str] = []
-        title = "  📺  hypernix tvtop  —  training dashboard "
-        bar_w = max(20, w - 32)
-        lines.append(_bold(title.ljust(w), enabled=c))
-        lines.append("─" * w)
-
-        # Progress bar
-        pct = f.progress * 100.0
-        prog_bar = self._bar(f.progress, bar_w)
-        head = f"  step  {f.step:>7}"
-        if f.total_steps:
-            head += f" / {f.total_steps:<7}"
-        head += f"  [{prog_bar}] {pct:5.1f}%"
-        lines.append(_color(36, head, enabled=c))
-
-        # Loss + sparkline
-        loss_str = f"loss={f.loss:.4f}" if f.loss is not None else "loss=—"
-        lr_str = f"lr={f.lr:.2e}" if f.lr is not None else "lr=—"
-        tput_str = f"tput={f.throughput:.2f} step/s" if f.throughput else "tput=—"
-        spark = sparkline(f.recent_losses, ascii_only=self.ascii_only) or "—"
-        lines.append(
-            _color(33, f"  {loss_str:<14}{lr_str:<14}{tput_str:<24}", enabled=c)
-            + f"loss-curve [{spark}]",
-        )
-
-        # Time + ETA
-        elapsed = _fmt_duration(f.elapsed_seconds)
-        eta = _fmt_duration(f.eta_seconds) if f.eta_seconds is not None else "—"
-        lines.append(_color(35, f"  elapsed={elapsed:<10}  ETA={eta}", enabled=c))
-
-        # Hardware
-        cpu = f"{f.cpu_percent:5.1f}%" if f.cpu_percent is not None else "  —  "
-        ram = f"{f.ram_percent:5.1f}%" if f.ram_percent is not None else "  —  "
-        gpu_util = f"{f.gpu_util_percent:5.1f}%" if f.gpu_util_percent is not None else "  —  "
-        gpu_mem = (
-            f"{f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB"
-            if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib else "—"
-        )
-        lines.append(
-            _color(32, f"  CPU {cpu}   RAM {ram}   GPU {gpu_util}   VRAM {gpu_mem}", enabled=c),
-        )
-
-        # Recent log lines
-        lines.append("─" * w)
-        lines.append(_bold("  recent log:", enabled=c))
-        for line in (f.log_tail or [])[-8:]:
-            lines.append("    " + line[: w - 4])
-
-        return "\n".join(lines)
+        if pct is None:
+            bar = self._bar(0.0, width)
+            return f"{label:<5} {bar} {' --':>6}"
+        # Colour by load: green / yellow / red.
+        if c:
+            code = 32 if pct < 60 else (33 if pct < 85 else 31)
+            return f"{label:<5} {_color(code, self._bar(pct / 100.0, width), enabled=c)} {pct:>5.1f}%"
+        return f"{label:<5} {self._bar(pct / 100.0, width)} {pct:>5.1f}%"
 
     # ------------------------------------------------------------------
-    # Run loop
+    # Rendering
+    # ------------------------------------------------------------------
+
+    def render(self, f: Frame) -> str:
+        return _render_dashboard(self, f)
+
+    # ------------------------------------------------------------------
+    # Run loop — minimised flicker via cursor-home + per-line clear
     # ------------------------------------------------------------------
 
     def is_tty(self) -> bool:
         return bool(getattr(sys.stdout, "isatty", lambda: False)())
 
     def run(self, *, max_frames: int | None = None) -> None:
-        """Block and refresh until Ctrl-C, the log stops growing for
-        ``stop_after_idle_seconds``, or ``max_frames`` is reached.
-
-        Exits cleanly on ``KeyboardInterrupt`` and always restores the
-        cursor.
-        """
         tty = self.is_tty()
         try:
             if tty:
@@ -396,10 +488,23 @@ class TVTop:
             while True:
                 frame = self.latest_frame()
                 if tty:
-                    sys.stdout.write(CLEAR_SCREEN + self.render(frame))
+                    body = self.render(frame)
+                    if body != self._prev_render:
+                        # Cursor home + per-line clear (smoother than 2J).
+                        out = CURSOR_HOME
+                        for line in body.splitlines():
+                            out += line + CLEAR_LINE + "\n"
+                        # Clear any leftover lines from a previous taller render.
+                        prev_count = len(self._prev_render.splitlines())
+                        cur_count = len(body.splitlines())
+                        for _ in range(max(0, prev_count - cur_count)):
+                            out += CLEAR_LINE + "\n"
+                        sys.stdout.write(out)
+                        sys.stdout.flush()
+                        self._prev_render = body
                 else:
                     sys.stdout.write(self.render_one_line(frame) + "\n")
-                sys.stdout.flush()
+                    sys.stdout.flush()
                 n += 1
                 if max_frames is not None and n >= max_frames:
                     return
@@ -412,12 +517,243 @@ class TVTop:
                 sys.stdout.flush()
 
     def render_one_line(self, f: Frame) -> str:
+        if not f.has_training_data:
+            return f"[tvtop] waiting for training data... ({_fmt_duration(f.elapsed_seconds)} elapsed)"
         return (
             f"step={f.step}/{f.total_steps or '-'}  loss="
             f"{f.loss if f.loss is not None else '-'}"
             f"  tput={f.throughput if f.throughput else '-'}  "
             f"eta={_fmt_duration(f.eta_seconds) if f.eta_seconds else '-'}"
         )
+
+
+# ---------------------------------------------------------------------------
+# btop++-style panel rendering (v0.61.0b1)
+# ---------------------------------------------------------------------------
+
+def _panel_chars(ascii_only: bool) -> dict[str, str]:
+    if ascii_only:
+        return {
+            "tl": "+", "tr": "+", "bl": "+", "br": "+",
+            "h": "-", "v": "|",
+        }
+    return {
+        # Rounded corners — a touch nicer than btop++'s sharp ones.
+        "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
+        "h": "─", "v": "│",
+    }
+
+
+def _strip_ansi(s: str) -> str:
+    return re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", s)
+
+
+def _visible_len(s: str) -> int:
+    return len(_strip_ansi(s))
+
+
+def _pad(s: str, width: int) -> str:
+    """Pad-or-truncate a string to ``width`` visible characters
+    (ignoring ANSI escapes)."""
+    vis = _visible_len(s)
+    if vis == width:
+        return s
+    if vis < width:
+        return s + " " * (width - vis)
+    # Truncate visible content — drop ANSI for a safe cut.  Re-applying
+    # colour at the cut boundary is ugly; better to render plain when
+    # we have to clip.
+    plain = _strip_ansi(s)
+    return plain[: max(0, width - 1)] + ("…" if width > 0 else "")
+
+
+def _frame_panel(
+    title: str,
+    body: list[str],
+    *,
+    width: int,
+    ascii_only: bool,
+    color_enabled: bool,
+    title_color: int = 36,
+) -> list[str]:
+    """Wrap ``body`` (list of pre-padded interior lines) in a framed
+    panel ``width`` cells wide.  Interior is ``width - 2``."""
+    ch = _panel_chars(ascii_only)
+    inner_w = max(1, width - 2)
+    title_text = f" {title} "
+    title_render = _color(title_color, _bold(title_text, enabled=color_enabled), enabled=color_enabled)
+    title_vis = len(title_text)
+    fill_after = max(0, inner_w - 2 - title_vis)
+    top = ch["tl"] + ch["h"] + title_render + ch["h"] * fill_after + ch["tr"]
+    bot = ch["bl"] + ch["h"] * inner_w + ch["br"]
+    rows = [top]
+    for ln in body:
+        rows.append(ch["v"] + _pad(ln, inner_w) + ch["v"])
+    rows.append(bot)
+    return rows
+
+
+def _hcat(left: list[str], right: list[str], *, gap: int = 1) -> list[str]:
+    """Stack two equal-length panel row lists side by side."""
+    n = max(len(left), len(right))
+    while len(left) < n:
+        left.append("")
+    while len(right) < n:
+        right.append("")
+    return [a + " " * gap + b for a, b in zip(left, right, strict=False)]
+
+
+def _bar_str(frac: float, width: int, *, ascii_only: bool, color_enabled: bool) -> str:
+    frac = max(0.0, min(1.0, frac))
+    filled = int(round(frac * width))
+    empty = width - filled
+    if ascii_only:
+        s = "#" * filled + "." * empty
+    else:
+        s = "█" * filled + "░" * empty
+    if color_enabled:
+        # Green → yellow → red as the bar fills.
+        code = 32 if frac < 0.6 else (33 if frac < 0.85 else 31)
+        return _color(code, s, enabled=True)
+    return s
+
+
+def _gauge_line(label: str, pct: float | None, bar_w: int, *, ascii_only: bool, color_enabled: bool) -> str:
+    if pct is None:
+        bar = _bar_str(0.0, bar_w, ascii_only=ascii_only, color_enabled=False)
+        return f"{label:<5} {bar}    --"
+    bar = _bar_str(pct / 100.0, bar_w, ascii_only=ascii_only, color_enabled=color_enabled)
+    return f"{label:<5} {bar} {pct:5.1f}%"
+
+
+def _render_dashboard(self_tv: TVTop, f: Frame) -> str:
+    w = max(72, self_tv._term_width())
+    c = self_tv.color and not self_tv.ascii_only
+    aa = self_tv.ascii_only
+
+    # Panel widths: HW left ~30%, training right.
+    hw_w = max(28, int(w * 0.36))
+    tr_w = w - hw_w - 1   # 1-char gap
+    if tr_w < 30:
+        tr_w = 30
+        hw_w = max(28, w - tr_w - 1)
+
+    # ── Hardware panel ─────────────────────────────────────────
+    bar_w = hw_w - 16
+    cpu_line = _gauge_line("CPU", f.cpu_percent, bar_w, ascii_only=aa, color_enabled=c)
+    ram_line = _gauge_line("RAM", f.ram_percent, bar_w, ascii_only=aa, color_enabled=c)
+    gpu_line = _gauge_line("GPU", f.gpu_util_percent, bar_w, ascii_only=aa, color_enabled=c)
+    if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib:
+        mem_pct = 100.0 * f.gpu_mem_used_mib / max(1, f.gpu_mem_total_mib)
+        vram_label = "VRAM"
+        vram_line = _gauge_line(vram_label, mem_pct, bar_w, ascii_only=aa, color_enabled=c)
+        vram_extra = f"  {f.gpu_mem_used_mib}/{f.gpu_mem_total_mib} MiB"
+    else:
+        vram_line = _gauge_line("VRAM", None, bar_w, ascii_only=aa, color_enabled=c)
+        vram_extra = ""
+    hw_body = [
+        cpu_line,
+        ram_line,
+        gpu_line,
+        vram_line,
+        vram_extra,
+    ]
+    hw_panel = _frame_panel("hardware", hw_body, width=hw_w, ascii_only=aa, color_enabled=c, title_color=32)
+
+    # ── Training panel ─────────────────────────────────────────
+    if f.has_training_data:
+        # inner_w = tr_w - 2; reserve 26 for "step XX / YY  " (18) + " " + " 100.0%" (7).
+        prog_w = max(10, tr_w - 28)
+        pct = f.progress * 100.0
+        step_field = f"step {f.step:>6}"
+        if f.total_steps:
+            step_field += f" / {f.total_steps}"
+        prog_bar = _bar_str(f.progress, prog_w, ascii_only=aa, color_enabled=c)
+        prog_line = f"{step_field:<18} {prog_bar} {pct:5.1f}%"
+        loss_s = f"loss  {f.loss:.4f}" if f.loss is not None else "loss  —"
+        lr_s = f"lr  {f.lr:.2e}" if f.lr is not None else "lr  —"
+        tput_s = f"tput  {f.throughput:.2f}/s" if f.throughput else "tput  —"
+        elapsed = _fmt_duration(f.elapsed_seconds)
+        eta = _fmt_duration(f.eta_seconds) if f.eta_seconds is not None else "—"
+        time_line = f"elapsed  {elapsed:<10}   ETA  {eta}"
+        tr_body = [
+            _color(36, prog_line, enabled=c),
+            "",
+            _color(33, f"{loss_s:<22}{lr_s}", enabled=c),
+            _color(33, tput_s, enabled=c),
+            _color(35, time_line, enabled=c),
+        ]
+    else:
+        wait_label = "⏳ waiting for training data…" if not aa else "[waiting for training data...]"
+        tr_body = [
+            _color(33, wait_label, enabled=c),
+            "",
+            f"log: {self_tv.log_path or '(none)'}",
+            "",
+            "(point --log at a path that contains step N/M loss=… lines)",
+        ]
+    tr_panel = _frame_panel("training", tr_body, width=tr_w, ascii_only=aa, color_enabled=c, title_color=36)
+
+    # Combine HW + Training side by side.
+    side_by_side = _hcat(hw_panel, tr_panel, gap=1)
+
+    # ── Loss-curve graph (full width) ──────────────────────────
+    graph_h = 5
+    graph_inner = w - 4
+    if f.recent_losses:
+        graph_rows = multi_row_graph(
+            f.recent_losses, width=graph_inner, height=graph_h,
+            ascii_only=aa,
+        )
+        graph_rows = [_color(33, r, enabled=c) for r in graph_rows]
+    else:
+        graph_rows = ["(no loss values yet — graph will fill in once training emits its first `loss=...`)"]
+        graph_rows += [""] * (graph_h - 1)
+    loss_panel = _frame_panel(
+        "loss curve",
+        graph_rows,
+        width=w,
+        ascii_only=aa,
+        color_enabled=c,
+        title_color=33,
+    )
+
+    # ── Recent-log panel (full width) ──────────────────────────
+    log_lines = (f.log_tail or [])[-6:]
+    if not log_lines:
+        log_body = ["(no log lines yet)"]
+    else:
+        log_body = []
+        for raw in log_lines:
+            cropped = raw[: w - 6]
+            log_body.append(cropped)
+    while len(log_body) < 6:
+        log_body.append("")
+    log_panel = _frame_panel(
+        "recent log",
+        log_body,
+        width=w,
+        ascii_only=aa,
+        color_enabled=c,
+        title_color=35,
+    )
+
+    # ── Title bar ──────────────────────────────────────────────
+    title_text = " hypernix tvtop · training dashboard "
+    title = _bold(title_text, enabled=c)
+    title_pad = max(0, w - _visible_len(title))
+    title_line = _color(96, title, enabled=c) + " " * title_pad
+
+    # ── Footer ─────────────────────────────────────────────────
+    footer = _color(
+        90,
+        f" press Ctrl-C to quit · refresh {self_tv.refresh_seconds:.1f}s · "
+        f"width={w}",
+        enabled=c,
+    )
+
+    out_lines = [title_line, *side_by_side, *loss_panel, *log_panel, footer]
+    return "\n".join(out_lines)
 
 
 def _fmt_duration(seconds: float | None) -> str:
@@ -434,24 +770,43 @@ def _fmt_duration(seconds: float | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Auto-detect a recent training log when no path is given
+# Auto-detect — only pick logs that look like training logs
 # ---------------------------------------------------------------------------
 
 def _autodetect_log(start: Path = Path(".")) -> Path | None:
+    """Pick the newest training-shaped log under ``start``.  We
+    short-list candidates by mtime, then rank by:
+
+    1. Is the filename ``train*.log`` / ``*training*.log``?
+    2. Does the file contain a ``step ... loss=...`` match in the
+       first 16 KiB?
+
+    Logs that match neither are still acceptable as a fallback,
+    but only if no shaped log exists.  This stops the dashboard
+    from latching onto random Konsole / browser / system logs.
+    """
     candidates: list[tuple[float, Path]] = []
-    for p in start.glob("**/train*.log"):
-        try:
-            candidates.append((p.stat().st_mtime, p))
-        except OSError:
+    for pattern in ("**/train*.log", "**/*training*.log", "**/*.log"):
+        for p in start.glob(pattern):
+            try:
+                candidates.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+    seen: set[Path] = set()
+    uniq: list[tuple[float, Path]] = []
+    for mtime, p in sorted(candidates, key=lambda x: -x[0]):
+        if p in seen:
             continue
-    for p in start.glob("**/*.log"):
-        try:
-            candidates.append((p.stat().st_mtime, p))
-        except OSError:
-            continue
-    if not candidates:
-        return None
-    return max(candidates)[1]
+        seen.add(p)
+        uniq.append((mtime, p))
+    # Prefer paths that look like training logs.
+    shaped = [p for _t, p in uniq if _looks_like_training_log(p)]
+    if shaped:
+        return shaped[0]
+    name_pref = [p for _t, p in uniq if "train" in p.name.lower()]
+    if name_pref:
+        return name_pref[0]
+    return uniq[0][1] if uniq else None
 
 
 # ---------------------------------------------------------------------------
@@ -484,19 +839,29 @@ def cli_main(argv: list[str] | None = None) -> int:
         print(
             "usage: tvtop [--log path] [--no-color] [--ascii] "
             "[--refresh SECONDS]\n"
-            "Defaults: auto-detect newest *.log under cwd, refresh once "
-            "per second, ANSI colour on a TTY.",
+            "Auto-detects newest *.log under cwd that contains "
+            "`step N/M loss=X` lines (so a stray Konsole / browser\n"
+            "log won't be picked).  Pass --log <path> for explicit "
+            "selection.",
         )
         return 0
     if log is None:
         log = _autodetect_log()
     if log is None:
         print(
-            "tvtop: no training log found.  Pass --log <path> or run "
-            "from a directory containing *.log.",
+            "tvtop: no training log found.  Pass --log <path>, or run "
+            "from a directory containing a *.log written by hypernix "
+            "training (looking for lines like `step 100/2000 loss=2.3`).",
             file=sys.stderr,
         )
         return 2
+    if not _looks_like_training_log(log):
+        print(
+            f"[tvtop] warning: {log} doesn't contain any "
+            f"`step N/M loss=...` lines yet — dashboard will show a "
+            f"waiting-state until training data appears.",
+            file=sys.stderr,
+        )
     print(f"[tvtop] tailing {log}")
     TVTop(log_path=log, color=color, ascii_only=ascii_only, refresh_seconds=refresh).run()
     return 0
