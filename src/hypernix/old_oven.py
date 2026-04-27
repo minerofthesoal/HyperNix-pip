@@ -78,6 +78,23 @@ ARCH_PRESETS: dict[str, dict[str, Any]] = {
         "rms_norm_eps": 1e-5,
         "tie_word_embeddings": False,
     },
+    # HyperNix v2 — chat-tuned, ChatML-style template baked into the
+    # tokenizer, otherwise identical Llama-shape to v1.  Use this preset
+    # when initialising a fresh chat model from scratch.
+    "hypernix2": {
+        "attention_bias": False,
+        "model_type": "hypernix",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
+    "hyper-nix.2": {
+        "attention_bias": False,
+        "model_type": "hypernix",
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-5,
+        "tie_word_embeddings": False,
+    },
     # ---- Llama family -----------------------------------------------------
     # Llama 2 defaults.
     "llama": {
@@ -349,6 +366,7 @@ class CodeOven:
     device: torch.device
     dtype: torch.dtype
     model_dir: Path
+    repo_id: str | None = None  # source HF repo, when known
 
     # ------------------------------------------------------------------
     # Tokenizer helpers
@@ -505,8 +523,11 @@ class CodeOven:
         1. ``tokenizer.apply_chat_template`` when the HF tokenizer has one
            wired up (this is what ``nano-nano-v4`` and ``nano-mini`` ship
            with, so we get the canonical Llama/Qwen chat format for free).
-        2. A plain ``role: content`` transcript with an ``assistant:``
-           suffix — works with any tokenizer, including the byte fallback.
+        2. A :mod:`hypernix.cookbook` template chosen by ``self.repo_id``
+           — this is how ``hyper-Nix.2`` gets a ChatML prompt even when
+           the tokenizer doesn't ship a ``chat_template``.
+        3. A plain ``role: content`` transcript fallback that works with
+           any tokenizer including the byte fallback.
         """
         if self.tokenizer_kind == "hf":
             apply = getattr(self.tokenizer, "apply_chat_template", None)
@@ -516,6 +537,17 @@ class CodeOven:
                     messages, tokenize=True, add_generation_prompt=True,
                 )
                 return list(ids)
+
+        # Cookbook fallback — pick a template from the repo id, fall
+        # through to plain role: content if nothing matches.
+        if self.repo_id:
+            try:
+                from . import cookbook as _cb
+                tmpl_obj = _cb.for_model(self.repo_id, default="plain")
+                rendered = tmpl_obj.apply(messages, add_generation_prompt=True)
+                return self._encode(rendered)
+            except Exception:  # noqa: BLE001
+                pass
 
         parts: list[str] = []
         for m in messages:
@@ -750,7 +782,7 @@ def preheat(
     tok, kind = _load_tokenizer(path)
     return CodeOven(
         model=model, tokenizer=tok, tokenizer_kind=kind,
-        device=dev, dtype=tdtype, model_dir=path,
+        device=dev, dtype=tdtype, model_dir=path, repo_id=repo_id,
     )
 
 

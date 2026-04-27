@@ -40,18 +40,23 @@ from __future__ import annotations
 
 from . import (
     apron,
+    bell,
     blender,
     cake_pan,
     coffee_maker,
+    cookbook,
+    countertop,
     cutting_board,
     deep_fryer,
     espresso_maker,
+    flour,
     food_processor,
     freezer,
     industrial_range,
     instant_pot,
     lunchbox,
     mediocre_fridge,
+    menu,
     microwave,
     new_fridge,
     new_range,
@@ -125,9 +130,12 @@ __all__ = [
     "QUANT_TYPES",
     "apron",
     "bake_code",
+    "bell",
     "blender",
     "cake_pan",
     "coffee_maker",
+    "cookbook",
+    "countertop",
     "cutting_board",
     "deep_fryer",
     "convert_to_gguf",
@@ -137,6 +145,7 @@ __all__ = [
     "expand_checkpoint",
     "fetch_llama_quantize",
     "fill_middle",
+    "flour",
     "food_processor",
     "freezer",
     "generate_text",
@@ -148,6 +157,7 @@ __all__ = [
     "load_snapshot",
     "lunchbox",
     "mediocre_fridge",
+    "menu",
     "microwave",
     "new_fridge",
     "new_oven",
@@ -177,5 +187,5 @@ __all__ = [
     "whisk",
 ]
 
-__version__ = "0.50.0"
-DEFAULT_REPO_ID = "ray0rf1re/hyper-nix.1"
+__version__ = "0.51.0"
+DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"

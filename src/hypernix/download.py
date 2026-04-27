@@ -53,11 +53,25 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
         "ray0rf1re/hyper-nix.1", "hypernix",
         "HyperNix v1 — Llama-shaped native HyperNix.",
     ),
+    "hyper-nix.2": ModelInfo(
+        "ray0rf1re/hyper-Nix.2", "hypernix",
+        "HyperNix v2 — chat-tuned, Llama-shaped native HyperNix. Ships a "
+        "ChatML-style chat template (see hypernix.cookbook.HYPER_NIX_2). "
+        "Use hypernix.countertop for multi-turn sessions.",
+    ),
+    "hyper-nix2": ModelInfo(
+        "ray0rf1re/hyper-Nix.2", "hypernix", "Alias for hyper-nix.2.",
+    ),
+    "hypernix2": ModelInfo(
+        "ray0rf1re/hyper-Nix.2", "hypernix", "Alias for hyper-nix.2.",
+    ),
     "hyper-nix": ModelInfo(
-        "ray0rf1re/hyper-nix.1", "hypernix", "Alias for hyper-nix.1.",
+        "ray0rf1re/hyper-Nix.2", "hypernix",
+        "Alias for hyper-nix.2 (latest HyperNix release).",
     ),
     "hypernix": ModelInfo(
-        "ray0rf1re/hyper-nix.1", "hypernix", "Alias for hyper-nix.1.",
+        "ray0rf1re/hyper-Nix.2", "hypernix",
+        "Alias for hyper-nix.2 (latest HyperNix release).",
     ),
     "nano-nano-v4": ModelInfo(
         "ray0rf1re/Nano-nano-v4", "llama",

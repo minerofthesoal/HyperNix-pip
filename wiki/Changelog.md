@@ -17,6 +17,129 @@ next release header.
 
 ---
 
+## 0.51.0
+
+✨ **Chat-first release.** Five new modules + first-class support
+for the new ``ray0rf1re/hyper-Nix.2`` chat checkpoint.
+
+* **`hypernix.cookbook` — chat-template registry.**
+  Different model families use wildly different prompt formats
+  (ChatML, Llama 3 turn tags, Alpaca, Vicuna, plain ``role:
+  content``) and getting one wrong silently makes a chat model
+  behave like a base model.  ``cookbook`` ships every common
+  template as a dataclass and resolves the right one from a
+  short name or HF repo id::
+
+      from hypernix.cookbook import COOKBOOK, for_model
+
+      tmpl = for_model("ray0rf1re/hyper-Nix.2")  # picks "hyper-nix.2"
+      prompt = tmpl.apply(messages, add_generation_prompt=True)
+
+  Built-in templates: ``chatml``, ``hyper-nix.2`` (ChatML +
+  HyperNix-flavoured default system prompt), ``llama3``,
+  ``llama2``, ``alpaca``, ``vicuna``, ``plain``.  Wired into
+  ``CodeOven._format_chat`` as the layer-2 fallback (after
+  ``tokenizer.apply_chat_template`` if present, before the plain
+  ``role: content`` last-resort) so a freshly-downloaded
+  hyper-Nix.2 snapshot Just Works for chat without any extra
+  configuration.
+
+* **`hypernix.countertop` — multi-turn chat session.**
+  Persistent workspace bound to an oven::
+
+      from hypernix.old_oven import preheat
+      from hypernix.countertop import Countertop
+
+      oven = preheat("hyper-nix.2")
+      chat = Countertop(oven, system="You are a helpful chef.")
+      print(chat.say("How do I dice an onion?"))
+      print(chat.say("And a shallot?"))
+      chat.save("session.json")
+
+  Auto-resolves the chat template from ``oven.repo_id``,
+  optionally streams through a :class:`Bell`, optionally cleans
+  replies through a :class:`Flour`, trims oldest turns when the
+  rendered transcript exceeds ``max_history_tokens``, and
+  round-trips to JSON for resumable sessions.
+
+* **`hypernix.menu` — system-prompt presets.**
+  Named registry of personas: ``default`` / ``concise`` /
+  ``code-helper`` / ``judge`` / ``creative`` / ``chef`` /
+  ``hyper-nix``.  Pairs with the ``persona=`` kwarg on
+  ``countertop()`` so you can say
+  ``countertop(oven, persona="judge")`` instead of pasting the
+  judge prompt by hand.  Persists with ``Menu.save / Menu.load``.
+
+* **`hypernix.bell` — streaming-token callback.**
+  Wraps any oven exposing ``model`` + ``_decode`` + ``_format_chat``
+  so generation streams a token at a time::
+
+      bell = Bell()
+      bell.on_token(lambda tok, idx: print(tok, end="", flush=True))
+      bell.on_done(lambda full: print(f"\\n[done, {len(full)} chars]"))
+      bell.stream_chat(oven, messages, max_new_tokens=128)
+
+  Or pull tokens out of the iterator yourself::
+
+      for tok in bell.iter_chat(oven, messages):
+          ...
+
+  ``stdout_bell()`` and ``file_bell(path)`` are ready-made
+  variants.  Bells accept a ``flour=`` so live logits processing
+  applies during streaming, not just at the end.
+
+* **`hypernix.flour` — chat-quality logits processor.**
+  *The reason hypernix's chat surface is "better than raw
+  transformers for chatting".*  Bundles every chat-quality
+  heuristic you'd otherwise wire by hand on top of vanilla
+  transformers:
+    * **repetition penalty** (OpenAI-style multiplicative),
+    * **frequency penalty** (linear in count),
+    * **presence penalty** (linear, once per unique token),
+    * **no-repeat n-gram** blocking,
+    * **bad-word / phrase** suppression,
+    * **role-leak suppression** — strips
+      ``<|im_start|>user`` / ``[INST]`` / ``user:`` tokens the
+      assistant would otherwise hallucinate, and cuts the reply
+      at any half-emitted next-turn marker,
+    * **stop-sequence detection** on **decoded text** rather than
+      raw token ids — so ``"<|im_end|>"`` works even when the
+      tokenizer splits it into 3 BPE pieces.
+  ``Flour.smart_default(template="hyper-nix.2")`` applies all of
+  the above with values tuned for chat.  ``Flour.aggressive()``
+  cranks up the penalties for models that loop a lot.
+  ``Flour.off()`` is a no-op.
+
+🌶️ **First-class support for ``ray0rf1re/hyper-Nix.2``.**
+
+* New ``KNOWN_MODELS`` entry plus the aliases ``hyper-nix.2`` /
+  ``hyper-nix2`` / ``hypernix2`` / ``hyper-nix`` / ``hypernix``,
+  all routing to ``ray0rf1re/hyper-Nix.2``.  The chat-aware
+  ``hyper-nix`` / ``hypernix`` short names now resolve to v2
+  (was v1 in 0.50).
+* ``DEFAULT_REPO_ID`` updated to ``ray0rf1re/hyper-Nix.2`` so
+  ``preheat()`` with no args downloads the chat-tuned model.
+* New ``ARCH_PRESETS["hypernix2"]`` / ``["hyper-nix.2"]`` for
+  fresh-init from-scratch chat models with the same Llama-shape
+  config as v1.
+* ``CodeOven.repo_id`` is now persisted on the oven so
+  ``_format_chat`` can resolve the cookbook template
+  automatically — no more ``role: content`` fallback for v2.
+
+🛡️ **56 new tests** in ``tests/test_v051.py``: cookbook templates
+(ChatML / Llama 2/3 / Alpaca / Vicuna / plain + ``for_model``
+resolver), menu CRUD + persistence, bell streaming with a stub
+oven (no real weights needed), countertop session lifecycle
+(say / reset / trim / save / load / persona / flour-cleanup),
+flour logits processor (repetition penalty math, no-repeat n-gram
+ban, role-leak detection, decoded-text stop-match,
+``clean_reply`` after generation), and hyper-Nix.2 wiring (alias
+table, default repo id, oven ``repo_id`` plumbing).
+
+Final: 607 tests pass, 1 skipped (matplotlib).
+
+---
+
 ## 0.50.0
 
 ✨ **Four new kitchen modules.**
