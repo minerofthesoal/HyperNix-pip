@@ -536,9 +536,55 @@ def _cpu_key(name: str) -> str:
     return name.lower().replace("_", "-").replace(" ", "-")
 
 
+# 0.52.5: generational-family aliases.  Real users type
+# ``i7_7th_gen`` / ``i9-12th-gen`` etc. instead of the exact SKU,
+# so resolve those to a representative canonical entry rather than
+# returning None.  Pick the mobile flagship per generation since
+# that's the most common laptop SKU.
+_CPU_GENERATIONAL_ALIASES: dict[str, str] = {
+    # i3 / i5 / i7 / i9 by generation
+    "i7-7th-gen": "i7-7700hq",
+    "i7-8th-gen": "i7-7700hq",   # closest CPU_PRESETS entry; fall-back family
+    "i7-9th-gen": "i7-7700hq",
+    "i7-10th-gen": "i7-7700hq",
+    "i7-11th-gen": "i7-11800h",
+    "i7-12th-gen": "i7-12700h",
+    "i7-13th-gen": "i7-13700h",
+    "i7-14th-gen": "i7-14700hx",
+    "i9-11th-gen": "i9-11900k",
+    "i9-12th-gen": "i9-12900k",
+    "i9-13th-gen": "i9-13900k",
+    "i9-14th-gen": "i9-14900k",
+    "i5-11th-gen": "i5-11600k",
+    "i5-12th-gen": "i5-12600k",
+    "i5-13th-gen": "i5-13600k",
+    "i5-14th-gen": "i5-14600k",
+    # Core Ultra families (Series 1 + 2)
+    "ultra-5": "core-ultra-5-125h",
+    "ultra-7": "core-ultra-7-155h",
+    "ultra-9": "core-ultra-9-185h",
+    "core-ultra": "core-ultra-7-155h",
+    "core-ultra-1": "core-ultra-7-155h",
+    "core-ultra-2": "core-ultra-7-265k",
+}
+
+
 def cpu_preset(name: str) -> CPUPreset | None:
-    """Look up a CPU preset by short name (case- and dash-insensitive)."""
-    return CPU_PRESETS.get(_cpu_key(name))
+    """Look up a CPU preset by short name (case- and dash-insensitive).
+
+    0.52.5: also resolves generational-family aliases like
+    ``"i7_7th_gen"`` / ``"i9-12th-gen"`` / ``"core-ultra"`` to a
+    representative SKU when the exact key isn't in
+    :data:`CPU_PRESETS`.
+    """
+    key = _cpu_key(name)
+    direct = CPU_PRESETS.get(key)
+    if direct is not None:
+        return direct
+    aliased = _CPU_GENERATIONAL_ALIASES.get(key)
+    if aliased is not None:
+        return CPU_PRESETS.get(aliased)
+    return None
 
 
 # ---------------------------------------------------------------------------

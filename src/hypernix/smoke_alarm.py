@@ -106,6 +106,18 @@ class Alarm:
     available_storage_gb: float | None = None
     safety_margin: float = 0.10
     name: str = "Alarm"
+    # ------------------------------------------------------------------
+    # 0.52.5: forgiving kwargs accepted on every alarm.  Downstream
+    # scripts in the wild type ``cpu_preset="i7-7th-gen"`` /
+    # ``max_steps=1000`` / etc.  The base class now accepts all three
+    # so users don't hit ``TypeError: unexpected keyword argument`` on
+    # tiers that don't directly use the kwarg (e.g. RadsAlarm ignores
+    # the hardware presets, but accepting them silently is friendlier
+    # than crashing).
+    # ------------------------------------------------------------------
+    max_steps: int | None = None
+    cpu_preset: Any = None  # str (preset name) | CPUPreset | None
+    gpu_preset: Any = None  # str (preset name) | GPUPreset | None
 
     def __post_init__(self) -> None:
         # Subclasses override and can call ``object.__setattr__`` to set
@@ -122,7 +134,11 @@ class Alarm:
 
     def recommended_steps(self) -> int:
         usable = self.time_budget_seconds * (1 - self.safety_margin)
-        return max(1, int(usable / max(1e-6, self.estimate_step_seconds())))
+        rec = max(1, int(usable / max(1e-6, self.estimate_step_seconds())))
+        # 0.52.5: hard-cap at user-supplied max_steps when set.
+        if self.max_steps is not None and self.max_steps > 0:
+            rec = min(rec, int(self.max_steps))
+        return rec
 
     def budget(self) -> TrainingBudget:
         sps = self.estimate_step_seconds()
@@ -261,6 +277,23 @@ class GasAlarm(Alarm):
                 self.cpu = c
             if g is not None and self.gpu is None:
                 self.gpu = g
+        # 0.52.5: resolve the forgiving cpu_preset / gpu_preset
+        # kwargs (str preset name *or* a pre-built CPUPreset /
+        # GPUPreset object) into self.cpu / self.gpu so downstream
+        # scripts can write GasAlarm(cpu_preset="i7-7th-gen") without
+        # tripping TypeError.
+        if self.cpu is None and self.cpu_preset is not None:
+            self.cpu = (
+                cpu_preset(self.cpu_preset)
+                if isinstance(self.cpu_preset, str)
+                else self.cpu_preset
+            )
+        if self.gpu is None and self.gpu_preset is not None:
+            self.gpu = (
+                gpu_preset(self.gpu_preset)
+                if isinstance(self.gpu_preset, str)
+                else self.gpu_preset
+            )
 
     @classmethod
     def from_names(
@@ -367,6 +400,21 @@ class AutoAlarm:
     available_ram_gb: float | None = None
     available_storage_gb: float | None = None
     safety_margin: float = 0.10
+    # 0.52.5: forgiving aliases — accept the same kwargs the base
+    # Alarm now accepts, and treat ``cpu_preset`` as a synonym for
+    # ``cpu_name`` (and ``gpu_preset`` for ``gpu_name``) when the
+    # caller types either form.
+    max_steps: int | None = None
+    cpu_preset: Any = None
+    gpu_preset: Any = None
+
+    def __post_init__(self) -> None:
+        # Treat cpu_preset / gpu_preset as synonyms for cpu_name /
+        # gpu_name when only the alias was provided.
+        if self.cpu_name is None and isinstance(self.cpu_preset, str):
+            self.cpu_name = self.cpu_preset
+        if self.gpu_name is None and isinstance(self.gpu_preset, str):
+            self.gpu_name = self.gpu_preset
 
     def _common_kwargs(self) -> dict[str, Any]:
         return {
@@ -378,6 +426,9 @@ class AutoAlarm:
             "available_ram_gb": self.available_ram_gb,
             "available_storage_gb": self.available_storage_gb,
             "safety_margin": self.safety_margin,
+            # 0.52.5: forward the cap so the picked alarm's
+            # recommended_steps() honours it.
+            "max_steps": self.max_steps,
         }
 
     def pick(self) -> Alarm:

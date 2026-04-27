@@ -17,6 +17,74 @@ next release header.
 
 ---
 
+## 0.52.5
+
+🐛 **`smoke_alarm` is forgiving about kwargs.**  Reported by a
+downstream ``chat_hypernix2.py`` script running on an i7 7th-gen
+Surface Pro:
+
+    TypeError: GasAlarm.__init__() got an unexpected keyword
+    argument 'cpu_preset'
+
+…and after the script's own ``except`` fell through to
+``RadsAlarm``:
+
+    TypeError: Alarm.__init__() got an unexpected keyword
+    argument 'max_steps'
+
+Real users type the kwargs they intuitively expect.  ``cpu_preset``
+is the *function name* for resolving CPU presets in
+``hypernix.freezer``, so reaching for ``GasAlarm(cpu_preset=…)``
+is the natural call.  Same for ``max_steps`` as a hard cap on
+``recommended_steps()``.
+
+Fix:
+
+* **Base `Alarm` dataclass** gains three forgiving kwargs:
+  ``max_steps: int | None``, ``cpu_preset: str | CPUPreset``,
+  ``gpu_preset: str | GPUPreset``.  Every subclass
+  (`RadsAlarm` / `GasAlarm` / `ModernAlarm`) inherits them, so
+  none of them raise ``TypeError`` anymore on those kwargs.
+* **`Alarm.recommended_steps()`** now caps the natural
+  recommendation at ``self.max_steps`` when set (a CAP, not a
+  target — recommendations below ``max_steps`` are unaffected).
+* **`GasAlarm.__post_init__`** resolves a ``cpu_preset`` string
+  into ``self.cpu`` via ``hypernix.freezer.cpu_preset``, and a
+  ``gpu_preset`` string into ``self.gpu``.  An explicit
+  ``cpu=`` / ``gpu=`` object takes precedence.  Pre-built
+  ``CPUPreset`` / ``GPUPreset`` objects passed via the alias
+  also work.
+* **`AutoAlarm`** mirrors the same kwargs and forwards
+  ``max_steps`` through ``_common_kwargs`` so the picked tier
+  honours the cap.
+
+🌶️ **Generational CPU aliases in `hypernix.freezer.cpu_preset`.**
+``"i7_7th_gen"`` (the user's exact string) used to return
+``None``.  Added a generation-family map so the natural-feeling
+aliases resolve to a representative SKU:
+
+* ``i7_7th_gen`` → ``i7-7700hq``
+* ``i7-12th-gen`` → ``i7-12700h``
+* ``i9-12th-gen`` → ``i9-12900k``
+* ``i9-14th-gen`` → ``i9-14900k``
+* ``ultra-7`` / ``core-ultra`` → ``core-ultra-7-155h``
+* ``ultra-9`` → ``core-ultra-9-185h``
+* …plus full coverage of i5 / i7 / i9 11th – 14th gen, Core
+  Ultra Series 1 + 2.
+
+Direct SKU lookups (``"i7-7700hq"``) still take the fast path —
+the alias map is only consulted on a primary miss.
+
+🛡️ **27 new regression tests** in ``tests/test_v052_5.py``
+covering both lines from the user's repro, ``max_steps`` cap
+semantics (no-op when natural rec is below the cap, ignores 0 /
+None, hard-caps when smaller), explicit ``cpu_preset`` / 
+``gpu_preset`` resolution, explicit-``cpu=`` precedence, every
+generational alias, ``AutoAlarm`` forwarding, and kwarg
+acceptance on every tier.
+
+---
+
 ## 0.52.4
 
 🐛 **`CodeOven.chat` no longer crashes with ``ValueError: too many
