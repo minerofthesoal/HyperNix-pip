@@ -17,6 +17,44 @@ next release header.
 
 ---
 
+## 0.52.6
+
+🐛 **More forgiving `smoke_alarm` kwargs.**  Continuation of the
+0.52.5 fix-up — same downstream ``chat_hypernix2.py`` script,
+same Surface Pro, two more ``TypeError``s after the previous
+patch landed::
+
+    TypeError: GasAlarm.__init__() missing 1 required positional
+    argument: 'time_budget_seconds'
+
+    TypeError: Alarm.__init__() got an unexpected keyword argument
+    'log_every'
+
+The user's call shape is ``smoke_alarm.GasAlarm(cpu_preset="…",
+log_every=10, save_every=100, ...)`` — an alarm being used as a
+training-config holder.  Two further fixes:
+
+* **`time_budget_seconds` now defaults to ``600.0``.** (Was a
+  required positional arg.)  Picking a hardware preset is the
+  more interesting signal; the time budget is a knob most
+  callers default anyway.  ``RadsAlarm()`` / ``GasAlarm()`` /
+  ``ModernAlarm()`` / ``AutoAlarm()`` all instantiate with no
+  arguments now.
+* **Base `Alarm` accepts `log_every` / `save_every` /
+  `eval_every`.**  Training-loop cadence kwargs that real users
+  type into config dicts.  RadsAlarm doesn't *use* them, but
+  accepting them silently is friendlier than crashing.
+  ``AutoAlarm`` also accepts and forwards them through
+  ``_common_kwargs`` to the picked tier.
+
+🛡️ **20 new regression tests** in ``tests/test_v052_6.py``:
+both repro lines, default ``time_budget_seconds`` on every tier,
+``log_every`` / ``save_every`` / ``eval_every`` accepted on every
+tier, ``AutoAlarm`` forwarding the cadence knobs, and a realistic
+``**cfg`` user-config-dict expansion test.
+
+---
+
 ## 0.52.5
 
 🐛 **`smoke_alarm` is forgiving about kwargs.**  Reported by a

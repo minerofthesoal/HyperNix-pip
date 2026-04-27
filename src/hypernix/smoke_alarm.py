@@ -97,7 +97,12 @@ class AlarmStatus:
 class Alarm:
     """Base class — see the four concrete subclasses below."""
 
-    time_budget_seconds: float
+    # 0.52.6: ``time_budget_seconds`` now defaults to 600s (10 min) so
+    # ``GasAlarm(cpu_preset="i7_7th_gen")`` and similar short-form
+    # constructor calls don't raise ``missing 1 required positional
+    # argument`` — picking a hardware preset is the more interesting
+    # signal; the time budget is a knob most callers default anyway.
+    time_budget_seconds: float = 600.0
     model_params: int = _BASELINE_PARAMS
     context_length: int = _BASELINE_CONTEXT
     batch_size: int = _BASELINE_BATCH
@@ -107,17 +112,21 @@ class Alarm:
     safety_margin: float = 0.10
     name: str = "Alarm"
     # ------------------------------------------------------------------
-    # 0.52.5: forgiving kwargs accepted on every alarm.  Downstream
-    # scripts in the wild type ``cpu_preset="i7-7th-gen"`` /
-    # ``max_steps=1000`` / etc.  The base class now accepts all three
-    # so users don't hit ``TypeError: unexpected keyword argument`` on
-    # tiers that don't directly use the kwarg (e.g. RadsAlarm ignores
-    # the hardware presets, but accepting them silently is friendlier
+    # 0.52.5 + 0.52.6: forgiving kwargs accepted on every alarm.
+    # Downstream scripts in the wild type ``cpu_preset="i7-7th-gen"``,
+    # ``max_steps=1000``, ``log_every=10``, etc.  The base class accepts
+    # all of them so users don't hit ``TypeError: unexpected keyword
+    # argument`` on tiers that don't directly use the kwarg (e.g.
+    # RadsAlarm ignores the hardware presets and the
+    # logging-cadence knobs, but accepting them silently is friendlier
     # than crashing).
     # ------------------------------------------------------------------
     max_steps: int | None = None
     cpu_preset: Any = None  # str (preset name) | CPUPreset | None
     gpu_preset: Any = None  # str (preset name) | GPUPreset | None
+    log_every: int | None = None
+    save_every: int | None = None
+    eval_every: int | None = None
 
     def __post_init__(self) -> None:
         # Subclasses override and can call ``object.__setattr__`` to set
@@ -388,7 +397,8 @@ class AutoAlarm:
     * otherwise -> :class:`RadsAlarm`.
     """
 
-    time_budget_seconds: float
+    # 0.52.6: same default for AutoAlarm as the base Alarm.
+    time_budget_seconds: float = 600.0
     model_params: int = _BASELINE_PARAMS
     context_length: int = _BASELINE_CONTEXT
     batch_size: int = _BASELINE_BATCH
@@ -400,13 +410,16 @@ class AutoAlarm:
     available_ram_gb: float | None = None
     available_storage_gb: float | None = None
     safety_margin: float = 0.10
-    # 0.52.5: forgiving aliases — accept the same kwargs the base
-    # Alarm now accepts, and treat ``cpu_preset`` as a synonym for
-    # ``cpu_name`` (and ``gpu_preset`` for ``gpu_name``) when the
+    # 0.52.5 + 0.52.6: forgiving aliases — accept the same kwargs the
+    # base Alarm now accepts, and treat ``cpu_preset`` as a synonym
+    # for ``cpu_name`` (and ``gpu_preset`` for ``gpu_name``) when the
     # caller types either form.
     max_steps: int | None = None
     cpu_preset: Any = None
     gpu_preset: Any = None
+    log_every: int | None = None
+    save_every: int | None = None
+    eval_every: int | None = None
 
     def __post_init__(self) -> None:
         # Treat cpu_preset / gpu_preset as synonyms for cpu_name /
@@ -426,9 +439,14 @@ class AutoAlarm:
             "available_ram_gb": self.available_ram_gb,
             "available_storage_gb": self.available_storage_gb,
             "safety_margin": self.safety_margin,
-            # 0.52.5: forward the cap so the picked alarm's
-            # recommended_steps() honours it.
+            # 0.52.5: forward the step cap.
             "max_steps": self.max_steps,
+            # 0.52.6: forward the logging-cadence knobs so the picked
+            # alarm carries them too (mostly for downstream scripts
+            # that read ``alarm.log_every`` etc. directly).
+            "log_every": self.log_every,
+            "save_every": self.save_every,
+            "eval_every": self.eval_every,
         }
 
     def pick(self) -> Alarm:
