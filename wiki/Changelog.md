@@ -17,6 +17,23 @@ next release header.
 
 ---
 
+## 0.51.2.1
+
+🐛 **PyPI logo broken-image fix (carried over from 0.51.1.2).**  The 0.51.1 / 0.51.1.1
+README pointed at
+``https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/assets/logo.png``
+but that path returns 404 — the logo file is on the
+``claude/pytorch-quantization-package-cJMQp`` working branch
+and hasn't been merged to ``main`` yet, so the PyPI project page
+showed the alt text + a broken-image placeholder.  Fixed by
+pinning the URL to commit ``2d5eb37`` (the upload commit), which
+is permanent regardless of branch lifecycle.  PyPI renders the
+logo from this release onward.  Once the branch lands on
+``main`` we can switch back to the pretty
+``main/assets/logo.png`` URL.
+
+---
+
 ## 0.51.1.1
 
 🎨 **Logo file landed.**  ``assets/logo.png`` (1408 × 768 RGBA,

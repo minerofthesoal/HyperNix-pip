@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/assets/logo.png" alt="hypernix logo" width="240" />
+  <img src="https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/2d5eb37/assets/logo.png" alt="hypernix logo" width="240" />
 </p>
 
 # hypernix
