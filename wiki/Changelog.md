@@ -17,6 +17,18 @@ next release header.
 
 ---
 
+## 0.51.1.1
+
+🎨 **Logo file landed.**  ``assets/logo.png`` (1408 × 768 RGBA,
+670 KB) and the transparent-background variant
+``assets/logo1.png`` are now in the repo, so the raw-GitHub
+``<img>`` tag at the top of the README renders on the PyPI
+project page from this release onward.  Originals also kept
+under ``assets/logo/`` for archival.  No code changes vs
+0.51.1.
+
+---
+
 ## 0.51.1
 
 🐛 **Five bug-fix patches across three review passes** — one
