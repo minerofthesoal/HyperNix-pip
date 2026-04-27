@@ -408,6 +408,23 @@ class CodeOven:
         top_p: float,
         eos_ids: tuple[int, ...] = (),
     ) -> list[int]:
+        # Patch (0.51.4): defensive coercion + a clear error message
+        # instead of the cryptic ``ValueError: too many dimensions
+        # 'str'`` torch raises when something upstream slipped a
+        # string / tensor / BatchEncoding past _format_chat.
+        if isinstance(input_ids, str):
+            input_ids = self._encode(input_ids)
+        elif isinstance(input_ids, torch.Tensor):
+            input_ids = [int(x) for x in input_ids.flatten().tolist()]
+        elif not isinstance(input_ids, list):
+            input_ids = list(input_ids)
+        if input_ids and not isinstance(input_ids[0], int):
+            raise TypeError(
+                "_run expected list[int] for input_ids; got "
+                f"{type(input_ids[0]).__name__} (head={input_ids[0]!r}). "
+                "This usually means tokenizer.apply_chat_template returned "
+                "an unexpected shape — please report the tokenizer.",
+            )
         ctx = torch.tensor([input_ids], dtype=torch.long, device=self.device)
         max_ctx = self.model.config.max_position_embeddings
         generated: list[int] = []
@@ -528,15 +545,32 @@ class CodeOven:
            the tokenizer doesn't ship a ``chat_template``.
         3. A plain ``role: content`` transcript fallback that works with
            any tokenizer including the byte fallback.
+
+        Patch (0.51.4): ``apply_chat_template`` is allowed to return any
+        of: a flat list of ints, a 1-D / 2-D ``torch.Tensor``, a
+        ``BatchEncoding``, or even (broken-but-seen-in-the-wild) a plain
+        rendered string.  All five shapes are coerced into a flat
+        ``list[int]`` here so :meth:`_run` never sees strings.  The
+        previous implementation ``return list(ids)`` happily passed
+        ``list("hello") == ['h','e',…]`` straight through, which then
+        hit ``ValueError: too many dimensions 'str'`` inside
+        ``torch.tensor``.
         """
         if self.tokenizer_kind == "hf":
             apply = getattr(self.tokenizer, "apply_chat_template", None)
             tmpl = getattr(self.tokenizer, "chat_template", None)
             if callable(apply) and tmpl:
-                ids = apply(
-                    messages, tokenize=True, add_generation_prompt=True,
-                )
-                return list(ids)
+                try:
+                    ids = apply(
+                        messages, tokenize=True, add_generation_prompt=True,
+                    )
+                    coerced = self._coerce_token_ids(ids)
+                    if coerced is not None:
+                        return coerced
+                except Exception:  # noqa: BLE001
+                    # Fall through to the cookbook / plain path so a
+                    # broken template never bricks chat().
+                    pass
 
         # Cookbook fallback — pick a template from the repo id, fall
         # through to plain role: content if nothing matches.
@@ -554,6 +588,49 @@ class CodeOven:
             parts.append(f"{m['role']}: {m['content']}")
         parts.append("assistant:")
         return self._encode("\n".join(parts))
+
+    def _coerce_token_ids(self, ids: Any) -> list[int] | None:
+        """Normalise whatever ``apply_chat_template`` returned into a
+        flat ``list[int]``.
+
+        Returns ``None`` (so the caller can fall through to the cookbook
+        / plain path) when the input shape isn't recognised — better
+        than crashing inside :meth:`_run` with ``too many dimensions
+        'str'``.
+        """
+        # Plain string — re-encode through the tokenizer.
+        if isinstance(ids, str):
+            return self._encode(ids)
+
+        # HF ``BatchEncoding`` exposes ``input_ids``; pull that out and recurse.
+        input_ids_attr = getattr(ids, "input_ids", None)
+        if input_ids_attr is not None and not isinstance(ids, (list, tuple)):
+            return self._coerce_token_ids(input_ids_attr)
+
+        # torch.Tensor (any rank).  Flatten + convert to list of ints.
+        if isinstance(ids, torch.Tensor):
+            if ids.numel() == 0:
+                return []
+            return [int(x) for x in ids.flatten().tolist()]
+
+        # Sequence — could be list[int], list[list[int]] (batched), or
+        # list[str] (the bug we patched).
+        if isinstance(ids, (list, tuple)):
+            if not ids:
+                return []
+            head = ids[0]
+            if isinstance(head, int):
+                return [int(x) for x in ids]
+            if isinstance(head, (list, tuple)):
+                # Batched — take the first batch.
+                return [int(x) for x in head]
+            if isinstance(head, torch.Tensor):
+                return [int(x) for x in (head[0] if head.dim() else head).flatten().tolist()] \
+                    if head.dim() > 0 else [int(x.item()) for x in ids]
+            # list[str] or similar — not usable.
+            return None
+
+        return None
 
     def chat(
         self,

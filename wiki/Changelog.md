@@ -17,6 +17,68 @@ next release header.
 
 ---
 
+## 0.52.4
+
+🐛 **`CodeOven.chat` no longer crashes with ``ValueError: too many
+dimensions 'str'``.**  Reported on a downstream notebook running
+the published wheel: a chat turn died deep inside
+``torch.tensor([input_ids], dtype=torch.long, ...)`` because the
+tokenizer's ``apply_chat_template`` returned a plain rendered
+string instead of token IDs (some tokenizers ignore
+``tokenize=True``).  ``list("hello world")`` produced
+``['h', 'e', 'l', ...]``, and torch quite reasonably refused to
+build a long tensor out of single-character strings.
+
+The fix lives in two places:
+
+* **New :meth:`CodeOven._coerce_token_ids` helper.**  Accepts
+  every legal shape ``apply_chat_template`` is allowed to return
+  and normalises into a flat ``list[int]``:
+
+    * a plain ``str`` → re-encoded through ``self._encode``,
+    * a 1-D / 2-D ``torch.Tensor`` → flattened then ``int(x)``-cast,
+    * a ``BatchEncoding``-like object exposing ``.input_ids`` →
+      recurses into the input-ids field,
+    * ``list[int]`` / ``tuple[int, ...]`` → passthrough,
+    * batched ``list[list[int]]`` → take the first batch,
+    * ``list[str]`` (the buggy shape) → return ``None`` so the
+      caller falls through to the cookbook / plain transcript
+      path instead of crashing.
+
+  The ``apply_chat_template`` call is also wrapped in a try /
+  except so a tokenizer that simply raises is treated identically
+  to a tokenizer that returns garbage — both fall through to the
+  cookbook path.
+
+* **Defensive guard in :meth:`CodeOven._run`.**  Coerces ``str``
+  / ``torch.Tensor`` / generic-iterable inputs the same way as
+  ``_coerce_token_ids`` and raises a clear ``TypeError("_run
+  expected list[int] for input_ids; got …")`` if anything still
+  slips through, instead of bubbling up the cryptic torch error.
+
+🛡️ **19 new regression tests** in ``tests/test_v051_4.py``:
+
+* The headline bug — chat does not raise ``too many dimensions
+  'str'`` when the tokenizer's ``apply_chat_template`` returns a
+  string.
+* 1-D tensor return / 2-D batched tensor return /
+  ``BatchEncoding``-like return / ``list[str]`` fallback.
+* ``_coerce_token_ids`` unit coverage for str / list[int] /
+  tuple[int] / 1-D Tensor / 2-D Tensor / empty Tensor / empty
+  list / batched list / BatchEncoding-like / list[str] /
+  unrecognised object.
+* ``_run`` defensive guard accepts string and tensor inputs via
+  coercion and raises ``TypeError`` with a useful message on a
+  truly unrecoverable input.
+
+---
+
+## 0.52.3
+
+🔧 Auto version bump from CI (no code changes vs 0.51.3).
+
+---
+
 ## 0.51.3
 
 ✨ **`hypernix.quantize` rewrite — full llama.cpp catalog.**
