@@ -17,6 +17,118 @@ next release header.
 
 ---
 
+## 0.60.0
+
+✨ **Eight new modules — four headline + four multi-tier.**
+
+🖥️ **`hypernix.tv` + `tvtop` CLI** — btop++-style training
+dashboard.  Tails any training log under cwd, parses
+``step N/M loss=X lr=Y`` lines, and renders a live ANSI-colour
+panel: progress bar with percent, loss sparkline (Unicode
+block-bar by default; ``--ascii`` for non-UTF terminals),
+throughput, elapsed wall time, ETA, CPU% / RAM% / GPU util%
+/ VRAM (via ``nvidia-smi``), and the most recent log tail.
+Zero hard dependencies — pure stdlib + ANSI.  Console script
+``tvtop`` is registered in ``pyproject.toml``.
+
+📦 **`hypernix.compactor`** — zip older checkpoints to save
+disk.  ``Compactor(root, keep_recent=3, fmt="zip"|"tar"|"tar.gz")``
+walks a snapshot directory, finds ``ckpt-NNNN`` /
+``checkpoint-NNNN`` / ``step-NNNN`` directories (and matching
+``.pt`` / ``.safetensors`` files), keeps the N most-recent
+uncompressed, and rolls the rest into archives.  ``dry_run=True``
+plans without touching the disk.
+
+⚡ **`hypernix.ethanol` + `eth` CLI** — bounded GPU overclock.
+``Ethanol(level=0..30)`` maps a single integer to bounded core /
+memory / power-limit offsets (level 0 = full stock; level 30 =
+``MAX_CORE_OFFSET_MHZ`` / ``MAX_MEM_OFFSET_MHZ`` /
+``MAX_POWER_LIMIT_PCT``, all well below typical manual-OC
+limits).  Refuses to apply without ``confirm=True`` or
+``HYPERNIX_ETHANOL_CONFIRM=1``.  Vendor backends:
+``nvidia-settings`` (full), ``nvidia-smi`` (power limit only),
+``rocm-smi``, ``intel_gpu_frequency``.  Returned
+``OverclockResult`` records what was attempted, what succeeded,
+and any vendor-tool stderr.
+
+🌑 **`hypernix.outage`** — turn the display off during training.
+``with Outage(): train_for_six_hours()`` blanks the panel on
+entry and **always** restores it on exit — clean finish,
+KeyboardInterrupt, OOM, RuntimeError, doesn't matter.  Backends:
+``xset dpms`` (X11), ``wlopm`` (Wayland), ``pmset`` (macOS),
+``SendMessageW`` via ``ctypes`` (Windows).  Missing backends
+log a note instead of raising.
+
+🍳 **Four new 4-tier modules** (matching the established
+multi-tier pattern of ``smoker`` / ``coffee_maker`` /
+``espresso_maker`` / ``blender`` / ``toaster`` etc.):
+
+* **`timer`** — countdown / interval / pomodoro helpers, all on
+  a monotonic clock.
+    * ``KitchenTimer``  — t1.  Plain countdown.
+    * ``EggTimer``      — t2.  Countdown + ``on_ring`` callback
+      fired exactly once when the timer crosses ``duration``.
+    * ``IntervalTimer`` — t3.  Fires every ``interval_seconds``
+      via ``should_fire()`` — ideal for throttling log emits /
+      checkpoint saves / eval cadence inside a tight training
+      loop.
+    * ``PomodoroTimer`` — t4.  Alternates between
+      ``work_seconds`` / ``rest_seconds`` blocks; ``state``
+      returns ``"work" | "rest"``.
+
+* **`thermometer`** — sample CPU / GPU temperatures.
+    * ``InstantThermometer``  — t1.  One-shot read.
+    * ``ProbeThermometer``    — t2.  Rolling window with
+      ``recent_max / recent_mean / recent_min``.
+    * ``InfraredThermometer`` — t3.  Per-source peak tracking +
+      configurable warn / critical thresholds.
+    * ``DigitalThermometer``  — t4.  Logs every reading to a
+      JSONL file for post-mortem analysis.
+  Sources: ``psutil.sensors_temperatures`` when installed,
+  Linux ``/sys/class/thermal/thermal_zone*/temp`` fallback,
+  ``nvidia-smi --query-gpu=temperature.gpu`` for the GPU.
+
+* **`dishwasher`** — clean up training-run leftovers.
+    * ``HandWash``   — t1.  Logs + ``__pycache__`` only.
+    * ``QuickWash``  — t2.  HandWash + ``*.tmp`` / ``*.partial``
+      / ``*.lock`` / ``.DS_Store``.
+    * ``NormalWash`` — t3.  QuickWash + stale checkpoints
+      (delegates discovery to :mod:`hypernix.compactor`).
+    * ``HeavyDuty``  — t4.  NormalWash + intermediate fp16
+      GGUFs + ``dist`` / ``build`` / ``.pytest_cache`` /
+      ``.ruff_cache`` directories; opt-in
+      ``purge_hf_cache=True`` also wipes
+      ``~/.cache/huggingface``.
+  Every tier supports ``dry_run=True`` and reports total bytes
+  freed.
+
+* **`strainer`** — drop low-quality dataset rows.
+    * ``Colander``    — t1.  Empty / None / whitespace-only.
+    * ``FineMesh``    — t2.  Colander + length floor / ceiling.
+    * ``NutMilkBag``  — t3.  FineMesh + non-printable-character
+      filter.
+    * ``Cheesecloth`` — t4.  NutMilkBag + 8-gram Jaccard
+      near-duplicate detection (``similarity_threshold=0.85``
+      by default).
+  Operates on dicts (``record["text"]``) or plain strings; the
+  ``key`` arg points the strainer at a non-default field.
+
+🛡️ **44 new tests** in ``tests/test_v060.py`` — checkpoint
+discovery + zip / dry-run / unknown-fmt for ``compactor``,
+level → offsets math + clamp + plan-without-confirm + CLI
+help / invalid-level for ``ethanol``, backend detection +
+context-manager round-trip + strict-mode for ``outage``,
+sparkline / log-tail / step-loss-lr regex / progress clamp /
+render / single-frame run for ``tv``, all four
+timer / thermometer / dishwasher / strainer tiers + their
+factories.
+
+🔌 **Two new console scripts** registered in ``pyproject.toml``:
+``tvtop`` → ``hypernix.tv:cli_main``, ``eth`` → 
+``hypernix.ethanol:cli_main``.
+
+---
+
 ## 0.52.6
 
 🐛 **More forgiving `smoke_alarm` kwargs.**  Continuation of the
