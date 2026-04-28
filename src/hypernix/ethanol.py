@@ -218,16 +218,26 @@ class Ethanol:
         out_notes: list[str] = []
         out_err: list[str] = []
         any_failed = False
+        permission_denied = False
         for cmd in cmds:
             res = _run(cmd)
             out_notes.append(f"$ {' '.join(cmd)} -> rc={res.returncode}")
             if res.stderr:
                 out_err.append(res.stderr.strip())
+                # Detect permission errors to give helpful guidance
+                if "permission" in res.stderr.lower() or "not permitted" in res.stderr.lower():
+                    permission_denied = True
             if res.returncode != 0:
                 any_failed = True
         plan.applied = not any_failed
         plan.notes = "; ".join(out_notes)
         plan.stderr = "\n".join(out_err)
+        if permission_denied:
+            plan.notes += (
+                "\n\nethanol: permission denied — GPU overclocking requires elevated privileges.\n"
+                "Try: sudo eth <level> --confirm\n"
+                "Or set persistent permissions via nvidia-settings config file."
+            )
         return plan
 
     def _stock_power_watts_or_default(self) -> int:

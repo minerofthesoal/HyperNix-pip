@@ -87,6 +87,7 @@ from . import (
     toaster,
     torch_compat,
     tv,
+    tvtop,
     ups,
     whisk,
 )
@@ -236,11 +237,12 @@ __all__ = [
     "torch_compat",
     "train",
     "tv",
+    "tvtop",
     "ups",
     "upload_gguf",
     "verify_snapshot",
     "whisk",
 ]
 
-__version__ = "0.61.2"
+__version__ = "0.61.3"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
