@@ -17,6 +17,91 @@ next release header.
 
 ---
 
+## 0.61.1
+
+✨ **`hyped` chat CLI.**  New high-quality TUI chat CLI registered
+as the ``hyped`` console script.  Two-screen flow:
+
+1. **Configurator** — pick a model from the curated short-list
+   organised by family (HyperNix / Nix / Qwen 3.5 / Nano), or
+   ``0`` to browse every entry in :data:`KNOWN_MODELS`.  Pick a
+   persona from :data:`hypernix.menu.MENU` (or ``0`` for none).
+   Tweak sampling defaults (temperature / top_p / top_k /
+   max_new_tokens) — press Enter on each to accept.
+2. **Chat** — full-screen panel layout: status bar (model /
+   persona / sampling), conversation panel with the last 12
+   turns wrapped to terminal width, then a typing prompt.
+   Streams tokens through :class:`hypernix.bell.Bell` and applies
+   :class:`hypernix.flour.Flour` (smart by default; switch via
+   ``--flour aggressive|off``).  Slash commands inside the chat:
+   ``/quit``, ``/reset``, ``/persona <name>``, ``/save <path>``,
+   ``/help``.
+
+Skip the picker with ``hyped --model <short>``; pre-pick a
+persona with ``hyped --persona <name>``.  ASCII fallback via
+``hyped --ascii`` for non-UTF terminals; ``readline`` is loaded
+when available so up-arrow recall + inline editing Just Work.
+
+🚨 **MAJOR ``hyper-Nix.2`` undertrained warning.**  The chat-tuned
+``ray0rf1re/hyper-Nix.2`` checkpoint shipped publicly but its
+training run was cut short — outputs are often nonsensical,
+repetitive, or incoherent.  ``hypernix.utils.warn_hyper_nix_2``
+fires a red-bordered ANSI box on stderr the first time any
+hyper-Nix.2 alias is touched (``download_model``, ``preheat``,
+``hyped --model hyper-nix.2``).  Idempotent per process; suppress
+with ``HYPERNIX_SUPPRESS_HYPERNIX2_WARNING=1``.  Also demotes the
+hyped configurator badge from ``★`` to ``⚠`` and points users at
+``Nix-ai/Nix-2.7a`` / ``Qwen/Qwen2.5-7B-Instruct`` /
+``ray0rf1re/hyper-nix.1`` as solid alternatives.
+
+🐛 **Five bug-fix passes** while building hyped:
+
+* **hyped chat loop** now routes through ``Countertop.say()`` with
+  a streaming token callback registered on the bell, instead of
+  bypassing the countertop's history / trim / clean logic.
+* **hyped ASCII picker** uses ``*`` instead of ``★`` for the
+  default-model badge so non-UTF terminals don't render ``?``.
+* **`ups.UPS` instantiation** is now lazy — IP-geolocation deferred
+  to the first ``check()`` call, so ``UPS()`` no-args returns
+  instantly instead of blocking on a 5-second HTTPS round-trip.
+* **`plasma.calibrate_alarm`** stashes the pristine bound method
+  on ``alarm._plasma_original`` and resets to it before
+  re-wrapping, so calling ``calibrate_alarm`` twice no longer
+  compounds factors.  New ``reset_calibration(alarm)`` undoes
+  the wrapper entirely.
+* **`tv._sanitise`** now exempts ``\r`` (0x0D) from the
+  non-printable strip so Windows CRLF logs don't lose every line
+  ending to ``?``.
+
+🛠️ **Utility helpers** added:
+
+* **`hypernix.utils`** (new module): ``healthcheck()`` /
+  ``diagnostic_info()`` / ``list_models()`` / ``print_models()`` /
+  ``session_dir()`` / ``is_module_available()`` /
+  ``has_binary()``.  Diagnostic snapshot includes torch +
+  CUDA + every common optional dep + relevant binaries on PATH +
+  the ``KNOWN_MODELS`` count.
+* **`Menu.find(query)`** — fuzzy persona lookup with exact /
+  case-insensitive / substring / prefix matching.  Returns
+  ``None`` on ambiguous matches so the caller can disambiguate.
+* **`hypernix.injection.thinking()` / `testing()` /
+  `system_override()`** — module-level shortcuts so
+  ``injection.thinking("hi")`` works without instantiating an
+  injector.
+
+🔌 **New console script** in ``pyproject.toml``:
+``hyped = "hypernix.hyped:cli_main"``.
+
+🛡️ **37 new tests** in ``tests/test_v061_1.py`` covering every
+bug-fix regression (ASCII picker / lazy UPS / plasma compounding /
+CRLF / hyped curated short-list), every utility helper, every
+fuzzy-find branch in ``Menu.find``, every injection shortcut, and
+every code path of the hyper-Nix.2 warning (alias matching /
+once-per-process / force re-emit / non-v2 skip / env-var
+suppression).
+
+---
+
 ## 0.61.0
 
 🐍 **Python 3.14 support.**  ``requires-python`` bumped to

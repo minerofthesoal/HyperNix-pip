@@ -174,18 +174,29 @@ class UPS:
     history: list[ThreatStatus] = field(default_factory=list, init=False, repr=False)
     _last_check_at: float = field(default=0.0, init=False, repr=False)
 
+    _coords_resolved: bool = field(default=False, init=False, repr=False)
+
     def __post_init__(self) -> None:
         if self.cadence_multiplier < 1:
             raise ValueError("cadence_multiplier must be >= 1")
         if os.environ.get("HYPERNIX_UPS_OFFLINE") == "1":
             self.offline = True
-        if (
-            not self.offline
-            and (self.latitude is None or self.longitude is None)
-        ):
-            coords = _autodetect_coords()
-            if coords is not None:
-                self.latitude, self.longitude = coords
+        # Patch (0.61.1): IP-geolocation is *lazy* — defer until the
+        # first :meth:`check` so constructing a UPS doesn't block on
+        # a 5s HTTPS round-trip.  Tests / quick scripts that pass
+        # ``offline=True`` or explicit coords pay no network cost.
+
+    def _ensure_coords(self) -> None:
+        if self._coords_resolved:
+            return
+        self._coords_resolved = True
+        if self.offline:
+            return
+        if self.latitude is not None and self.longitude is not None:
+            return
+        coords = _autodetect_coords()
+        if coords is not None:
+            self.latitude, self.longitude = coords
 
     # ------------------------------------------------------------------
     # Threat polling
@@ -203,6 +214,8 @@ class UPS:
             return self.last_status
 
         status = ThreatStatus(timestamp=now)
+        # 0.61.1: lazy IP-geolocation on the first check.
+        self._ensure_coords()
         # 1. Weather
         if (
             not self.offline

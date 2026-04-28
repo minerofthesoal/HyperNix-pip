@@ -232,16 +232,37 @@ def calibrate_alarm(alarm: Any, result: PlasmaResult) -> Any:
 
     Implementation note: we don't subclass — we wrap the bound
     method, since the smoke_alarm tiers are dataclasses and
-    monkey-patching the instance is the least invasive option."""
+    monkey-patching the instance is the least invasive option.
+
+    Patch (0.61.1): re-calibrating the same alarm now *replaces*
+    the previous wrapper instead of compounding factors.  The
+    pristine bound method is squirrelled away on
+    ``alarm._plasma_original`` the first time around; subsequent
+    calls reset to that baseline before re-wrapping.
+    """
     if not hasattr(alarm, "estimate_step_seconds"):
         raise TypeError("calibrate_alarm: alarm has no estimate_step_seconds")
-    original = alarm.estimate_step_seconds  # bound method
+    original = getattr(alarm, "_plasma_original", None)
+    if original is None:
+        original = alarm.estimate_step_seconds  # bound method
+        alarm._plasma_original = original  # type: ignore[attr-defined]
     factor = max(0.001, result.calibration_factor)
 
     def calibrated() -> float:
         return float(original()) * factor
 
     alarm.estimate_step_seconds = calibrated  # type: ignore[assignment]
+    return alarm
+
+
+def reset_calibration(alarm: Any) -> Any:
+    """Undo a previous :func:`calibrate_alarm` so
+    ``alarm.estimate_step_seconds`` returns the pristine baseline
+    again.  No-op on alarms that were never calibrated."""
+    original = getattr(alarm, "_plasma_original", None)
+    if original is not None:
+        alarm.estimate_step_seconds = original  # type: ignore[assignment]
+        delattr(alarm, "_plasma_original")
     return alarm
 
 
@@ -265,4 +286,5 @@ __all__ = [
     "calibrate_alarm",
     "plasma",
     "quick_benchmark",
+    "reset_calibration",
 ]

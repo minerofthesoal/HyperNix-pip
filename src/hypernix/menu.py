@@ -119,6 +119,33 @@ class Menu:
             raise KeyError("menu is empty")
         return self.prompts[next(iter(self.prompts))]
 
+    def find(self, query: str) -> str | None:
+        """Fuzzy-lookup a persona name (v0.61.1).
+
+        Tries exact match → case-insensitive exact → substring match
+        → prefix match.  Returns the matched key, or ``None`` if no
+        single unambiguous candidate is found.  When multiple
+        substring matches exist, ``None`` is returned to force the
+        caller to disambiguate.
+        """
+        if not query:
+            return None
+        if query in self.prompts:
+            return query
+        ql = query.lower()
+        for k in self.prompts:
+            if k.lower() == ql:
+                return k
+        # Substring matches.
+        subs = [k for k in self.prompts if ql in k.lower()]
+        if len(subs) == 1:
+            return subs[0]
+        # Prefix matches.
+        pre = [k for k in self.prompts if k.lower().startswith(ql)]
+        if len(pre) == 1:
+            return pre[0]
+        return None
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------

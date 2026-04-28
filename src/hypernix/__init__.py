@@ -57,6 +57,7 @@ from . import (
     flour,
     food_processor,
     freezer,
+    hyped,
     industrial_range,
     injection,
     instant_pot,
@@ -135,6 +136,14 @@ from .train import (
     train,
 )
 from .upload import upload_gguf
+from .utils import (
+    HealthReport,
+    diagnostic_info,
+    healthcheck,
+    list_models,
+    print_models,
+    session_dir,
+)
 
 __all__ = [
     "ARCH_PRESETS",
@@ -144,6 +153,7 @@ __all__ = [
     "GPU_PRESETS",
     "GPUPreset",
     "HyperNixConfig",
+    "HealthReport",
     "HyperNixModel",
     "KNOWN_MODELS",
     "ModelInfo",
@@ -161,6 +171,7 @@ __all__ = [
     "countertop",
     "cutting_board",
     "deep_fryer",
+    "diagnostic_info",
     "dishwasher",
     "ethanol",
     "convert_to_gguf",
@@ -175,10 +186,13 @@ __all__ = [
     "freezer",
     "generate_text",
     "gpu_preset",
+    "healthcheck",
+    "hyped",
     "industrial_range",
     "init_from_scratch",
     "injection",
     "instant_pot",
+    "list_models",
     "load_pt",
     "load_snapshot",
     "lunchbox",
@@ -197,6 +211,7 @@ __all__ = [
     "plasma",
     "pressure_cooker",
     "preheat",
+    "print_models",
     "quant_by_category",
     "quant_estimate_size",
     "quant_for_size",
@@ -209,6 +224,7 @@ __all__ = [
     "resolve_repo_id",
     "salt_shaker",
     "save_snapshot",
+    "session_dir",
     "sink",
     "smoke_alarm",
     "smoker",
@@ -226,5 +242,5 @@ __all__ = [
     "whisk",
 ]
 
-__version__ = "0.61.0"
+__version__ = "0.61.1"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"

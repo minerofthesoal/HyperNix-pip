@@ -108,7 +108,10 @@ def _looks_like_training_log(path: Path, *, peek_bytes: int = 16384) -> bool:
     return bool(_STEP_RE.search(text))
 
 
-_PRINTABLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Patch (0.61.1): exempt \r (0x0D) so CRLF-terminated Windows logs
+# don't have every line ending sanitised away.  We still strip
+# every other C0 / C1 control char.
+_PRINTABLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
 def _sanitise(line: str, *, width: int = 200) -> str:

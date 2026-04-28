@@ -477,6 +477,13 @@ def download_model(
         if not quiet:
             print(f"[hypernix] {msg}", file=sys.stderr)
 
+    # v0.61.1: MAJOR warning when the user resolves to hyper-Nix.2.
+    try:
+        from .utils import warn_hyper_nix_2
+        warn_hyper_nix_2(repo_id)
+    except Exception:  # noqa: BLE001
+        pass
+
     # Build the candidate list.  When the short name has an entry in
     # FALLBACK_CHAINS (e.g. "nix" → 2.7a → 2.6-mm → 2.5), each repo
     # is tried in order until snapshot_download succeeds.  Otherwise

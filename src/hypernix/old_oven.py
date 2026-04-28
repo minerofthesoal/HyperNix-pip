@@ -831,6 +831,13 @@ def preheat(
     from the HF Hub. This is the one-call "get me a working PyTorch model
     right now" entry point; pairs with ``hypernix --auto-oven`` on the CLI.
     """
+    # v0.61.1: surface the MAJOR undertrained warning the moment the
+    # caller resolves to hyper-Nix.2, even when local_dir hits cache.
+    try:
+        from .utils import warn_hyper_nix_2
+        warn_hyper_nix_2(repo_id)
+    except Exception:  # noqa: BLE001
+        pass
     path: Path
     if local_dir is not None:
         ld = Path(local_dir)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.61.0"
+version = "0.61.1"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
@@ -77,6 +77,8 @@ hypernix-quantize = "hypernix.cli:main"
 # v0.60.0: tvtop dashboard + ethanol overclock helper.
 tvtop = "hypernix.tv:cli_main"
 eth = "hypernix.ethanol:cli_main"
+# v0.61.1: high-quality TUI chat CLI with a configurator.
+hyped = "hypernix.hyped:cli_main"
 
 [project.urls]
 Homepage = "https://huggingface.co/ray0rf1re/hyper-Nix.2"

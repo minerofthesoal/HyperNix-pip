@@ -208,6 +208,26 @@ def inject(
     return inj.inject_messages(messages)
 
 
+# ---------------------------------------------------------------------------
+# Module-level shortcuts (v0.61.1)
+# ---------------------------------------------------------------------------
+
+def thinking(content: str | Iterable[dict[str, str]]):
+    """Shortcut: ``thinking("hi") == "<think>hi</think>"`` /
+    ``thinking(messages) == ThinkingInjector().inject_messages(...)``."""
+    return inject(content, kind="thinking")
+
+
+def testing(content: str | Iterable[dict[str, str]]):
+    """Shortcut for the testing injector."""
+    return inject(content, kind="testing")
+
+
+def system_override(content: str | Iterable[dict[str, str]]):
+    """Shortcut for the system-override injector."""
+    return inject(content, kind="system-override")
+
+
 __all__ = [
     "CustomInjector",
     "Injection",
@@ -218,4 +238,7 @@ __all__ = [
     "ThinkingInjector",
     "inject",
     "injector",
+    "system_override",
+    "testing",
+    "thinking",
 ]
