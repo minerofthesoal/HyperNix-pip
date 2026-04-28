@@ -16,8 +16,7 @@ here for convenience.
 from __future__ import annotations
 
 # Re-export everything from the real implementation module.
-from .tv import *  # noqa: F401,F403
-from .tv import cli_main, TVTop, Frame, LogTail  # explicit names for type-checkers
+from .tv import Frame, LogTail, TVTop, cli_main  # noqa: F401
 
 __all__ = [
     "cli_main",
