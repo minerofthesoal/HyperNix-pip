@@ -17,7 +17,7 @@ next release header.
 
 ---
 
-## 0.61.0b1 (beta)
+## 0.61.0
 
 🐍 **Python 3.14 support.**  ``requires-python`` bumped to
 ``>=3.10,<3.15``; classifiers gain

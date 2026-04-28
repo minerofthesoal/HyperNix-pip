@@ -226,5 +226,5 @@ __all__ = [
     "whisk",
 ]
 
-__version__ = "0.61.0b1"
+__version__ = "0.61.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
