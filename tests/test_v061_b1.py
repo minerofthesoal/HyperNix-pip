@@ -252,13 +252,13 @@ class TestTVVisualUpgrade:
     def test_render_uses_panel_frames(self, tmp_path: Path) -> None:
         log = tmp_path / "train.log"
         log.write_text("step 50/100 loss=0.5\n", encoding="utf-8")
-        tvt = tv.TVTop(log_path=log, color=False, width=100)
+        tvt = tv.TVTop(log_path=log, color=False, width=120)
         out = tvt.render(tvt.latest_frame())
         # Rounded panel corners.
         assert "╭" in out and "╯" in out
-        # Panel titles.
-        for title in ("hardware", "training", "loss curve", "recent log"):
-            assert title in out
+        # 0.61.2 split the old "hardware" panel into cpu / memory / gpu.
+        for title in ("cpu", "memory", "gpu", "training", "loss curve", "recent log"):
+            assert title in out, f"missing panel title: {title}"
 
     def test_render_empty_state(self, tmp_path: Path) -> None:
         log = tmp_path / "train.log"

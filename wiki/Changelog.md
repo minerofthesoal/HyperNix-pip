@@ -17,6 +17,80 @@ next release header.
 
 ---
 
+## 0.61.2
+
+🖥️ **`tvtop` btop-style multi-panel rewrite.**  Reported on a
+mid-screen rendering: the 0.61.1 dashboard "still sucks and only
+shows CPU usage" — the single ``hardware`` panel was visually
+sparse compared to btop++'s rich CPU / memory / GPU breakdown.
+
+The 0.61.2 dashboard splits the old single ``hardware`` panel
+into **four** richer panels in a 2×2 grid above the loss curve +
+log:
+
+* **`cpu` panel** — TOTAL utilisation bar at the top, then a
+  **per-core grid** in two columns (each cell ``cN <bar>
+  NN.N%``), then a 3-row history graph rendered through the
+  same multi-row block-bar helper used for the loss curve.
+  Per-core sampling: ``psutil.cpu_percent(interval=None,
+  percpu=True)`` first, then a Linux-only ``/proc/stat`` per-CPU
+  fallback that reads each ``cpuN`` line and computes the
+  delta-against-prev sample.
+* **`memory` panel** — separate bars for ``USED`` /  ``CACHE``
+  / ``FREE`` / ``SWAP`` (each with absolute MiB), plus a 2-row
+  history graph.  Sourced from
+  ``psutil.virtual_memory()`` + ``psutil.swap_memory()`` first,
+  then ``/proc/meminfo`` (``MemTotal`` / ``MemAvailable`` /
+  ``Cached`` / ``SwapTotal`` / ``SwapFree``) on Linux.
+* **`gpu` panel** — GPU name on top, then ``UTIL`` / ``VRAM``
+  (with ``used/total MiB``) / ``TEMP`` (mapped 30-100°C across
+  the bar so a hot GPU is visible) / ``PWR`` (against
+  ``power.limit`` so 100% bar = at TDP) gauges + 2-row util
+  history.  Falls back to a clean ``(no GPU detected)``
+  placeholder when ``nvidia-smi`` isn't on PATH.
+* **`training` panel** — unchanged from 0.61.1.
+
+The footer now shows ``cores=N · gpu=<name>`` so users can see
+at a glance whether the new probes resolved.
+
+🔧 **New probes in `hypernix.tv`**:
+* ``_safe_psutil_per_core()`` — per-core list of CPU
+  percentages, ``None`` if psutil isn't installed.
+* ``_read_proc_stat_per_core()`` — Linux fallback that needs
+  two consecutive samples to compute deltas (returns ``None``
+  on the first call).
+* ``_read_memory_breakdown()`` — dict of
+  ``total_mib`` / ``used_mib`` / ``free_mib`` / ``cached_mib``
+  / ``swap_used_mib`` / ``swap_total_mib`` / ``percent``.
+* ``_query_nvidia_smi_full()`` — extended ``nvidia-smi`` query
+  that returns name + temperature + power.draw + power.limit
+  alongside the original mem/util tuple.  Cached for 3 s
+  alongside the legacy 3-tuple.
+* Rolling history deques (``_cpu_history``, ``_ram_history``,
+  ``_gpu_util_history``) capped at 120 entries, populated each
+  ``latest_frame()``.
+
+🪪 **No btop code was copied.**  The dashboard is original
+Python that mimics the same UX patterns (per-core grid, time-
+series block graphs, coloured threshold bars).  btop++ is
+GPL-3.0 C++ source and reproducing it into hypernix would be a
+license/copyright problem — so this is a clean-room
+implementation inspired by the same look-and-feel.
+
+🛡️ **9 new regression tests** in ``tests/test_v061_2.py``
+covering: ``_read_memory_breakdown`` shape, ``_safe_psutil_per_core``
+return type, ``/proc/stat`` per-core delta semantics, per-core
+grid label appears in render, memory panel renders breakdown or
+fallback, GPU panel renders gauges or no-GPU placeholder, footer
+shows core count + GPU label, CPU/RAM/GPU history deques grow
+per frame and are capped at 120.
+
+The existing ``test_render_uses_panel_frames`` was updated to
+check for the new ``cpu`` / ``memory`` / ``gpu`` panel titles
+instead of the old single ``hardware`` title.
+
+---
+
 ## 0.61.1
 
 ✨ **`hyped` chat CLI.**  New high-quality TUI chat CLI registered
