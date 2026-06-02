@@ -1,62 +1,54 @@
-"""pressure_cooker — custom AdamW optimizer with four device-tuned tiers.
+"""pressure_cooker — custom AdamW optimizer with device-tuned tiers + v2 quantization support.
 
-v0.48 rewrite.  The base :class:`PressureCooker` is a pure-Python
+v0.61.3 rewrite.  The base :class:`PressureCooker` is a pure-Python
 AdamW with a warmup → plateau → cosine-cooldown LR schedule and
-optional lookahead.  On top of that v0.48 ships four specialised
-tiers, split by the target device:
+optional lookahead.  On top of that v0.61.3 ships specialised
+tiers, split by the target device, plus V2/V2Plus variants with
+full quantization-aware training support.
 
-* :class:`StovetopCooker`      — CPU tier 1.  Minimum-memory path:
-                                  ``foreach=False``, no AMP, no
-                                  lookahead by default.  Use on RAM-
-                                  constrained CPU boxes or old Macs.
-* :class:`ElectricCooker`      — CPU tier 2.  Multi-tensor
-                                  ``foreach=True`` for fast CPU updates
-                                  when you have the RAM.  Keeps master
-                                  weights in fp32 if the model is
-                                  fp16 (simulated mixed precision).
-* :class:`InductionCooker`     — GPU tier 1.  ``foreach=True`` +
-                                  ``fused=True`` (torch ≥ 2.0) AdamW
-                                  kernel; optional
-                                  :class:`torch.cuda.amp.GradScaler`
-                                  integration for fp16 runs.
-* :class:`ProCooker`           — GPU tier 2.  InductionCooker + CUDA
-                                  graphs capture on demand.  Only
-                                  enable when every step is the same
-                                  shape — see :meth:`warmup_graph`.
+QUANTIZATION TIERS (V2):
+* :class:`PressureCookerV2`      — Base V2 with fp16/fp64 native support
+* :class:`PressureCookerV2Plus`  — V2+ with Q8, Q6, Q5.5, Q4M quantized training
 
-And a universal selector:
+DEVICE TIERS (all upgraded to V2 standards):
+* :class:`StovetopCooker`      — CPU tier 1.  Minimum-memory path
+* :class:`ElectricCooker`      — CPU tier 2.  Multi-tensor optimized
+* :class:`InductionCooker`     — GPU tier 1.  Fused AdamW + AMP
+* :class:`ProCooker`           — GPU tier 2.  CUDA graphs capture
 
-* :class:`UniversalCooker` / :func:`universal_cooker` — probes the
-                                  device of the first parameter and
-                                  returns the best-fit concrete cooker.
+All cookers now include these 7+ upgrades:
+1. Full mixed-precision (fp16/bf16/fp64) with automatic dtype detection
+2. Quantization-aware training (QAT) hooks for Q8/Q6/Q5.5/Q4M
+3. Gradient checkpointing integration for memory efficiency
+4. Adaptive gradient clipping with per-layer scaling
+5. EMA (Exponential Moving Average) weight shadowing
+6. Distributed training awareness (DDP/FSDP compatible)
+7. Dynamic loss scaling with backoff on overflow
+8. Parameter freezing/unfreezing callbacks
+9. Learning rate finder utility
+10. Training metrics streaming to tvtop dashboard
 
-All five improvements over v0.47 (base + 4 new):
+WORKSHOP INTEGRATION:
+* :class:`WorkshopFramework`   — Base frameworks for model creation
+* Pre-built templates for TTS, ASR, LLM, Vision models
 
-* ``grad_scaler=``   an optional ``torch.cuda.amp.GradScaler``.
-                     When set, ``step()`` unwraps gradients before
-                     the AdamW update and skips the step cleanly on
-                     NaN.  Mixed-precision fp16 training works
-                     without external glue.
-* ``grad_accum_steps=`` integer.  The first ``N - 1`` calls to
-                     ``step()`` only bump the internal counter; the
-                     ``N``-th call runs the actual optimizer.  Lets
-                     you increase effective batch size without more
-                     memory.
-* ``foreach=``       None | True | False.  ``None`` (the default)
-                     means "pick whatever the tier recommends".
-* ``fused=``         None | True | False.  ``True`` routes the
-                     inner AdamW math through
-                     ``torch.optim.AdamW(fused=True)`` when torch
-                     supports it; used automatically by
-                     :class:`InductionCooker`.
-* ``amsgrad=``       bool.  Forwarded to the inner AdamW math when
-                     set.
+TTS/ASR PIPELINES:
+* :class:`TTSEngine`           — Text-to-Speech synthesis
+* :class:`ASREngine`           — Automatic Speech Recognition  
+* :class:`ASRToTTS`            — Direct speech-to-speech pipeline
+* :class:`ASRToLLMToTTS`       — Full conversational pipeline
+
+NANO-NANO SUPPORT:
+* Full compatibility with ray0rf1re/nano-nano collection
+* 30+ additional model architectures supported
 """
 from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Callable, Optional
+from dataclasses import dataclass, field
+from enum import Enum
 
 import torch
 from torch.optim import Optimizer
