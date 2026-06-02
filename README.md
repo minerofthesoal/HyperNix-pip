@@ -59,27 +59,6 @@ quantize, and ship.
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.13.
 
-## Who this is actually for
-
-Put bluntly, `hypernix` is shaped around one use case: **a solo
-practitioner fine-tuning or building causal LMs on a consumer GPU,
-then publishing quantized GGUFs.** The `OldFreezer` defaults, the
-Pascal helpers, the 8 – 10 GB tuning, the `FlashFreezer` OOM retry,
-the in-process `llama-quantize` fetch, the runtime auto-pip for
-fiddly deps — every design decision points at that workflow. If
-you're on an H100 cluster with a real trainer, you'd pick DeepSpeed
-or similar; if you're on a GTX 1080 / 2080 / 3060 trying to ship a
-QLoRA fine-tune to the Hub, this is extremely on-target.
-
-It's also worth flagging what it's *not*: the `train()` loop is a
-smoke-tester, not a production trainer — it's explicitly
-single-device, no sharding, no mixed precision. Anything serious
-goes through a real framework. `hypernix`'s value is in everything
-**around** that loop: the snapshot handling, the conversion pipeline,
-the memory plumbing, the labeling rubrics, the time budgeting, and
-the `pressure_cooker` optimizer for when you do want something with
-more opinion than stock AdamW.
-
 ---
 
 ## Install
