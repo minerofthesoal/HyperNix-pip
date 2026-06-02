@@ -4,11 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.61.2"
+version = "0.61.3"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
-license-files = ["LICENSE"]
 # 3.12 is the recommended interpreter, but the code is pure-Python and runs on
 # any CPython that has a torch 2.7.1 wheel. Keep the floor at 3.10 so modern
 # syntax compiles (structural pattern matching, PEP 604 unions).
