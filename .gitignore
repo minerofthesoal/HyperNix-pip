@@ -1,10 +1,14 @@
 ```
-# Python egg info
-*.egg-info/
-
-# Compiled Python files
+# Compiled and build artifacts
 *.pyc
 __pycache__/
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.exe
+*.out
 
 # Dependencies
 .venv/
@@ -16,8 +20,27 @@ venv/
 # Logs and temp files
 *.log
 *.tmp
+*.swp
+*.swo
 
 # Editors
 .vscode/
 .idea/
+
+# Testing
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Build directories
+build/
+dist/
+target/
+.gradle/
+
+# System files
+.DS_Store
+Thumbs.db
 ```

@@ -206,6 +206,74 @@ class TestPressureCookerV2:
         
         ema_weights = optimizer.get_ema_weights()
         assert len(ema_weights) > 0
+
+    def test_lookahead_slow_buffer_initialization(self):
+        """Test that lookahead slow buffers are properly initialized."""
+        model = SimpleMLP()
+        optimizer = PressureCookerV2(model.parameters(), lookahead_k=4, lookahead_alpha=0.5)
+        
+        for _ in range(5):
+            x = torch.randn(2, 10)
+            loss = model(x).sum()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+        
+        param_count = 0
+        slow_count = 0
+        for p in model.parameters():
+            state = optimizer.state[p]
+            if p.grad is not None or 'exp_avg' in state:
+                param_count += 1
+                if 'slow' in state:
+                    slow_count += 1
+                    assert state['slow'].shape == p.shape
+        
+        assert slow_count > 0, "No slow buffers were created"
+        assert slow_count == param_count, f"Only {slow_count}/{param_count} params have slow buffers"
+    
+    def test_lookahead_update_execution(self):
+        """Test that lookahead updates properly sync fast and slow weights."""
+        torch.manual_seed(42)
+        model = SimpleMLP()
+        
+        optimizer = PressureCookerV2(model.parameters(), lookahead_k=2, lookahead_alpha=0.5)
+        
+        # Run k=2 steps - lookahead should trigger on step 2
+        for _ in range(2):
+            x = torch.randn(2, 10)
+            loss = model(x).sum()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+        
+        # After lookahead triggers (step % k == 0), fast weights should equal slow weights
+        all_synced = True
+        for p in model.parameters():
+            state = optimizer.state[p]
+            assert 'slow' in state, "Slow buffer should exist"
+            if not torch.allclose(p, state['slow']):
+                all_synced = False
+        
+        assert all_synced, "After lookahead update, fast and slow weights should be synced"
+        
+        # Run one more step - now they should diverge again
+        x = torch.randn(2, 10)
+        loss = model(x).sum()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        
+        # After one more step, fast and slow should differ
+        has_diverged = False
+        for p in model.parameters():
+            state = optimizer.state[p]
+            if not torch.allclose(p, state['slow']):
+                has_diverged = True
+                break
+        
+        assert has_diverged, "After another step, fast and slow weights should diverge"
+
     
     def test_describe(self):
         """Test describe method."""

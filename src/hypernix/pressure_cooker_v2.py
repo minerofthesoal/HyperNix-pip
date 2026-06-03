@@ -197,6 +197,9 @@ class PressureCookerV2(Optimizer):
                 state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
                 state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
                 state["step"] = 0
+                # Initialize lookahead slow buffer if enabled
+                if self.lookahead_k > 0:
+                    state["slow"] = p.detach().clone()
             current = state["step"]
             current_value = current.item() if isinstance(current, torch.Tensor) else current
             state["step"] = current_value + 1
@@ -229,6 +232,9 @@ class PressureCookerV2(Optimizer):
                     state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
                     state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
                     state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    # Initialize lookahead slow buffer if enabled
+                    if self.lookahead_k > 0:
+                        state["slow"] = p.detach().clone()
                 if not isinstance(state["step"], torch.Tensor):
                     state["step"] = torch.tensor(float(state["step"]), dtype=torch.float32, device=p.device)
                 exp_avgs.append(state["exp_avg"])
