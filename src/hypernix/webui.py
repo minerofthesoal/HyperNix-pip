@@ -461,6 +461,30 @@ def launch_webui(host: str = "localhost", port: int = 8080, background: bool = T
     return server
 
 
+def run_webui(host: str = "127.0.0.1", port: int = 8080, enable_tailscale: bool = False, static_dir: str | None = None) -> int:
+    """Run the Web UI server as a CLI command.
+    
+    Args:
+        host: Host to bind to
+        port: Port to bind to
+        enable_tailscale: Enable Tailscale tunneling
+        static_dir: Directory to serve static files from
+    
+    Returns:
+        Exit code (0 for success)
+    """
+    try:
+        server = WebUIServer(host, port, enable_tailscale=enable_tailscale, static_dir=static_dir)
+        server.start(background=False)
+        return 0
+    except KeyboardInterrupt:
+        print("\nWeb UI stopped.")
+        return 0
+    except Exception as e:
+        print(f"Error running Web UI: {e}")
+        return 1
+
+
 if __name__ == "__main__":
     print("Starting HyperNix Web UI v0.61.4...")
     server = launch_webui(background=False)

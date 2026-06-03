@@ -49,6 +49,120 @@ from .cookbook import ChatTemplate
 from .flour import Flour
 
 
+def interactive_cli(use_rich: bool = True) -> int:
+    """Interactive TUI/CLI menu for all HyperNix operations.
+    
+    Args:
+        use_rich: If True, use rich-based TUI. Otherwise use simple text menu.
+    
+    Returns:
+        Exit code (0 for success, non-zero for error/exit)
+    """
+    
+    if use_rich:
+        try:
+            from rich.console import Console
+            from rich.menu import Menu
+            from rich.panel import Panel
+            from rich.prompt import Prompt
+            
+            console = Console()
+            console.print(Panel.fit("[bold blue]HyperNix Interactive CLI[/bold blue]"))
+            
+            while True:
+                menu = Menu(
+                    title="Main Menu",
+                    highlight=True
+                )
+                menu.add_item("1", "Download Model")
+                menu.add_item("2", "Convert to GGUF")
+                menu.add_item("3", "Quantize Model")
+                menu.add_item("4", "Train Model")
+                menu.add_item("5", "Chat")
+                menu.add_item("6", "ASR/TTS Pipeline")
+                menu.add_item("7", "AI Assistant")
+                menu.add_item("8", "Web UI")
+                menu.add_item("9", "System Info")
+                menu.add_item("q", "Quit")
+                
+                console.print(menu)
+                choice = Prompt.ask("Select option", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "q"])
+                
+                if choice == "q":
+                    console.print("[green]Goodbye![/green]")
+                    return 0
+                elif choice == "1":
+                    console.print("[yellow]Model download - use: hypernix download --help[/yellow]")
+                elif choice == "2":
+                    console.print("[yellow]Convert - use: hypernix convert --help[/yellow]")
+                elif choice == "3":
+                    console.print("[yellow]Quantize - use: hypernix quantize --help[/yellow]")
+                elif choice == "4":
+                    console.print("[yellow]Train - use: hypernix train --help[/yellow]")
+                elif choice == "5":
+                    console.print("[yellow]Chat - use: hypernix chat --help[/yellow]")
+                elif choice == "6":
+                    console.print("[yellow]Pipeline - use: hypernix pipeline --help[/yellow]")
+                elif choice == "7":
+                    console.print("[yellow]Assistant - use: hypernix assistant --help[/yellow]")
+                elif choice == "8":
+                    console.print("[yellow]Web UI - use: hypernix webui --help[/yellow]")
+                elif choice == "9":
+                    console.print("[yellow]Info - use: hypernix info[/yellow]")
+                    
+        except ImportError:
+            console = Console(stderr=True)
+            console.print("[red]Rich not installed. Falling back to simple mode.[/red]")
+            return _simple_cli()
+    else:
+        return _simple_cli()
+    
+    return 0
+
+
+def _simple_cli() -> int:
+    """Simple text-based interactive menu."""
+    print("=" * 50)
+    print("HyperNix Interactive CLI (Simple Mode)")
+    print("=" * 50)
+    
+    while True:
+        print("\nOptions:")
+        print("  1. Download Model")
+        print("  2. Convert to GGUF")
+        print("  3. Quantize Model")
+        print("  4. Train Model")
+        print("  5. Chat")
+        print("  6. ASR/TTS Pipeline")
+        print("  7. AI Assistant")
+        print("  8. Web UI")
+        print("  9. System Info")
+        print("  q. Quit")
+        
+        choice = input("\nSelect option: ").strip().lower()
+        
+        if choice == "q":
+            print("Goodbye!")
+            return 0
+        elif choice in ("1", "2", "3", "4", "5", "6", "7", "8", "9"):
+            commands = {
+                "1": "hypernix download --help",
+                "2": "hypernix convert --help",
+                "3": "hypernix quantize --help",
+                "4": "hypernix train --help",
+                "5": "hypernix chat --help",
+                "6": "hypernix pipeline --help",
+                "7": "hypernix assistant --help",
+                "8": "hypernix webui --help",
+                "9": "hypernix info",
+            }
+            print(f"\nRun: {commands[choice]}")
+        else:
+            print("Invalid option. Try again.")
+    
+    return 0
+
+
 @dataclass
 class Countertop:
     """A persistent multi-turn chat session bound to an oven.

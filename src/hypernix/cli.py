@@ -60,6 +60,10 @@ _SUBCOMMANDS = {
     "oven",
     "chat",
     "brew",
+    "pipeline",
+    "assistant",
+    "webui",
+    "cli",
 }
 
 
@@ -84,6 +88,10 @@ Subcommands:
   oven                   code-generation wrapper (preheat + complete/fill)
   chat                   interactive chat REPL with any HyperNix-family model
   brew                   run hypernix.instant_pot.brew from a JSON recipe
+  pipeline               ASR → LLM → TTS pipeline (speech-to-speech or speech-to-text-to-speech)
+  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)
+  webui                  Web dashboard with Tailscale integration for remote access
+  cli                    Interactive TUI/CLI menu for all HyperNix operations
 
 Shortcuts:
   --auto-oven            download the default snapshot and run code completion
@@ -767,6 +775,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_pipeline(rest)
     if cmd == "assistant":
         return _run_assistant(rest)
+    if cmd == "webui":
+        return _run_webui(rest)
+    if cmd == "cli":
+        return _run_cli(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
 
 
@@ -799,6 +811,47 @@ def _run_brew(raw: list[str]) -> int:
     out = instant_pot.brew(recipe)
     print(out)
     return 0
+
+
+def _run_webui(raw: list[str]) -> int:
+    """`hypernix webui` — Launch web dashboard with Tailscale integration."""
+    from .webui import run_webui
+
+    p = argparse.ArgumentParser(
+        prog="hypernix webui",
+        description="Launch web dashboard with optional Tailscale tunneling.",
+    )
+    p.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+    p.add_argument("--port", type=int, default=8080, help="Port to bind to (default: 8080)")
+    p.add_argument("--tailscale", action="store_true", help="Enable Tailscale tunneling for remote access")
+    p.add_argument("--static", default=None, help="Directory to serve static files from")
+    ns = p.parse_args(raw)
+
+    print(f"[hypernix webui] Starting dashboard on http://{ns.host}:{ns.port}")
+    if ns.tailscale:
+        print("[hypernix webui] Tailscale tunneling enabled")
+    
+    return run_webui(
+        host=ns.host,
+        port=ns.port,
+        enable_tailscale=ns.tailscale,
+        static_dir=ns.static,
+    )
+
+
+def _run_cli(raw: list[str]) -> int:
+    """`hypernix cli` — Interactive TUI/CLI menu for all HyperNix operations."""
+    from .countertop import interactive_cli
+
+    p = argparse.ArgumentParser(
+        prog="hypernix cli",
+        description="Interactive TUI/CLI menu for all HyperNix operations.",
+    )
+    p.add_argument("--simple", action="store_true", help="Use simple text-based menu instead of rich TUI")
+    ns = p.parse_args(raw)
+
+    print("[hypernix cli] Launching interactive menu...")
+    return interactive_cli(use_rich=not ns.simple)
 
 
 def _run_pipeline(raw: list[str]) -> int:
