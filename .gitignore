@@ -1,62 +1,41 @@
 ```
-# Python
-__pycache__/
+# Compiled Python files
 *.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
+__pycache__/
+
+# Virtual environments
 .venv/
-.venv-bak/
-.egg-info/
-*.egg
+venv/
+env/
+
+# Dependencies cache
 *.egg-info/
-.eggs/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
 .pytest_cache/
 .mypy_cache/
 .hypothesis/
 
-# Build and distribution
-build/
-develop-eggs/
+# Distribution artifacts
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg-link
+build/
+.coverage
+coverage/
 
-# Environment
+# Environment files
 .env
 .env.local
-.env.*
+*.env.*
 
-# IDE
+# Logs
+*.log
+
+# Editor/IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
 
-# OS
+# System files
 .DS_Store
 Thumbs.db
 ```
