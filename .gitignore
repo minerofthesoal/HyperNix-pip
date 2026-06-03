@@ -1,40 +1,23 @@
 ```
+# Python egg info
+*.egg-info/
+
 # Compiled Python files
 *.pyc
 __pycache__/
 
-# Virtual environments
+# Dependencies
 .venv/
 venv/
-env/
-
-# Dependencies cache
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-
-# Distribution artifacts
-dist/
-build/
-.coverage
-coverage/
-
-# Environment files
 .env
 .env.local
-*.env.*
+.env.*
 
-# Logs
+# Logs and temp files
 *.log
-
-# Editor/IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
 *.tmp
 
-# System files
-.DS_Store
-Thumbs.db
+# Editors
+.vscode/
+.idea/
 ```
