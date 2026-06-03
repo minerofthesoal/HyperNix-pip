@@ -864,7 +864,7 @@ def _run_pipeline(raw: list[str]) -> int:
     )
     p.add_argument("--audio", "-a", help="Path to input audio file")
     p.add_argument("--asr", default="nano-whisper", help="ASR engine to use")
-    p.add_argument("--llm", default="nano-llama", help="LLM model to use")
+    p.add_argument("--llm", default="qwen3.5-1b", help="LLM model to use (default: Qwen3.5 1B)")
     p.add_argument("--tts", default="nano-tacotron", help="TTS engine to use")
     p.add_argument("--prompt", "-p", default="", help="System prompt for LLM")
     p.add_argument("--output", "-o", help="Output audio file path")
@@ -938,7 +938,7 @@ def _run_assistant(raw: list[str]) -> int:
         description="Launch interactive Linux local AI assistant with voice support.",
     )
     p.add_argument("--voice", "-v", action="store_true", help="Enable voice mode")
-    p.add_argument("--model", "-m", default="nano-llama", help="LLM model to use")
+    p.add_argument("--model", "-m", default="qwen3.5-1b", help="LLM model to use (default: Qwen3.5 1B)")
     ns = p.parse_args(raw)
     
     print("=" * 60)
