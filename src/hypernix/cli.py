@@ -763,6 +763,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_chat(rest)
     if cmd == "brew":
         return _run_brew(rest)
+    if cmd == "pipeline":
+        return _run_pipeline(rest)
+    if cmd == "assistant":
+        return _run_assistant(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
 
 
@@ -794,6 +798,205 @@ def _run_brew(raw: list[str]) -> int:
 
     out = instant_pot.brew(recipe)
     print(out)
+    return 0
+
+
+def _run_pipeline(raw: list[str]) -> int:
+    """`hypernix pipeline` — Run ASR → LLM → TTS pipeline with interactive prompts."""
+    from .workshop import ASRConfig, ASREngine, ASRToLLMToTTS, TTSConfig, TTSEngine
+    
+    p = argparse.ArgumentParser(
+        prog="hypernix pipeline",
+        description="Run full ASR → LLM → TTS pipeline interactively.",
+    )
+    p.add_argument("--audio", "-a", help="Path to input audio file")
+    p.add_argument("--asr", default="nano-whisper", help="ASR engine to use")
+    p.add_argument("--llm", default="nano-llama", help="LLM model to use")
+    p.add_argument("--tts", default="nano-tacotron", help="TTS engine to use")
+    p.add_argument("--prompt", "-p", default="", help="System prompt for LLM")
+    p.add_argument("--output", "-o", help="Output audio file path")
+    ns = p.parse_args(raw)
+    
+    # Initialize engines
+    print(f"Initializing ASR engine: {ns.asr}")
+    asr_config = ASRConfig(sample_rate=16000)
+    asr_engine = ASREngine(asr_config)
+    asr_engine.initialize()
+    
+    print(f"Initializing TTS engine: {ns.tts}")
+    tts_config = TTSConfig(sample_rate=22050, vocab_size=1000)
+    tts_engine = TTSEngine(tts_config)
+    tts_engine.initialize()
+    
+    # Create simple LLM wrapper
+    class SimpleLLM:
+        def generate(self, prompt, max_new_tokens=256, temperature=0.7):
+            # Extract last user message
+            if "User:" in prompt:
+                last_msg = prompt.split("User:")[-1].strip().split("\n")[0]
+                return f"I heard: '{last_msg[:50]}...' - this is a simulated response."
+            return "Hello! How can I assist you today?"
+    
+    llm = SimpleLLM()
+    
+    # Create pipeline
+    print("Creating ASR → LLM → TTS pipeline...")
+    pipeline = ASRToLLMToTTS(
+        asr_engine=asr_engine,
+        llm=llm,
+        tts_engine=tts_engine,
+        system_prompt=ns.prompt or "You are a helpful assistant."
+    )
+    
+    # Get audio file
+    audio_path = ns.audio
+    if not audio_path:
+        audio_path = input("Enter path to audio file: ").strip()
+    
+    if not Path(audio_path).exists():
+        print(f"Error: Audio file not found: {audio_path}")
+        return 1
+    
+    # Run pipeline
+    print(f"Processing audio: {audio_path}")
+    try:
+        response_text, audio_bytes = pipeline.process(audio_path)
+        print("\n✓ Transcription complete!")
+        print(f"Response: {response_text}")
+        
+        # Save output
+        output_path = ns.output or "pipeline_output.wav"
+        with open(output_path, "wb") as f:
+            f.write(audio_bytes)
+        print(f"✓ Audio saved to: {output_path}")
+        
+        return 0
+    except Exception as e:
+        print(f"Error running pipeline: {e}")
+        return 1
+
+
+def _run_assistant(raw: list[str]) -> int:
+    """`hypernix assistant` — Launch interactive Linux local AI assistant."""
+    from .workshop import TTSConfig, TTSEngine
+    
+    p = argparse.ArgumentParser(
+        prog="hypernix assistant",
+        description="Launch interactive Linux local AI assistant with voice support.",
+    )
+    p.add_argument("--voice", "-v", action="store_true", help="Enable voice mode")
+    p.add_argument("--model", "-m", default="nano-llama", help="LLM model to use")
+    ns = p.parse_args(raw)
+    
+    print("=" * 60)
+    print("🤖 HyperNix Local AI Assistant v0.61.4")
+    print("=" * 60)
+    print("\nCommands:")
+    print("  /help     - Show this help")
+    print("  /voice    - Toggle voice mode")
+    print("  /system   - Execute system command")
+    print("  /quit     - Exit assistant")
+    print("\nType your message or speak (if voice mode enabled)")
+    print("=" * 60 + "\n")
+    
+    # Initialize TTS if voice mode enabled
+    tts_engine = None
+    if ns.voice:
+        print("Initializing voice mode...")
+        tts_config = TTSConfig(sample_rate=22050, vocab_size=1000)
+        tts_engine = TTSEngine(tts_config)
+        tts_engine.initialize()
+        print("✓ Voice mode enabled\n")
+    
+    # Simple LLM
+    class AssistantLLM:
+        def __init__(self):
+            self.context = []
+        
+        def respond(self, message):
+            self.context.append(message)
+            
+            # Simple command handling
+            if "time" in message.lower():
+                from datetime import datetime
+                return f"The current time is {datetime.now().strftime('%H:%M:%S')}"
+            elif "date" in message.lower():
+                from datetime import date
+                return f"Today's date is {date.today()}"
+            elif "hello" in message.lower() or "hi" in message.lower():
+                return "Hello! I'm your HyperNix AI assistant. How can I help you?"
+            elif "weather" in message.lower():
+                return "I don't have access to weather data, but you can check weather.com"
+            else:
+                return f"You said: '{message}'. I'm a demo assistant - integrate a real LLM for full responses!"
+    
+    assistant = AssistantLLM()
+    
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+            
+            if not user_input:
+                continue
+            
+            if user_input.lower() in ["/quit", "/exit", "quit", "exit"]:
+                print("\nGoodbye! 👋")
+                break
+            
+            if user_input.lower() == "/help":
+                print("\nCommands:")
+                print("  /help     - Show this help")
+                print("  /voice    - Toggle voice mode")
+                print("  /system   - Execute system command (e.g., /system ls -la)")
+                print("  /quit     - Exit assistant")
+                continue
+            
+            if user_input.lower() == "/voice":
+                if tts_engine is None:
+                    print("Initializing voice mode...")
+                    tts_config = TTSConfig(sample_rate=22050, vocab_size=1000)
+                    tts_engine = TTSEngine(tts_config)
+                    tts_engine.initialize()
+                    print("✓ Voice mode enabled")
+                else:
+                    tts_engine = None
+                    print("✗ Voice mode disabled")
+                continue
+            
+            if user_input.startswith("/system"):
+                cmd = user_input[8:].strip()
+                if cmd:
+                    import subprocess
+                    try:
+                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+                        print(f"Output:\n{result.stdout}")
+                        if result.stderr:
+                            print(f"Errors:\n{result.stderr}")
+                    except Exception as e:
+                        print(f"Command failed: {e}")
+                continue
+            
+            # Normal conversation
+            response = assistant.respond(user_input)
+            print(f"Assistant: {response}")
+            
+            # Speak response if voice mode enabled
+            if tts_engine and response:
+                try:
+                    audio_data = tts_engine.synthesize(response)
+                    if hasattr(audio_data, 'cpu'):
+                        # Convert tensor to playable format
+                        audio_np = (audio_data.clamp(-1, 1) * 32767).short().cpu().numpy()
+                        print(f"[Audio generated: {len(audio_np)} samples]")
+                except Exception as e:
+                    print(f"[TTS error: {e}]")
+        
+        except KeyboardInterrupt:
+            print("\n\nInterrupted. Goodbye! 👋")
+            break
+        except EOFError:
+            break
+    
     return 0
 
 

@@ -5,6 +5,7 @@ Supports ray0rf1re/nano-nano collection and 30+ additional architectures.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -275,20 +276,61 @@ class ASRToLLMToTTS:
         tts_engine: TTSEngine,
         system_prompt: str = "You are a helpful assistant.",
     ):
+        if not isinstance(asr_engine, ASREngine):
+            raise TypeError("asr_engine must be an instance of ASREngine")
+        if not isinstance(tts_engine, TTSEngine):
+            raise TypeError("tts_engine must be an instance of TTSEngine")
+        
         self.asr = asr_engine
         self.llm = llm
         self.tts = tts_engine
         self.system_prompt = system_prompt
         self.conversation_history: list[dict] = []
+        self._initialized = False
+    
+    def initialize(self) -> None:
+        """Initialize all pipeline components."""
+        if not self._initialized:
+            self.asr.initialize()
+            if hasattr(self.llm, 'initialize'):
+                self.llm.initialize()
+            self.tts.initialize()
+            self._initialized = True
     
     def process(
         self,
-        audio: torch.Tensor,
+        audio_path: str | torch.Tensor,
         max_response_length: int = 500,
         temperature: float = 0.7,
-    ) -> tuple[str, torch.Tensor]:
-        """Full pipeline: speech → text → LLM response → speech."""
-        # Step 1: ASR
+    ) -> tuple[str, bytes]:
+        """Full pipeline: speech → text → LLM response → speech.
+        
+        Args:
+            audio_path: Path to audio file or raw audio tensor
+            max_response_length: Maximum tokens in response
+            temperature: Sampling temperature for LLM
+            
+        Returns:
+            Tuple of (response_text, audio_bytes)
+        """
+        self.initialize()
+        
+        # Step 1: ASR - load audio if path provided
+        if isinstance(audio_path, str):
+            if not os.path.exists(audio_path):
+                raise FileNotFoundError(f"Audio file not found: {audio_path}")
+            # Load audio using torchaudio or similar
+            import torchaudio
+            audio, sr = torchaudio.load(audio_path)
+            if sr != self.asr.config.sample_rate:
+                # Resample if needed
+                import torch.nn.functional as F
+                ratio = self.asr.config.sample_rate / sr
+                new_length = int(audio.shape[1] * ratio)
+                audio = F.interpolate(audio.unsqueeze(0), size=new_length, mode='linear', align_corners=False).squeeze(0)
+        else:
+            audio = audio_path
+        
         input_text = self.asr.transcribe(audio)
         
         # Step 2: Add to conversation history
@@ -301,10 +343,25 @@ class ASRToLLMToTTS:
         # Step 4: Update history
         self.conversation_history.append({"role": "assistant", "content": response_text})
         
-        # Step 5: TTS
+        # Step 5: TTS - synthesize and convert to bytes
         response_audio = self.tts.synthesize(response_text)
+        if isinstance(response_audio, torch.Tensor):
+            # Convert tensor to bytes (WAV format)
+            import io
+            import wave
+            buffer = io.BytesIO()
+            with wave.open(buffer, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(self.tts.config.sample_rate)
+                # Convert to 16-bit PCM
+                audio_data = (response_audio.clamp(-1, 1) * 32767).short().cpu().numpy()
+                wav_file.writeframes(audio_data.tobytes())
+            audio_bytes = buffer.getvalue()
+        else:
+            audio_bytes = response_audio
         
-        return response_text, response_audio
+        return response_text, audio_bytes
     
     def _build_prompt(self) -> str:
         """Build prompt from conversation history."""
@@ -314,9 +371,23 @@ class ASRToLLMToTTS:
         return "\n".join(prompt_parts)
     
     def _llm_generate(self, prompt: str, max_length: int, temperature: float) -> str:
-        """Generate response from LLM (placeholder)."""
-        # In real implementation: tokenize → generate → detokenize
-        return "[LLM response placeholder]"
+        """Generate response from LLM."""
+        if hasattr(self.llm, 'generate'):
+            # Standard generate method
+            return self.llm.generate(prompt, max_new_tokens=max_length, temperature=temperature)
+        elif hasattr(self.llm, 'chat'):
+            # Chat-style interface
+            return self.llm.chat(self.conversation_history, max_tokens=max_length)
+        elif hasattr(self.llm, 'forward'):
+            # Raw model - need tokenizer
+            if hasattr(self.llm, 'tokenizer'):
+                inputs = self.llm.tokenizer.encode(prompt, return_tensors="pt")
+                outputs = self.llm.forward(inputs)
+                return self.llm.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Fallback: simple echo with marker
+        last_user_msg = self.conversation_history[-1]["content"] if self.conversation_history else "Hello"
+        return f"[Assistant response to: {last_user_msg[:100]}...]"
     
     def reset(self) -> None:
         """Clear conversation history."""
