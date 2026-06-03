@@ -248,5 +248,5 @@ __all__ = [
     "workshop",
 ]
 
-__version__ = "0.61.4"
+__version__ = "0.61.5"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
