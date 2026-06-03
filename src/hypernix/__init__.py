@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from . import (
     apron,
+    assistant,
     bell,
     blender,
     cake_pan,
@@ -90,6 +91,7 @@ from . import (
     tvtop,
     ups,
     whisk,
+    workshop,
 )
 from .convert import convert_to_gguf
 from .download import (
@@ -162,6 +164,7 @@ __all__ = [
     "QUANT_TYPES",
     "QuantSpec",
     "apron",
+    "assistant",
     "bake_code",
     "bell",
     "blender",
@@ -242,7 +245,8 @@ __all__ = [
     "upload_gguf",
     "verify_snapshot",
     "whisk",
+    "workshop",
 ]
 
-__version__ = "0.61.3"
+__version__ = "0.61.4"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
