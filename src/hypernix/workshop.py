@@ -108,6 +108,34 @@ class TTSEngine(WorkshopFramework):
         super().__init__(config or TTSConfig())
         self.synthesizer: nn.Module | None = None
         self.vocoder: nn.Module | None = None
+        self._initialized = False
+    
+    def initialize(self) -> None:
+        """Initialize the TTS engine with default model."""
+        if self._initialized:
+            return
+        
+        try:
+            import torch
+            from transformers import AutoModelForTextToWaveform, AutoProcessor
+            
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = torch.float16 if device == "cuda" else torch.float32
+            
+            # Default model
+            model_name = getattr(self.config, 'model_name', 'facebook/mms-tts-eng')
+            
+            self.synthesizer = AutoModelForTextToWaveform.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+                use_safetensors=True
+            ).to(device)
+            
+            self.processor = AutoProcessor.from_pretrained(model_name)
+            self._initialized = True
+        except ImportError as e:
+            raise RuntimeError("TTS requires transformers. Install: pip install transformers[torch]") from e
     
     def build(self) -> nn.Module:
         """Build TTS model (placeholder - actual implementation would use specific architecture)."""
@@ -186,6 +214,36 @@ class ASREngine(WorkshopFramework):
     def __init__(self, config: ASRConfig | None = None):
         super().__init__(config or ASRConfig())
         self.transcriber: nn.Module | None = None
+        self.processor: Any | None = None
+        self._initialized = False
+    
+    def initialize(self) -> None:
+        """Initialize the ASR engine with default nano-whisper model."""
+        if self._initialized:
+            return
+        
+        # Lazy import to avoid heavy dependencies if not used
+        try:
+            import torch
+            from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+            
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = torch.float16 if device == "cuda" else torch.float32
+            
+            # Default to nano-whisper if not specified
+            model_name = getattr(self.config, 'model_name', 'openai/whisper-tiny')
+            
+            self.transcriber = AutoModelForSpeechSeq2Seq.from_pretrained(
+                model_name, 
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+                use_safetensors=True
+            ).to(device)
+            
+            self.processor = AutoProcessor.from_pretrained(model_name)
+            self._initialized = True
+        except ImportError as e:
+            raise RuntimeError("ASR requires transformers. Install: pip install transformers[torch]") from e
     
     def build(self) -> nn.Module:
         """Build ASR model (placeholder)."""
