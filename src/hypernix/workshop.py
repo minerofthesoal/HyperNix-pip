@@ -5,13 +5,12 @@ Supports ray0rf1re/nano-nano collection and 30+ additional architectures.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
 import torch
 import torch.nn as nn
-from typing import Any, Optional, Callable
-from dataclasses import dataclass, field
-from pathlib import Path
-import json
-
 
 # =============================================================================
 # Workshop Frameworks - Base templates for model creation
@@ -24,8 +23,8 @@ class FrameworkConfig:
     version: str = "0.61.3"
     dtype: torch.dtype = torch.float32
     device: str = "cpu"
-    quantization: Optional[str] = None
-    checkpoint_path: Optional[Path] = None
+    quantization: str | None = None
+    checkpoint_path: Path | None = None
 
 
 class WorkshopFramework:
@@ -37,8 +36,8 @@ class WorkshopFramework:
     
     def __init__(self, config: FrameworkConfig | None = None):
         self.config = config or FrameworkConfig()
-        self.model: Optional[nn.Module] = None
-        self.processor: Optional[Any] = None
+        self.model: nn.Module | None = None
+        self.processor: Any | None = None
         self._initialized = False
     
     def build(self) -> nn.Module:
@@ -59,7 +58,7 @@ class WorkshopFramework:
             raise RuntimeError("Model not built yet")
         torch.save(self.model.state_dict(), path)
     
-    def to(self, device: str | torch.device) -> "WorkshopFramework":
+    def to(self, device: str | torch.device) -> WorkshopFramework:
         """Move model to specified device."""
         if self.model is not None:
             self.model.to(device)
@@ -106,8 +105,8 @@ class TTSEngine(WorkshopFramework):
     
     def __init__(self, config: TTSConfig | None = None):
         super().__init__(config or TTSConfig())
-        self.synthesizer: Optional[nn.Module] = None
-        self.vocoder: Optional[nn.Module] = None
+        self.synthesizer: nn.Module | None = None
+        self.vocoder: nn.Module | None = None
     
     def build(self) -> nn.Module:
         """Build TTS model (placeholder - actual implementation would use specific architecture)."""
@@ -185,7 +184,7 @@ class ASREngine(WorkshopFramework):
     
     def __init__(self, config: ASRConfig | None = None):
         super().__init__(config or ASRConfig())
-        self.transcriber: Optional[nn.Module] = None
+        self.transcriber: nn.Module | None = None
     
     def build(self) -> nn.Module:
         """Build ASR model (placeholder)."""
