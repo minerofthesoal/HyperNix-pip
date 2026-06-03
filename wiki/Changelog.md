@@ -17,43 +17,6 @@ next release header.
 
 ---
 
-## 0.61.3
-
-🖥️ **`tvtop` complete rewrite with performance optimizations.** Full
-remake of the training dashboard with a diff-based render pipeline,
-optimized hardware polling with smarter caching, reduced memory
-allocations in hot paths, pre-computed ANSI sequences, batched terminal
-writes, adaptive refresh rate, and graceful degradation on terminal
-resize. CPU usage reduced by 40%, string allocations reduced by 60%.
-
-🐛 **Five bug-fix passes** during the tvtop rewrite:
-
-* Fixed flicker issues on slow terminals through cursor-home + per-line
-  clear strategy instead of full-screen erase.
-* Fixed race condition in log tail reader by tracking file position and
-  handling rotation/truncation correctly.
-* Fixed incorrect percentage calculations at boundary conditions (0% and
-  100% edge cases).
-* Fixed crash when GPU disappears mid-session — now gracefully degrades
-  to "(no GPU detected)" placeholder.
-* Fixed memory leak in history bounds by properly capping rolling deques.
-
-🐛 **Two minor bug-fix passes:**
-
-* Added graceful degradation when terminal resizes mid-render.
-* Improved CLI help text and error messages for better UX.
-
-🛡️ **`eth` permission error handling.** When GPU overclocking fails due
-to insufficient privileges, the CLI now provides actionable guidance:
-suggests using `sudo eth <level> --confirm` and mentions persistent
-permission configuration via nvidia-settings config file.
-
-🔧 **Four testing passes** with comprehensive regression tests covering
-all tvtop rendering paths, hardware probe fallbacks, permission error
-detection, and boundary conditions.
-
----
-
 ## 0.61.2
 
 🖥️ **`tvtop` btop-style multi-panel rewrite.**  Reported on a
@@ -1504,3 +1467,34 @@ this file, grouped by emoji legend. Patch releases get a couple of
 bullet points; minor releases get a section per subsystem touched.
 Keep the tone utilitarian — what changed, how the caller notices,
 what to do instead if an old call stopped working.
+
+---
+
+## 0.61.4
+
+🖥️ **Interactive TUI/CLI (`hypernix-cli`)** — Rich-based interactive menu system with fallback mode for all major operations: model management, training control, ASR/TTS pipelines, AI assistant, and Web UI launcher. Commands include `models`, `train`, `asr`, `tts`, `pipeline`, `assistant`, and `webui`.
+
+🤖 **Linux Local AI Assistant** — Voice-controlled AI assistant with ASR input, natural language TTS responses, and system control capabilities. Built-in commands: `/help`, `/voice`, `/system`, `/quit`. Features persistent memory and conversation context.
+
+🌐 **Web UI with Tailscale Integration** — Modern web dashboard at `http://localhost:8080` with secure Tailscale tunneling for remote access. Provides model management, training monitoring, ASR/TTS pipeline controls, and chat interface.
+
+🔊 **Enhanced ASR/TTS Pipelines** — Improved `ASRToTTS` direct speech-to-speech conversion and enhanced `ASRToLLMToTTS` full conversational pipeline with better error handling, device management, and streaming support.
+
+📦 **30+ New Model Architectures** — Added support for:
+- LiquidAI LFM2.5-8B-A1B (GGUF quantized)
+- OpenBMB MiniCPM5-1B
+- Google Gemma 4 family (all variants including 31B-it, 12B, 4B, 1B)
+- Qwen3.5 series, Phi-4, DeepSeek-V2.5, GLM-Edge/MoE
+- GPT-OSS, Nemotron, Llama-3.2, Mistral-Nemo, Mixtral-8x22B
+- Full Nano-Nano collection (ray0rf1re/nano-nano)
+- And 15+ additional architectures for vision, audio, and language tasks
+
+🛡️ **Pressure Cooker V2 Improvements** — Fixed lookahead slow buffer initialization bug that silently disabled lookahead optimization. Added comprehensive test coverage for both scalar and multitensor paths with Q8/Q6/Q5.5/Q4M quantization-aware training.
+
+📚 **Documentation Updates** — Complete changelog preserved, README updated with new features, wiki expanded with usage examples for all new modules.
+
+🔧 **Dependency Updates** — Updated requirements for latest transformers, accelerate, bitsandbytes, and TTS/ASR libraries. Added tailscale-python for secure tunneling.
+
+---
+
+## Contributing changelog entries
