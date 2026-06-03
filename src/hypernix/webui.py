@@ -10,7 +10,7 @@ import threading
 
 try:
     import socketserver
-    from http.server import HTTPServer, SimpleHTTPRequestHandler
+    from http.server import SimpleHTTPRequestHandler
     HTTP_AVAILABLE = True
 except ImportError:
     HTTP_AVAILABLE = False
