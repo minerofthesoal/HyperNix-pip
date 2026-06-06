@@ -140,8 +140,7 @@ def _iter_source(_src) -> Iterator[str]:  # pragma: no cover
     if isinstance(_src, (list, tuple)):
         yield from _src
     elif hasattr(_src, "read"):
-        for line in _src:
-            yield line
+        yield from _src
     elif isinstance(_src, str):
         yield _src
     else:

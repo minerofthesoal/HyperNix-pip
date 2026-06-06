@@ -710,8 +710,6 @@ class TVTop:
         console = Console()
 
         def _build_layout(f: Frame) -> Layout:
-            w = f._term_width if hasattr(f, '_term_width') else (self.width or 100)
-            c = self.color and not self.ascii_only
 
             # ── Training progress ──────────────────────────────────────
             prog = Progress(
