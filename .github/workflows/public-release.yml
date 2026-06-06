@@ -1,0 +1,313 @@
+name: public-release
+
+# One-click public release — does EVERYTHING in this single workflow so we
+# don't depend on the tag push firing a second workflow (GITHUB_TOKEN-pushed
+# tags intentionally don't trigger downstream workflows on GitHub).
+#
+#   1. Manual dispatch with a version (e.g. 0.2.0 or 0.2.0-rc1).
+#   2. Updates pyproject.toml + setup.cfg + src/hypernix/__init__.py so the
+#      three version strings stay in sync.
+#   3. Runs lint + tests + `python -m build` + `twine check` so we never
+#      tag a broken state.
+#   4. Commits the version bump to the trigger branch (skip-ci-tagged).
+#   5. Creates an annotated tag `v<version>` and pushes it.
+#   6. Downstream jobs (github-release, pypi-publish, testpypi-publish)
+#      consume the built artifact and create the GitHub Release + publish
+#      to PyPI (stable) or TestPyPI (prerelease) via Trusted Publishing.
+#
+# Net effect: kick this off once from the Actions tab and a public release
+# lands on PyPI with `pip install hypernix` working immediately after.
+#
+# Prereqs (one-time, by the repo owner):
+#   - Register Trusted Publishing on PyPI at
+#     https://pypi.org/manage/account/publishing/:
+#       project = hypernix
+#       owner   = <your_gh_org>
+#       repo    = hypernix-pip
+#       workflow = public-release.yml
+#       environment = pypi
+#   - Same for TestPyPI (environment = testpypi) if you want prerelease
+#     publishing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version, without the leading v (e.g. 0.2.0 or 0.2.0-rc1)."
+        required: true
+        type: string
+      dry_run:
+        description: "Validate + build but skip the commit, tag push, and publish."
+        type: boolean
+        default: false
+      skip_pypi:
+        description: "Tag + GitHub Release but skip PyPI / TestPyPI publishing."
+        type: boolean
+        default: false
+
+concurrency:
+  group: public-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Validate, build, test, tag, push. Uploads dist/ as an artifact the
+  # downstream publish jobs consume.
+  # ---------------------------------------------------------------------------
+  cut:
+    name: cut public release v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write    # commit version bump + push tag
+    outputs:
+      prerelease: ${{ steps.classify.outputs.prerelease }}
+      tag: ${{ steps.classify.outputs.tag }}
+    steps:
+      - name: Validate version format
+        run: |
+          v='${{ inputs.version }}'
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-]?(rc|pre|alpha|beta|a|b)[0-9]*)?$ ]]; then
+            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2)"
+            exit 1
+          fi
+
+      - name: Classify release (stable vs prerelease)
+        id: classify
+        run: |
+          v='${{ inputs.version }}'
+          tag="v$v"
+          if [[ "$v" =~ (rc|pre|alpha|beta|a|b)[0-9]*$ ]]; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is a prerelease (-> TestPyPI)"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is a stable release (-> PyPI)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade "packaging>=24.2"
+          pip install "build>=1.2" "twine>=6" "ruff>=0.5" "pytest>=8" "setuptools>=77" wheel
+
+      - name: Install torch (CPU wheels) + package
+        # pytest needs torch (hypernix imports it at module load). Install the
+        # CPU wheel explicitly rather than relying on the package install
+        # below to pull it, so we never accidentally fetch a GPU build.
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -e ".[dev]"
+
+      - name: Bump versions in source
+        run: |
+          v='${{ inputs.version }}'
+          python - <<PY
+          import re
+          from pathlib import Path
+
+          v = "${{ inputs.version }}"
+
+          p = Path("pyproject.toml")
+          p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{v}"', p.read_text(), count=1, flags=re.M))
+
+          s = Path("setup.cfg")
+          s.write_text(re.sub(r'^version = .+$', f'version = {v}', s.read_text(), count=1, flags=re.M))
+
+          init = Path("src/hypernix/__init__.py")
+          init.write_text(re.sub(r'__version__ = "[^"]+"', f'__version__ = "{v}"', init.read_text(), count=1))
+          PY
+          echo "--- pyproject.toml version line"
+          grep '^version' pyproject.toml
+          echo "--- setup.cfg version line"
+          grep '^version' setup.cfg
+          echo "--- __init__.py version line"
+          grep __version__ src/hypernix/__init__.py
+
+      - name: Lint
+        run: ruff check src/hypernix
+
+      - name: Tests
+        run: PYTHONPATH=src pytest -q
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Twine check
+        run: twine check --strict dist/*
+
+      - name: Generate CHANGELOG fragment
+        id: changelog
+        run: |
+          last=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          {
+            echo "## Changelog"
+            echo ""
+            if [ -n "$last" ]; then
+              echo "Commits since \`$last\`:"
+              echo ""
+              git log "$last..HEAD" --pretty='- %s (%h)' --no-merges
+            else
+              echo "Initial tagged release."
+            fi
+          } > CHANGELOG_FRAGMENT.md
+          echo "--- fragment ---"
+          cat CHANGELOG_FRAGMENT.md
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: sha256sum *.whl *.tar.gz | tee SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-release-${{ inputs.dry_run && 'dryrun-' || '' }}${{ inputs.version }}
+          path: |
+            dist/
+            CHANGELOG_FRAGMENT.md
+          retention-days: 14
+
+      - name: Commit version bump
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml setup.cfg src/hypernix/__init__.py
+          if git diff --cached --quiet; then
+            echo "::notice::no version change to commit (already at v${{ inputs.version }})"
+          else
+            git commit -m "hypernix v${{ inputs.version }} [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Tag and push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          tag='${{ steps.classify.outputs.tag }}'
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "::notice::tag $tag already exists; skipping tag push"
+          else
+            git tag -a "$tag" -F CHANGELOG_FRAGMENT.md
+            git push origin "$tag"
+            echo "::notice::pushed $tag"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Create the GitHub Release and attach the built artifacts + SHA256SUMS.
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: GitHub Release
+    needs: cut
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: public-release-${{ inputs.version }}
+          path: .
+
+      - name: Show artifacts
+        run: ls -lah dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.cut.outputs.tag }}
+          name: hypernix ${{ needs.cut.outputs.tag }}
+          prerelease: ${{ needs.cut.outputs.prerelease == 'true' }}
+          body_path: CHANGELOG_FRAGMENT.md
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+
+  # ---------------------------------------------------------------------------
+  # Publish stable tags to real PyPI via Trusted Publishing (OIDC).
+  # Requires configuring the PyPI project with:
+  #   publisher = GitHub
+  #   repo      = minerofthesoal/hypernix-pip
+  #   workflow  = public-release.yml
+  #   environment = pypi
+  # ---------------------------------------------------------------------------
+  pypi-publish:
+    name: publish to PyPI
+    needs: cut
+    if: >-
+      !inputs.dry_run &&
+      !inputs.skip_pypi &&
+      needs.cut.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/project/hypernix/
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: public-release-${{ inputs.version }}
+          path: .
+
+      - name: Strip non-PyPI files
+        run: |
+          cd dist
+          rm -f SHA256SUMS
+          ls -lah
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+  # ---------------------------------------------------------------------------
+  # Publish prereleases to TestPyPI. Same OIDC setup, different environment.
+  # ---------------------------------------------------------------------------
+  testpypi-publish:
+    name: publish to TestPyPI
+    needs: cut
+    if: >-
+      !inputs.dry_run &&
+      !inputs.skip_pypi &&
+      needs.cut.outputs.prerelease == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/hypernix/
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: public-release-${{ inputs.version }}
+          path: .
+
+      - name: Strip non-PyPI files
+        run: |
+          cd dist
+          rm -f SHA256SUMS
+          ls -lah
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
