@@ -17,7 +17,63 @@ next release header.
 
 ---
 
-## 0.61.2
+## 0.70.0
+
+✨ **`abbicus` — Automatic token regulation and curriculum tuning.** New
+module that dynamically modifies max sequence length and token
+padding/truncation strategies during training based on model size,
+context length, dataset complexity, and current global step. Supports
+model sizes from 0.5B to 72B with automatic size-based multipliers.
+Configurable curriculum steps, dynamic padding, and dataset-type
+awareness.
+
+✨ **`compute_framework` — Hardware-agnostic multi-device training.**
+Abstracts away CUDA, MPS, CPU, and TPU backends with automatic DDP /
+ZeRO wrapping. `ComputeFramework` class handles PyTorch DDP
+initialization, device placement, and fallback logic automatically.
+Supports distributed training with `local_rank`, `world_size`, `use_ddp`,
+`use_fsdp`, and `zero_stage` parameters. Auto-detects available compute
+backend and sets up the appropriate device.
+
+✨ **`pressure_cooker` V2 rewrite — Quantization-aware training.** Full
+V2 implementation with fp16/bf16/fp64 mixed-precision, automatic dtype
+detection, and quantization-aware training (QAT) hooks for Q8/Q6/Q5.5/Q4M.
+10 major upgrades: gradient checkpointing integration, adaptive gradient
+clipping with per-layer scaling, EMA weight shadowing, distributed
+training awareness (DDP/FSDP compatible), dynamic loss scaling with
+backoff on overflow, parameter freezing/unfreezing callbacks, learning
+rate finder utility, and training metrics streaming to tvtop dashboard.
+Device-specific tiers (`StovetopCooker`, `ElectricCooker`,
+`InductionCooker`, `ProCooker`) all upgraded to V2 standards.
+
+✨ **`pressure_cooker_v3` — ZeRO-optimized V3 optimizer.** Replaces V2
+with full ZeRO-1/2 optimizations, FP8 support, and zero bugs. New
+`QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig`
+dataclass for fine-grained quantization control. `PressureCookerV3`
+class with advanced ZeRO stage support, improved memory efficiency, and
+heavily tested quantization paths.
+
+✨ **`workshop` — Model frameworks and TTS/ASR pipelines.** New room for
+building model frameworks with pre-built templates for TTS, ASR, LLM,
+and Vision models. `WorkshopFramework` base class with
+`FrameworkConfig` dataclass. Full compatibility with
+ray0rf1re/nano-nano collection and 30+ additional architectures including
+LiquidAI LFM2.5, MiniCPM5, Gemma 4 family, Qwen3.5 series, Phi-4,
+DeepSeek-V2.5, GLM-Edge/MoE, GPT-OSS, Nemotron, Llama-3.2, Mistral-Nemo,
+Mixtral-8x22B. Includes `TTSEngine`, `ASREngine`, `ASRToTTS` (direct
+speech-to-speech), and `ASRToLLMToTTS` (full conversational pipeline).
+
+🔧 **`tvtop` backwards-compatibility shim.** All tvtop functionality
+moved to `hypernix.tv`; this module now re-exports everything so
+`import hypernix.tvtop` continues to work. Console script `tvtop` still
+registered and points at `hypernix.tv.cli_main`.
+
+📚 **Documentation updates.** Wiki expanded with usage examples for all
+new modules. README updated with v0.70.0 feature highlights.
+
+---
+
+## 0.61.4
 
 🖥️ **`tvtop` btop-style multi-panel rewrite.**  Reported on a
 mid-screen rendering: the 0.61.1 dashboard "still sucks and only
