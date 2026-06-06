@@ -41,7 +41,12 @@ quantize, and ship.
 | `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
 | `hypernix.salt_shaker` | 3-tier gentle data augmentation: `FromTheBag` / `HandCrusher` / `PoshSaltDish`. |
 | `hypernix.pepper_shaker` | 3-tier sharp perturbations: `SmallShaker` (MLM-style mask) / `Dish` (typos) / `TallHandmade` (negation). |
-| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector. Grad accumulation, GradScaler integration, fused/foreach AdamW, optional CUDA-graph capture on Pro. |
+| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector. Grad accumulation, GradScaler integration, fused/foreach AdamW, optional CUDA-graph capture on Pro. v0.70.0 V2 rewrite adds quantization-aware training (fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M), gradient checkpointing, adaptive clipping, EMA shadowing, distributed awareness, dynamic loss scaling, parameter freezing callbacks, LR finder, and tvtop metrics streaming. |
+| `hypernix.pressure_cooker_v3` | ZeRO-optimized V3 optimizer with FP8 support. New `QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig` dataclass. `PressureCookerV3` class with ZeRO-1/2 support, improved memory efficiency, and heavily tested quantization paths. `PressureCookerV3Plus` adds full QAT with calibration. |
+| `hypernix.abbicus` | Automatic token regulation and curriculum tuning. Dynamically modifies max sequence length and padding/truncation during training based on model size (0.5B–72B), context length, dataset complexity, and global step. Configurable curriculum steps, dynamic padding, and dataset-type awareness (math/code get 8-aligned padding). |
+| `hypernix.compute_framework` | Hardware-agnostic multi-device training. Abstracts CUDA, MPS, CPU, TPU backends with automatic DDP/ZeRO wrapping. `ComputeFramework` handles PyTorch DDP initialization, device placement, fallback logic. Supports `local_rank`, `world_size`, `use_ddp`, `use_fsdp`, `zero_stage`. Auto-detects backend and sets up device. |
+| `hypernix.workshop` | Model frameworks and TTS/ASR pipelines. `WorkshopFramework` base class with `FrameworkConfig` for TTS, ASR, LLM, Vision models. Pre-built templates for ray0rf1re/nano-nano collection and 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.5, GLM-Edge/MoE, GPT-OSS, Nemotron, Llama-3.2, Mistral-Nemo, Mixtral-8x22B). Includes `TTSEngine`, `ASREngine`, `ASRToTTS` (speech-to-speech), `ASRToLLMToTTS` (conversational pipeline). |
+| `hypernix.tvtop` | Backwards-compatibility shim — all functionality moved to `hypernix.tv`. Re-exports everything so `import hypernix.tvtop` continues to work. Console script `tvtop` still registered and points at `hypernix.tv.cli_main`. |
 | `hypernix.lunchbox` | Consistent-schema dataset packager. `Lunchbox.for_eval()` pre-loads the recommended eval-results columns; `pack(path)` / `push_to_hub(repo_id)` routes through `datasets.Dataset.from_list` so the Parquet `huggingface` metadata stays coherent with the column set (fixes the `CastError: column names don't match` path in the Hub viewer). |
 | `hypernix.whisk` | Checkpoint averaging — `swa_average` (uniform mean), `ema` (exponential), `geometric_mean`. Accepts state dicts or paths to `.pt` / `.safetensors`. `whisk_to_snapshot` writes a full HF-style snapshot in one call. |
 | `hypernix.cutting_board` | Train / val / test splitting. `CuttingBoard` (deterministic random) + `StratifiedBoard` (preserves class distribution on labelled records). Renormalises ratios; writes per-split files with `.slice_to_files()`. |
@@ -57,9 +62,20 @@ quantize, and ship.
 | `hypernix.quantize` | `llama-quantize` driver. v0.51.3 ships a 30-type `QUANT_CATALOG` (`QuantSpec` dataclass per type with bits-per-weight, category, recommendation) covering floats (`F32` / `F16` / `BF16`), legacy quants (`Q4_0` / `Q4_1` / `Q5_0` / `Q5_1` / `Q8_0`), k-quants (`Q2_K` … `Q6_K`), and IQ-quants (`IQ1_S` … `IQ4_XS`). Helpers: `quant_recommended()`, `quant_by_category("k")`, `quant_for_size(target_bytes, fp16_bytes)`, `quant_estimate_size(name, fp16_bytes)`, `quant_resolve_spec("q4km")`. |
 | `hypernix.upload` | Push the produced artifacts back to a HuggingFace repo. |
 
-Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.13.
+Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.14.
 
 ---
+
+## What's new in v0.70.0
+
+Five new modules + major optimizer rewrites:
+
+- **`abbicus`** — Automatic token regulation and curriculum tuning for model sizes 0.5B–72B
+- **`compute_framework`** — Hardware-agnostic multi-device training with auto DDP/ZeRO wrapping (CUDA/MPS/CPU/TPU)
+- **`pressure_cooker` V2** — Quantization-aware training with fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M, plus 10 upgrades (gradient checkpointing, adaptive clipping, EMA shadowing, distributed awareness, dynamic loss scaling, parameter freezing callbacks, LR finder, tvtop metrics streaming)
+- **`pressure_cooker_v3`** — ZeRO-1/2 optimizations, FP8 support, `QuantDtype` enum + `QuantConfig` dataclass
+- **`workshop`** — Model frameworks for TTS/ASR/LLM/Vision with pre-built templates, nano-nano collection support, 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.5, GLM-Edge/MoE, GPT-OSS, Nemotron, Llama-3.2, Mistral-Nemo, Mixtral-8x22B)
+- **`tvtop`** — Now a backwards-compatibility shim re-exporting from `hypernix.tv`
 
 ## Install
 
