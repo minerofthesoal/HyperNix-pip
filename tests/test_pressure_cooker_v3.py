@@ -7,7 +7,6 @@ import torch.nn as nn
 from hypernix.pressure_cooker_v3 import (
     PressureCookerV2Plus,
     PressureCookerV3,
-    PressureCookerV3Plus,
     QuantConfig,
     QuantDtype,
 )
