@@ -14,6 +14,46 @@ import torch
 from torch.optim import Optimizer
 
 
+def _flatten_optimizer_params(
+    params: Iterable[torch.nn.Parameter] | Iterable[dict],
+) -> list[Any]:
+    """Materialize optimizer params without changing PyTorch's accepted shapes."""
+    return list(params)
+
+
+def _iter_optimizer_tensors(params: Iterable[Any]):
+    """Yield parameter tensors from a materialized optimizer params iterable."""
+    for item in params:
+        if isinstance(item, dict):
+            yield from item.get("params", ())
+        else:
+            yield item
+
+
+def _device_compute_capability(device: torch.device) -> tuple[int, int] | None:
+    """Return CUDA compute capability for ``device`` when available."""
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return None
+    try:
+        return torch.cuda.get_device_capability(device)
+    except (RuntimeError, AttributeError, AssertionError):
+        return None
+
+
+def _params_cuda_capability(params: Iterable[Any]) -> tuple[int, int] | None:
+    """Return the first CUDA parameter's compute capability, if any."""
+    for param in _iter_optimizer_tensors(params):
+        device = getattr(param, "device", None)
+        if isinstance(device, torch.device) and device.type == "cuda":
+            return _device_compute_capability(device)
+    return None
+
+
+def _is_cuda_61_or_older(capability: tuple[int, int] | None) -> bool:
+    """True for Pascal sm_61 and older CUDA devices."""
+    return capability is not None and capability <= (6, 1)
+
+
 class QuantDtype(Enum):
     """Supported quantization dtypes for V3 training."""
     FP8 = "fp8"
@@ -67,8 +107,18 @@ class PressureCookerV3(Optimizer):
         if grad_accum_steps < 1:
             raise ValueError("grad_accum_steps must be >= 1")
 
+        materialized_params = _flatten_optimizer_params(params)
+        self.cuda_capability = _params_cuda_capability(materialized_params)
+        self.cuda_61_compatible = _is_cuda_61_or_older(self.cuda_capability)
+        if self.cuda_61_compatible:
+            # Pascal sm_61 devices (for example GTX 10-series cards) cannot run
+            # Volta+ fused optimizer kernels. Keep V3 on its scalar AdamW path.
+            fused = False
+            foreach = False
+            amsgrad = False
+
         defaults = {"lr": 0.0, "betas": betas, "eps": eps, "weight_decay": weight_decay}
-        super().__init__(params, defaults)
+        super().__init__(materialized_params, defaults)
 
         self.peak_lr = peak_lr
         self.warmup_steps = warmup_steps
@@ -169,6 +219,11 @@ class PressureCookerV3(Optimizer):
             "grad_accum_steps": self.grad_accum_steps,
             "zero_stage": self.zero_stage,
             "current_step": self._step,
+            "cuda_capability": self.cuda_capability,
+            "cuda_61_compatible": self.cuda_61_compatible,
+            "foreach": self.foreach,
+            "fused": self.fused,
+            "amsgrad": self.amsgrad,
         }
 
     def _grad_has_inf(self) -> bool:
