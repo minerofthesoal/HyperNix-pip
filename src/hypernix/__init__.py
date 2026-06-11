@@ -274,5 +274,5 @@ else:
     from . import tv, tvtop
     __all__ = ["tv", "tvtop"]
 
-__version__ = "0.70.1"
+__version__ = "0.70.2"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
