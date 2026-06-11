@@ -4,6 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+import hypernix.pressure_cooker_v3 as pressure_cooker_v3
 from hypernix.pressure_cooker_v3 import (
     PressureCookerV2Plus,
     PressureCookerV3,
@@ -275,6 +276,31 @@ class TestPressureCookerV3:
         assert has_diverged, "After another step, fast and slow weights should diverge"
 
     
+    def test_cuda_61_forces_safe_optimizer_flags(self, monkeypatch):
+        """Test Pascal sm_61 avoids Volta+ optimizer settings."""
+        model = SimpleMLP()
+        monkeypatch.setattr(
+            pressure_cooker_v3,
+            "_params_cuda_capability",
+            lambda _params: (6, 1),
+        )
+
+        optimizer = PressureCookerV3(
+            model.parameters(),
+            foreach=True,
+            fused=True,
+            amsgrad=True,
+        )
+        description = optimizer.describe()
+
+        assert optimizer.cuda_capability == (6, 1)
+        assert optimizer.cuda_61_compatible is True
+        assert optimizer.foreach is False
+        assert optimizer.fused is False
+        assert optimizer.amsgrad is False
+        assert description["cuda_capability"] == (6, 1)
+        assert description["cuda_61_compatible"] is True
+
     def test_describe(self):
         """Test describe method."""
         model = SimpleMLP()

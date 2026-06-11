@@ -750,15 +750,23 @@ class CodeOven:
                 f"(needs > context_length={context_length} tokens)"
             )
 
+        optimizer_kwargs: dict[str, Any] = {
+            "betas": (0.9, 0.95),
+            "weight_decay": weight_decay,
+        }
         if optimizer_class is not None:
-            # Assumes it matches standard signature or PressureCookerV3
-            opt = optimizer_class(
-                self.model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
-            )
+            import inspect
+
+            optimizer_params = inspect.signature(optimizer_class).parameters
+            if "lr" in optimizer_params:
+                optimizer_kwargs["lr"] = lr
+            elif "peak_lr" in optimizer_params:
+                optimizer_kwargs["peak_lr"] = lr
+            if "grad_clip" in optimizer_params:
+                optimizer_kwargs["grad_clip"] = grad_clip
+            opt = optimizer_class(self.model.parameters(), **optimizer_kwargs)
         else:
-            opt = torch.optim.AdamW(
-                self.model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
-            )
+            opt = torch.optim.AdamW(self.model.parameters(), lr=lr, **optimizer_kwargs)
             
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, steps))
 
