@@ -752,9 +752,16 @@ class CodeOven:
 
         if optimizer_class is not None:
             # Assumes it matches standard signature or PressureCookerV3
-            opt = optimizer_class(
-                self.model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
-            )
+            # PressureCookerV3 uses peak_lr instead of lr
+            try:
+                opt = optimizer_class(
+                    self.model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
+                )
+            except TypeError:
+                # Fallback for optimizers like PressureCookerV3 that use peak_lr
+                opt = optimizer_class(
+                    self.model.parameters(), peak_lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
+                )
         else:
             opt = torch.optim.AdamW(
                 self.model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95),
