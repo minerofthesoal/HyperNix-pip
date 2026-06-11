@@ -428,8 +428,7 @@ class ASRToLLMToTTS:
             full_text = self._llm_generate(prompt, max_length, temperature)
             import re
             words = re.findall(r'\S+|\s+', full_text)
-            for w in words:
-                yield w
+            yield from words
     
     def process_stream(
         self,

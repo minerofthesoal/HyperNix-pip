@@ -93,7 +93,7 @@ def brew(recipe: dict[str, Any]) -> Path:
 
     compute_framework = None
     if recipe.get("distributed"):
-        from .compute_framework import ComputeFramework, ComputeArch
+        from .compute_framework import ComputeArch, ComputeFramework
         device_str = recipe.get("device", "cuda")
         arch = ComputeArch.CPU if device_str == "cpu" else ComputeArch.SINGLE_GPU
         compute_framework = ComputeFramework(arch)

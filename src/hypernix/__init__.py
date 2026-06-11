@@ -102,6 +102,8 @@ if not _is_tvtop:
         whisk,
         workshop,
     )
+    from .abbicus import Abbicus, AbbicusConfig
+    from .compute_framework import ComputeArch, ComputeFramework
     from .convert import convert_to_gguf
     from .download import (
         KNOWN_MODELS,
@@ -121,9 +123,6 @@ if not _is_tvtop:
         gpu_preset,
     )
     from .generate import generate_text
-    from .compute_framework import ComputeFramework, ComputeArch
-    from .abbicus import Abbicus, AbbicusConfig
-    from .pressure_cooker_v3 import PressureCookerV3, PressureCookerV3Plus, QuantConfig, QuantDtype
     from .old_oven import (
         ARCH_PRESETS,
         CodeOven,
@@ -133,6 +132,7 @@ if not _is_tvtop:
         new_oven,
         preheat,
     )
+    from .pressure_cooker_v3 import PressureCookerV3, PressureCookerV3Plus, QuantConfig, QuantDtype
     from .quantize import CATALOG as QUANT_CATALOG  # noqa: I001
     from .quantize import QUANT_TYPES, QuantSpec, quantize_gguf
     from .quantize import by_category as quant_by_category
