@@ -1,10 +1,10 @@
 """Tests for LazySusan."""
-import pytest
 import torch
 import torch.nn as nn
 
+from hypernix.compute_framework import ComputeFramework
 from hypernix.lazy_suzan import LazySusan, LazySusanConfig
-from hypernix.compute_framework import ComputeFramework, ComputeArch
+
 
 class DummyModel(nn.Module):
     def __init__(self):
