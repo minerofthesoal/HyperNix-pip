@@ -5,6 +5,7 @@ v0.70.0: Abstracts away CUDA, MPS, CPU, and handles DDP / ZeRO wrapping automati
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import torch
 import torch.nn as nn
