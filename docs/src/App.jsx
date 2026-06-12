@@ -160,7 +160,7 @@ function App() {
         initial={{ y: -100 }}
         animate={{ y: 0 }}
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrollY > 50 ? 'glass-strong border-b border-apple-gray' : 'bg-transparent'
+          scrollY > 50 ? 'bg-apple-black/95 backdrop-blur-xl border-b border-apple-gray' : ''
         }`}
       >
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -170,10 +170,10 @@ function App() {
               whileHover={{ scale: 1.05 }}
               onClick={() => scrollToSection('home')}
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-apple-accent to-purple-600 flex items-center justify-center glow-accent">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-apple-accent to-purple-600 flex items-center justify-center">
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
-              <span className="text-xl font-semibold gradient-text">hypernix</span>
+              <span className="text-xl font-semibold">hypernix</span>
             </motion.div>
 
             {/* Desktop Nav */}
@@ -182,25 +182,22 @@ function App() {
                 <button
                   key={item.id}
                   onClick={() => scrollToSection(item.id)}
-                  className={`text-sm transition-all duration-300 relative group ${
+                  className={`text-sm transition-colors ${
                     activeSection === item.id 
                       ? 'text-apple-accent' 
                       : 'text-apple-text-secondary hover:text-apple-text'
                   }`}
                 >
                   {item.label}
-                  <span className={`absolute -bottom-1 left-0 h-0.5 bg-apple-accent transition-all duration-300 ${
-                    activeSection === item.id ? 'w-full' : 'w-0 group-hover:w-full'
-                  }`} />
                 </button>
               ))}
               <a
                 href="https://github.com/minerofthesoal/hypernix-pip"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center space-x-2 text-apple-text-secondary hover:text-apple-text transition-all duration-300 group"
+                className="flex items-center space-x-2 text-apple-text-secondary hover:text-apple-text transition-colors"
               >
-                <Github className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <Github className="w-5 h-5" />
                 <span className="text-sm">GitHub</span>
               </a>
             </div>
@@ -259,9 +256,9 @@ function App() {
               <span className="text-sm text-apple-text-secondary">v0.70.0 Now Available</span>
             </motion.div>
 
-            <h1 className="text-5xl md:text-7xl font-bold mb-6 gradient-text">
+            <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-apple-text via-apple-text to-apple-text-secondary bg-clip-text text-transparent">
               End-to-end toolkit for<br />
-              <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent glow-accent-hover inline-block">
+              <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent">
                 PyTorch language models
               </span>
             </h1>
@@ -277,7 +274,7 @@ function App() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => scrollToSection('quickstart')}
-                className="px-8 py-4 bg-apple-accent hover:bg-apple-accent-hover text-white rounded-full font-medium flex items-center space-x-2 transition-all duration-300 glow-accent hover:glow-accent-hover"
+                className="px-8 py-4 bg-apple-accent hover:bg-apple-accent-hover text-white rounded-full font-medium flex items-center space-x-2 transition-colors"
               >
                 <Play className="w-5 h-5" />
                 <span>Get Started</span>
@@ -286,7 +283,7 @@ function App() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => scrollToSection('docs')}
-                className="px-8 py-4 glass-light hover:bg-apple-light-gray text-apple-text rounded-full font-medium flex items-center space-x-2 transition-all duration-300 border border-apple-gray hover:border-apple-accent/50"
+                className="px-8 py-4 bg-apple-gray hover:bg-apple-light-gray text-apple-text rounded-full font-medium flex items-center space-x-2 transition-colors"
               >
                 <BookOpen className="w-5 h-5" />
                 <span>View Docs</span>
@@ -305,7 +302,7 @@ function App() {
             <motion.div
               animate={{ y: [-10, 10, -10] }}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-              className="glass rounded-2xl border border-apple-gray p-6 overflow-hidden border-glow"
+              className="bg-apple-dark rounded-2xl border border-apple-gray p-6 overflow-hidden"
             >
               <div className="flex items-center space-x-2 mb-4">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
@@ -356,10 +353,10 @@ function App() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
                 whileHover={{ y: -5, scale: 1.02 }}
-                className="glass rounded-2xl p-6 border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 border-glow"
+                className="bg-apple-black rounded-2xl p-6 border border-apple-gray hover:border-apple-accent/50 transition-all duration-300"
               >
                 <div 
-                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 glow-accent"
+                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
                   style={{ backgroundColor: `${feature.color}20` }}
                 >
                   <feature.icon className="w-6 h-6" style={{ color: feature.color }} />
@@ -378,7 +375,7 @@ function App() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-16 glass rounded-2xl p-8 border border-apple-gray border-glow"
+            className="mt-16 bg-apple-black rounded-2xl p-8 border border-apple-gray"
           >
             <h3 className="text-2xl font-semibold mb-6 text-center">All Subsystems</h3>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -425,7 +422,7 @@ function App() {
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
-                className="glass rounded-2xl p-6 border border-apple-gray border-glow"
+                className="bg-apple-dark rounded-2xl p-6 border border-apple-gray"
               >
                 <div className="flex items-start space-x-4">
                   <div className="w-10 h-10 rounded-full bg-apple-accent flex items-center justify-center flex-shrink-0">
@@ -474,8 +471,7 @@ function App() {
                 whileInView={{ opacity: 1, scale: 1 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
-                whileHover={{ y: -5, scale: 1.02 }}
-                className="glass rounded-2xl p-6 border border-apple-gray border-glow transition-all duration-300"
+                className="bg-apple-black rounded-2xl p-6 border border-apple-gray"
               >
                 <h3 className="text-lg font-semibold mb-4 text-apple-accent">{group.family}</h3>
                 <div className="space-y-2">
@@ -504,10 +500,10 @@ function App() {
               href="https://github.com/minerofthesoal/hypernix-pip#supported-model-families"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center space-x-2 text-apple-accent hover:text-apple-accent-hover transition-all duration-300 group"
+              className="inline-flex items-center space-x-2 text-apple-accent hover:text-apple-accent-hover transition-colors"
             >
               <span>View full registry</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight className="w-4 h-4" />
             </a>
           </motion.div>
         </div>
@@ -556,9 +552,9 @@ function App() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.08 }}
                 whileHover={{ y: -5, scale: 1.02 }}
-                className="glass rounded-2xl p-6 border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 group border-glow"
+                className="bg-apple-dark rounded-2xl p-6 border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 group"
               >
-                <doc.icon className="w-8 h-8 text-apple-accent mb-4 group-hover:scale-110 transition-transform glow-accent" />
+                <doc.icon className="w-8 h-8 text-apple-accent mb-4 group-hover:scale-110 transition-transform" />
                 <h3 className="text-xl font-semibold mb-2">{doc.title}</h3>
                 <p className="text-apple-text-secondary text-sm">{doc.desc}</p>
                 <div className="mt-4 flex items-center space-x-2 text-apple-accent text-sm">
@@ -572,24 +568,24 @@ function App() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-6 border-t border-apple-gray glass">
+      <footer className="py-12 px-6 border-t border-apple-gray">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-apple-accent to-purple-600 flex items-center justify-center glow-accent">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-apple-accent to-purple-600 flex items-center justify-center">
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
-              <span className="text-lg font-semibold gradient-text">hypernix</span>
+              <span className="text-lg font-semibold">hypernix</span>
             </div>
 
             <div className="flex items-center space-x-6 text-sm text-apple-text-secondary">
-              <a href="https://pypi.org/project/hypernix/" target="_blank" rel="noopener noreferrer" className="hover:text-apple-text transition-all duration-300 group">
+              <a href="https://pypi.org/project/hypernix/" target="_blank" rel="noopener noreferrer" className="hover:text-apple-text transition-colors">
                 PyPI
               </a>
-              <a href="https://github.com/minerofthesoal/hypernix-pip" target="_blank" rel="noopener noreferrer" className="hover:text-apple-text transition-all duration-300 group">
+              <a href="https://github.com/minerofthesoal/hypernix-pip" target="_blank" rel="noopener noreferrer" className="hover:text-apple-text transition-colors">
                 GitHub
               </a>
-              <a href="https://huggingface.co/ray0rf1re" target="_blank" rel="noopener noreferrer" className="hover:text-apple-text transition-all duration-300 group">
+              <a href="https://huggingface.co/ray0rf1re" target="_blank" rel="noopener noreferrer" className="hover:text-apple-text transition-colors">
                 Hugging Face
               </a>
             </div>

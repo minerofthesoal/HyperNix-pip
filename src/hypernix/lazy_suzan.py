@@ -5,10 +5,9 @@ via gradient compression, overlapping communication, and P2P ring-topology.
 """
 from __future__ import annotations
 
-from typing import Any
-
 import torch
 import torch.nn as nn
+from typing import Any, Optional
 
 
 class LazySusanConfig:
@@ -36,7 +35,7 @@ class LazySusan:
     2. Overlapped backward-pass communication via PyTorch backward hooks.
     3. Decentralized ring-based gradient aggregation (P2P Gossip/Ring-AllReduce style) or local SGD averaging.
     """
-    def __init__(self, model: nn.Module, config: LazySusanConfig | None = None) -> None:
+    def __init__(self, model: nn.Module, config: Optional[LazySusanConfig] = None) -> None:
         self.model = model
         self.config = config or LazySusanConfig()
         self.hooks = []
