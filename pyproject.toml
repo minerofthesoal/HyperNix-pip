@@ -1,0 +1,115 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hypernix"
+version = "0.70.3b2"
+description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { text = "Apache-2.0" }
+# 3.12 is the recommended interpreter, but the code is pure-Python and runs on
+# any CPython that has a torch 2.7.1 wheel. Keep the floor at 3.10 so modern
+# syntax compiles (structural pattern matching, PEP 604 unions).
+requires-python = ">=3.10,<3.15"
+authors = [{ name = "HyperNix contributors" }]
+keywords = ["hypernix", "gguf", "quantization", "llama.cpp", "pytorch"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # torch floor is 1.13 (the last 1.x release, needed for old Intel
+    # Macs; see hypernix.torch_compat for the version-gated RMSNorm /
+    # SDPA fallbacks).  2.7+ is still the *recommended* version for
+    # native nn.RMSNorm and the fused SDPA path, but the code runs
+    # correctly from 1.13 upwards.  No upper bound on 2.x.
+    # CUDA 11 users: install from the cu118 index first, e.g.
+    #   pip install --index-url https://download.pytorch.org/whl/cu118 torch
+    # then `pip install hypernix` will reuse that torch rather than pulling
+    # a CUDA-12 wheel.
+    "torch>=1.13,<3",
+    "numpy>=1.26,<3",
+    "safetensors>=0.4.3",
+    "huggingface-hub>=0.24",
+    "gguf>=0.10.0",
+    "tqdm>=4.66",
+    # 0.2.1 is the first release with cp313 wheels; stick with it so a
+    # fresh Python 3.13 env doesn't need a C++ toolchain to build from src.
+    "sentencepiece>=0.2.1",
+]
+
+[project.optional-dependencies]
+llama-cpp = ["llama-cpp-python>=0.2.90"]
+train = ["transformers>=4.44", "accelerate>=0.33"]
+dev = ["pytest>=8", "ruff>=0.5", "build>=1.2", "twine>=5"]
+# Old Intel Macs / anywhere torch 2.x won't install.  This extra does
+# NOT relax the main torch pin — the compat shims in
+# ``hypernix.torch_compat`` run on torch 1.13+, but you must pin
+# torch *before* installing hypernix (see
+# ``scripts/install_macos_legacy.sh``).  The extra pulls the smaller
+# companion deps in versions known to work with torch 1.13.
+legacy-torch = [
+    "numpy>=1.21,<2",
+    "safetensors>=0.3.1",
+    "huggingface-hub>=0.16",
+    "tqdm>=4.64",
+    "sentencepiece>=0.1.99",
+]
+
+[project.scripts]
+hypernix = "hypernix.cli:main"
+hypernix-quantize = "hypernix.cli:main"
+# v0.60.0: tvtop dashboard + ethanol overclock helper.
+tvtop = "hypernix.tv:cli_main"
+eth = "hypernix.ethanol:cli_main"
+# v0.61.1: high-quality TUI chat CLI with a configurator.
+hyped = "hypernix.hyped:cli_main"
+
+[project.urls]
+Homepage = "https://huggingface.co/ray0rf1re/hyper-Nix.2"
+Source = "https://github.com/minerofthesoal/hypernix-pip"
+Issues = "https://github.com/minerofthesoal/hypernix-pip/issues"
+Logo = "https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/assets/logo.png"
+
+# ---------------------------------------------------------------------------
+# Setuptools: src/ layout + include extra files in the sdist via MANIFEST.in
+# ---------------------------------------------------------------------------
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hypernix*"]
+
+[tool.setuptools.package-data]
+hypernix = ["py.typed"]
+
+# ---------------------------------------------------------------------------
+# Ruff / pytest defaults (also duplicated in ruff.toml / pytest.ini so
+# editors pick them up regardless of project layout).
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
