@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { marked } from 'marked'
 import { 
   Terminal, 
   Cpu, 
@@ -125,14 +126,59 @@ const supportedModels = [
   { family: 'DeepSeek', models: ['deepseek-r1-distill-llama-8b', 'deepseek-v3'] },
 ]
 
+const wikiPages = [
+  { name: 'Home', title: 'Home', desc: 'Wiki index and subsystem map' },
+  { name: 'Ovens', title: 'Ovens', desc: 'Inference wrappers and chat templates' },
+  { name: 'Fridges', title: 'Fridges', desc: 'Memory management and datasets' },
+  { name: 'Freezer', title: 'Freezer', desc: 'VRAM optimization strategies' },
+  { name: 'Alarms', title: 'Alarms', desc: 'Training monitoring and safety' },
+  { name: 'Kitchen', title: 'Kitchen', desc: 'Pans, microwave, and pipelines' },
+  { name: 'Training', title: 'Training', desc: 'Fine-tuning and expansion flows' },
+  { name: 'Quantization', title: 'Quantization', desc: 'GGUF conversion guide' },
+  { name: 'Pascal', title: 'Pascal GPUs', desc: 'GTX 1080 optimization playbook' },
+  { name: 'CLI', title: 'CLI Reference', desc: 'Complete command cheat sheet' },
+  { name: 'Architectures', title: 'Architectures', desc: 'Model architecture presets' },
+  { name: 'Ranges', title: 'Ranges', desc: 'Labeling rubrics' },
+  { name: 'Workshop', title: 'Workshop', desc: 'Model frameworks and TTS/ASR' },
+  { name: 'Changelog', title: 'Changelog', desc: 'Version history and release notes' },
+  { name: 'macOS-legacy', title: 'macOS Legacy', desc: 'Running on old Intel Macs' },
+]
+
 function App() {
   const [activeSection, setActiveSection] = useState('home')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrollY, setScrollY] = useState(0)
+  const [pypiVersion, setPypiVersion] = useState('0.70.0')
+  const [wikiContent, setWikiContent] = useState({})
+  const [activeWikiPage, setActiveWikiPage] = useState(null)
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY)
     window.addEventListener('scroll', handleScroll)
+    
+    // Fetch latest version from PyPI
+    fetch('https://pypi.org/pypi/hypernix/json')
+      .then(res => res.json())
+      .then(data => {
+        if (data.info && data.info.version) {
+          setPypiVersion(data.info.version)
+        }
+      })
+      .catch(err => console.error('Failed to fetch PyPI version:', err))
+    
+    // Fetch all wiki pages
+    wikiPages.forEach(page => {
+      fetch(`https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/wiki/${page.name}.md`)
+        .then(res => res.text())
+        .then(markdown => {
+          setWikiContent(prev => ({
+            ...prev,
+            [page.name]: marked.parse(markdown)
+          }))
+        })
+        .catch(err => console.error(`Failed to fetch ${page.name}:`, err))
+    })
+    
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
@@ -141,7 +187,8 @@ function App() {
     { id: 'features', label: 'Features' },
     { id: 'quickstart', label: 'Quickstart' },
     { id: 'models', label: 'Models' },
-    { id: 'docs', label: 'Docs' }
+    { id: 'docs', label: 'Docs' },
+    { id: 'wiki', label: 'Wiki' }
   ]
 
   const scrollToSection = (id) => {
@@ -151,6 +198,15 @@ function App() {
       setActiveSection(id)
       setMobileMenuOpen(false)
     }
+  }
+
+  const openWikiPage = (pageName) => {
+    setActiveWikiPage(pageName)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const closeWikiPage = () => {
+    setActiveWikiPage(null)
   }
 
   return (
@@ -256,7 +312,7 @@ function App() {
               className="inline-flex items-center space-x-2 px-4 py-2 rounded-full bg-apple-gray/50 border border-apple-light-gray mb-8"
             >
               <Sparkles className="w-4 h-4 text-apple-accent" />
-              <span className="text-sm text-apple-text-secondary">v0.70.0 Now Available</span>
+              <span className="text-sm text-apple-text-secondary">v{pypiVersion} Now Available</span>
             </motion.div>
 
             <h1 className="text-5xl md:text-7xl font-bold mb-6 gradient-text">
@@ -568,6 +624,77 @@ function App() {
               </motion.a>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Wiki Section */}
+      <section id="wiki" className="py-20 px-6 bg-apple-dark">
+        <div className="max-w-7xl mx-auto">
+          {activeWikiPage ? (
+            /* Wiki Page View */
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+            >
+              <button
+                onClick={closeWikiPage}
+                className="mb-6 flex items-center space-x-2 text-apple-accent hover:text-apple-accent-hover transition-all duration-300 group"
+              >
+                <ArrowRight className="w-4 h-4 rotate-180 group-hover:-translate-x-1 transition-transform" />
+                <span>Back to Wiki Index</span>
+              </button>
+              
+              <div className="glass rounded-2xl p-8 border border-apple-gray border-glow">
+                <div 
+                  className="prose prose-invert max-w-none"
+                  dangerouslySetInnerHTML={{ __html: wikiContent[activeWikiPage] || '<p>Loading...</p>' }}
+                />
+              </div>
+            </motion.div>
+          ) : (
+            /* Wiki Index */
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className="text-center mb-16"
+            >
+              <h2 className="text-4xl md:text-5xl font-bold mb-4">
+                Wiki<br />
+                <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent">
+                  Documentation
+                </span>
+              </h2>
+              <p className="text-apple-text-secondary text-lg max-w-2xl mx-auto mb-12">
+                Deep-dive reference guides for every subsystem — auto-updated from the repository
+              </p>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {wikiPages.map((page, index) => (
+                  <motion.button
+                    key={page.name}
+                    onClick={() => openWikiPage(page.name)}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.5, delay: index * 0.05 }}
+                    whileHover={{ y: -5, scale: 1.02 }}
+                    className="glass rounded-2xl p-6 border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 group border-glow text-left w-full"
+                  >
+                    <BookOpen className="w-8 h-8 text-apple-accent mb-4 group-hover:scale-110 transition-transform glow-accent" />
+                    <h3 className="text-xl font-semibold mb-2">{page.title}</h3>
+                    <p className="text-apple-text-secondary text-sm">{page.desc}</p>
+                    <div className="mt-4 flex items-center space-x-2 text-apple-accent text-sm">
+                      <span>Read more</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
         </div>
       </section>
 
