@@ -171,6 +171,10 @@ function App() {
   const [pypiVersion, setPypiVersion] = useState('0.70.3b2')
   const [wikiContent, setWikiContent] = useState({})
   const [activeWikiPage, setActiveWikiPage] = useState(null)
+  const [stats, setStats] = useState({
+    downloads: { last_day: 0, last_week: 0, last_month: 0 },
+    github: { stars: 0, forks: 0, issues: 0 }
+  })
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY)
@@ -185,6 +189,36 @@ function App() {
         }
       })
       .catch(err => console.error('Failed to fetch PyPI version:', err))
+    
+    // Fetch PyPI download stats from pypistats.org
+    fetch('https://pypistats.org/api/packages/hypernix/recent')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data) {
+          setStats(prev => ({
+            ...prev,
+            downloads: data.data
+          }))
+        }
+      })
+      .catch(err => console.error('Failed to fetch PyPI stats:', err))
+    
+    // Fetch GitHub stats from GitHub API
+    fetch('https://api.github.com/repos/minerofthesoal/hypernix-pip')
+      .then(res => res.json())
+      .then(data => {
+        if (data.stargazers_count !== undefined) {
+          setStats(prev => ({
+            ...prev,
+            github: {
+              stars: data.stargazers_count,
+              forks: data.forks_count,
+              issues: data.open_issues_count
+            }
+          }))
+        }
+      })
+      .catch(err => console.error('Failed to fetch GitHub stats:', err))
     
     // Fetch all wiki pages
     wikiPages.forEach(page => {
@@ -427,6 +461,39 @@ function App() {
                 <span>View Docs</span>
               </motion.button>
             </div>
+
+            {/* Stats Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+              className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto"
+            >
+              <div className="glass rounded-xl p-4 border border-apple-gray text-center">
+                <div className="text-3xl font-bold text-apple-accent">
+                  {stats.downloads.last_day.toLocaleString()}
+                </div>
+                <div className="text-xs text-apple-text-secondary mt-1">Downloads (24h)</div>
+              </div>
+              <div className="glass rounded-xl p-4 border border-apple-gray text-center">
+                <div className="text-3xl font-bold text-apple-accent">
+                  {stats.downloads.last_week.toLocaleString()}
+                </div>
+                <div className="text-xs text-apple-text-secondary mt-1">Downloads (7d)</div>
+              </div>
+              <div className="glass rounded-xl p-4 border border-apple-gray text-center">
+                <div className="text-3xl font-bold text-apple-accent">
+                  {stats.github.stars.toLocaleString()}
+                </div>
+                <div className="text-xs text-apple-text-secondary mt-1">GitHub Stars</div>
+              </div>
+              <div className="glass rounded-xl p-4 border border-apple-gray text-center">
+                <div className="text-3xl font-bold text-apple-accent">
+                  {stats.github.forks.toLocaleString()}
+                </div>
+                <div className="text-xs text-apple-text-secondary mt-1">GitHub Forks</div>
+              </div>
+            </motion.div>
           </motion.div>
 
           {/* Hero animation */}
