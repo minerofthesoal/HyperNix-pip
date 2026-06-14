@@ -16,9 +16,6 @@ on:
       - completed
     branches:
       - main
-  schedule:
-    # Runs at 00:05 UTC every day for auto-updating content
-    - cron: '5 0 * * *'
 
 permissions:
   contents: read
