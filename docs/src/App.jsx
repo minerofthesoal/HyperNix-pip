@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { marked } from 'marked'
 import { 
@@ -20,7 +20,12 @@ import {
   Package,
   BarChart3,
   Brain,
-  Sparkles
+  Sparkles,
+  LineChart,
+  Calendar,
+  Clock,
+  Heart,
+  MessageCircle
 } from 'lucide-react'
 
 const features = [
@@ -147,6 +152,16 @@ const wikiPages = [
   { name: 'Roadmap', title: 'Roadmap', desc: 'Planned releases' },
   { name: 'Changelog', title: 'Changelog', desc: 'Version history and release notes' },
   { name: 'macOS-legacy', title: 'macOS Legacy', desc: 'Running on old Intel Macs' },
+  { name: 'Data-Pipeline', title: 'Data Pipeline', desc: '5-tier preprocessing from FryingPan to Wok' },
+  { name: 'Evaluation', title: 'Evaluation', desc: '4-tier eval system: Ristretto to Lungo' },
+  { name: 'Ship', title: 'Ship', desc: 'Push artifacts to HuggingFace Hub' },
+  { name: 'VRAM-Profiles', title: 'VRAM Profiles', desc: '20 GPU presets for VRAM management' },
+  { name: 'Chat-Templates', title: 'Chat Templates', desc: 'Templates for all major model families' },
+  { name: 'Short-Names', title: 'Short Names', desc: 'Repository short-name resolution guide' },
+  { name: 'Gated-Repos', title: 'Gated Repos', desc: 'Access gated models with HF tokens' },
+  { name: 'Offline-Cache', title: 'Offline Cache', desc: 'Work offline with cached snapshots' },
+  { name: 'Architecture-Presets', title: 'Architecture Presets', desc: 'Pre-configured model architectures' },
+  { name: 'Optimizer-Config', title: 'Optimizer Config', desc: 'AdamW and ZeRO optimizer settings' },
 ]
 
 function App() {
@@ -193,7 +208,9 @@ function App() {
     { id: 'quickstart', label: 'Quickstart' },
     { id: 'models', label: 'Models' },
     { id: 'docs', label: 'Docs' },
-    { id: 'wiki', label: 'Wiki' }
+    { id: 'wiki', label: 'Wiki' },
+    { id: 'stats', label: 'Stats' },
+    { id: 'about', label: 'About' }
   ]
 
   const scrollToSection = (id) => {
@@ -206,13 +223,70 @@ function App() {
   }
 
   const openWikiPage = (pageName) => {
+    // Store current scroll position before opening
+    const currentScroll = window.scrollY
     setActiveWikiPage(pageName)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // Restore scroll position after state update
+    setTimeout(() => {
+      window.scrollTo(0, currentScroll)
+    }, 0)
   }
 
   const closeWikiPage = () => {
     setActiveWikiPage(null)
   }
+
+  // Download stats state
+  const [downloadStats, setDownloadStats] = useState([])
+  const [totalDownloads, setTotalDownloads] = useState(0)
+  const [releaseTimeline, setReleaseTimeline] = useState([])
+  const [pypiTotalDownloads, setPypiTotalDownloads] = useState(0)
+
+  useEffect(() => {
+    // Fetch PyPI download stats
+    fetch('https://pypistats.org/api/packages/hypernix/recent')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data) {
+          const recent = data.data
+          const downloads = [
+            { period: 'Last day', count: recent.last_day || 0 },
+            { period: 'Last week', count: recent.last_week || 0 },
+            { period: 'Last month', count: recent.last_month || 0 }
+          ]
+          setDownloadStats(downloads)
+          setTotalDownloads(recent.last_month || 0)
+        }
+      })
+      .catch(err => console.error('Failed to fetch download stats:', err))
+
+    // Fetch total downloads from PyPI
+    fetch('https://pypistats.org/api/packages/hypernix/overall')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data && data.data.total_downloads) {
+          setPypiTotalDownloads(data.data.total_downloads)
+        }
+      })
+      .catch(err => console.error('Failed to fetch total downloads:', err))
+
+    // Fetch GitHub releases for timeline
+    fetch('https://api.github.com/repos/minerofthesoal/hypernix-pip/releases')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          const timeline = data.slice(0, 15).map(release => ({
+            version: release.tag_name,
+            date: new Date(release.published_at).toLocaleDateString(),
+            description: release.body?.split('\n')[0] || 'Release',
+            isPreRelease: release.prerelease,
+            url: release.html_url
+          }))
+          setReleaseTimeline(timeline)
+        }
+      })
+      .catch(err => console.error('Failed to fetch releases:', err))
+  }, [])
 
   return (
     <div className="min-h-screen bg-apple-black text-apple-text">
@@ -606,6 +680,12 @@ function App() {
               { title: 'Quantization', desc: 'GGUF conversion guide', icon: Download },
               { title: 'Pascal GPUs', desc: 'GTX 1080 optimization playbook', icon: Terminal },
               { title: 'CLI Reference', desc: 'Complete command cheat sheet', icon: BookOpen },
+              { title: 'Data Pipeline', desc: '5-tier preprocessing system', icon: BarChart3 },
+              { title: 'Evaluation', desc: '4-tier evaluation framework', icon: LineChart },
+              { title: 'Ship', desc: 'Publish to HuggingFace Hub', icon: ExternalLink },
+              { title: 'VRAM Profiles', desc: '20 GPU preset configurations', icon: Cpu },
+              { title: 'Chat Templates', desc: 'Templates for major models', icon: MessageCircle },
+              { title: 'Short Names', desc: 'Repository short-name guide', icon: BookOpen },
             ].map((doc, index) => (
               <motion.a
                 key={doc.title}
@@ -700,6 +780,296 @@ function App() {
               </div>
             </motion.div>
           )}
+        </div>
+      </section>
+
+      {/* Stats Section */}
+      <section id="stats" className="py-20 px-6 bg-apple-dark">
+        <div className="max-w-7xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="text-center mb-16"
+          >
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">
+              Download<br />
+              <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent">
+                Statistics
+              </span>
+            </h2>
+            <p className="text-apple-text-secondary text-lg max-w-2xl mx-auto mb-8">
+              Real-time download data from PyPI
+            </p>
+          </motion.div>
+
+          {/* Download Counter Cards */}
+          <div className="grid md:grid-cols-4 gap-6 mb-12">
+            {/* Total Downloads Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow text-center"
+            >
+              <Download className="w-10 h-10 text-apple-accent mx-auto mb-4 glow-accent" />
+              <h3 className="text-3xl font-bold text-apple-accent mb-2">
+                {pypiTotalDownloads.toLocaleString()}
+              </h3>
+              <p className="text-apple-text-secondary">Total Downloads</p>
+            </motion.div>
+            {downloadStats.map((stat, index) => (
+              <motion.div
+                key={stat.period}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: (index + 1) * 0.1 }}
+                className="glass rounded-2xl p-8 border border-apple-gray border-glow text-center"
+              >
+                <Download className="w-10 h-10 text-apple-accent mx-auto mb-4 glow-accent" />
+                <h3 className="text-3xl font-bold text-apple-accent mb-2">
+                  {stat.count.toLocaleString()}
+                </h3>
+                <p className="text-apple-text-secondary">{stat.period}</p>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Download Graph Visualization */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow mb-12"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <LineChart className="w-6 h-6 text-apple-accent" />
+              <span>Download Trend</span>
+            </h3>
+            <div className="h-48 flex items-end justify-around space-x-2">
+              {downloadStats.map((stat, index) => {
+                const maxCount = Math.max(...downloadStats.map(s => s.count), 1)
+                const heightPercent = (stat.count / maxCount) * 100
+                return (
+                  <div key={stat.period} className="flex-1 flex flex-col items-center">
+                    <motion.div
+                      initial={{ height: 0 }}
+                      whileInView={{ height: `${heightPercent}%` }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.8, delay: index * 0.2 }}
+                      className="w-full bg-gradient-to-t from-apple-accent to-purple-600 rounded-t-lg glow-accent"
+                      style={{ minHeight: '4px' }}
+                    />
+                    <span className="text-xs text-apple-text-secondary mt-2 text-center">{stat.period.split(' ')[1]}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.div>
+
+          {/* Release Timeline */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <Calendar className="w-6 h-6 text-apple-accent" />
+              <span>Release Timeline</span>
+            </h3>
+            <div className="space-y-4">
+              {releaseTimeline.length > 0 ? (
+                releaseTimeline.map((release, index) => (
+                  <motion.div
+                    key={release.version}
+                    initial={{ opacity: 0, x: -20 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    className="flex items-start space-x-4 p-4 rounded-lg hover:bg-apple-black/50 transition-all duration-300"
+                  >
+                    <div className={`w-3 h-3 rounded-full mt-1.5 ${release.isPreRelease ? 'bg-yellow-500' : 'bg-green-500'} glow-accent`} />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3">
+                        <a 
+                          href={release.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-apple-accent hover:text-apple-accent-hover font-medium transition-colors"
+                        >
+                          {release.version}
+                        </a>
+                        {release.isPreRelease && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-500">
+                            Pre-release
+                          </span>
+                        )}
+                        <span className="text-xs text-apple-text-secondary flex items-center space-x-1">
+                          <Clock className="w-3 h-3" />
+                          <span>{release.date}</span>
+                        </span>
+                      </div>
+                      <p className="text-apple-text-secondary text-sm mt-1">{release.description}</p>
+                    </div>
+                  </motion.div>
+                ))
+              ) : (
+                <p className="text-apple-text-secondary text-center py-8">Loading releases...</p>
+              )}
+            </div>
+          </motion.div>
+
+          {/* GitHub Stats */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow mt-8"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <Github className="w-6 h-6 text-apple-accent" />
+              <span>GitHub Repository Stats</span>
+            </h3>
+            <div className="grid md:grid-cols-3 gap-6">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="text-center p-6 rounded-xl bg-apple-black/30"
+              >
+                <p className="text-4xl font-bold text-apple-accent mb-2">
+                  <a href="https://github.com/minerofthesoal/hypernix-pip/stargazers" target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    Check Stars
+                  </a>
+                </p>
+                <p className="text-apple-text-secondary">Stars on GitHub</p>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="text-center p-6 rounded-xl bg-apple-black/30"
+              >
+                <p className="text-4xl font-bold text-apple-accent mb-2">
+                  <a href="https://github.com/minerofthesoal/hypernix-pip/network/members" target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    Check Forks
+                  </a>
+                </p>
+                <p className="text-apple-text-secondary">Forks on GitHub</p>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                className="text-center p-6 rounded-xl bg-apple-black/30"
+              >
+                <p className="text-4xl font-bold text-apple-accent mb-2">
+                  <a href="https://github.com/minerofthesoal/hypernix-pip/issues" target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    View Issues
+                  </a>
+                </p>
+                <p className="text-apple-text-secondary">Open Issues</p>
+              </motion.div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* About Section */}
+      <section id="about" className="py-20 px-6">
+        <div className="max-w-4xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="text-center mb-12"
+          >
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">
+              About<br />
+              <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent">
+                Hypernix
+              </span>
+            </h2>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+          >
+            <div className="prose prose-invert max-w-none">
+              <p className="text-apple-text-secondary leading-relaxed mb-6">
+                I made this project for fun after getting a new PC (even though my GPU is now 10 years old). 
+                I wanted to train LLMs on it within a reasonable time, but it turns out that takes a while — 
+                and not having any tensor cores doesn't help. Not long after, I got access to Claude Code with 
+                Opus version 4.6 and later v4.7, and built this to help accomplish my task better.
+              </p>
+              <p className="text-apple-text-secondary leading-relaxed mb-6">
+                Someday I'll build a new PC and rewrite this without any AI assistance, but first I need to 
+                learn more Python. Once I do, I really hope many people use the package and find it very useful. 
+                In version 2.00.X, I plan to do a full 100% rewrite of the package — no AI slop, written by me 
+                and possibly a few friends.
+              </p>
+              <p className="text-apple-text leading-relaxed mb-8">
+                Anyway, thanks for using Hypernix.
+              </p>
+            </div>
+
+            {/* Connect Section */}
+            <div className="mt-12 pt-8 border-t border-apple-gray">
+              <h3 className="text-2xl font-semibold mb-6 text-center flex items-center justify-center space-x-3">
+                <MessageCircle className="w-6 h-6 text-apple-accent" />
+                <span>Connect With Me</span>
+              </h3>
+              <div className="flex flex-wrap justify-center gap-6">
+                <motion.a
+                  href="https://github.com/minerofthesoal"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.05, y: -3 }}
+                  className="flex items-center space-x-3 px-6 py-4 glass rounded-xl border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 group"
+                >
+                  <Github className="w-6 h-6 text-apple-accent group-hover:scale-110 transition-transform" />
+                  <span className="text-apple-text group-hover:text-apple-accent transition-colors">GitHub</span>
+                </motion.a>
+                <motion.a
+                  href="https://huggingface.co/ray0rf1re"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.05, y: -3 }}
+                  className="flex items-center space-x-3 px-6 py-4 glass rounded-xl border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 group"
+                >
+                  <Heart className="w-6 h-6 text-apple-accent group-hover:scale-110 transition-transform" />
+                  <span className="text-apple-text group-hover:text-apple-accent transition-colors">Hugging Face</span>
+                </motion.a>
+                <motion.a
+                  href="https://steamcommunity.com/id/transgenderfireball/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.05, y: -3 }}
+                  className="flex items-center space-x-3 px-6 py-4 glass rounded-xl border border-apple-gray hover:border-apple-accent/50 transition-all duration-300 group"
+                >
+                  <svg className="w-6 h-6 text-apple-accent group-hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.065 1.8 2.805 1.29 3.495.975.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-6.27 0-1.38.45-2.535 1.185-3.435-.24-.36-.51-1.095.12-2.28 0 0 2.16-.675 7.05 2.64 2.085-.585 4.335-.87 6.585-.87 2.25 0 4.5.285 6.585.87 4.89-3.33 7.05-2.64 7.05-2.64.63 1.185.36 1.92.12 2.28.75.9 1.185 2.04 1.185 3.435 0 4.95-2.805 5.97-5.475 6.27.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                  </svg>
+                  <span className="text-apple-text group-hover:text-apple-accent transition-colors">Steam</span>
+                </motion.a>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 

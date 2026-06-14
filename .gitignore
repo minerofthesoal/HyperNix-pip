@@ -1,45 +1,4 @@
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-
-# Environment
-.env
-.env.local
-.env.
-
-# Editors
-.vscode/
-.idea/
-
-# Dependencies
-node_modules/
-__pycache__/
-.venv/
-venv/
-.mypy_cache/
-.pytest_cache/
-.julia/
-zig*/
-julia-*/
-
+```
 # Build artifacts
-dist/
-build/
-target/
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
-*.pyc
-
-# System files
-.DS_Store
-Thumbs.db
-coverage/
-htmlcov/
-.coverage
-.gradle/
+docs/dist/
+```
