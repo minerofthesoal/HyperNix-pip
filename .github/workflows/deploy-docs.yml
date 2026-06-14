@@ -10,11 +10,18 @@ on:
       - 'docs/**'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
+  workflow_run:
+    workflows: ["pages-build-deployment"]
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: "pages"
