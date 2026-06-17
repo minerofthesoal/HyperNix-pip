@@ -41,6 +41,10 @@
           <span class="nav-icon">🧠</span>
           <span>Modules</span>
         </button>
+        <button class="nav-item" data-panel="chat">
+          <span class="nav-icon">💬</span>
+          <span>Assistant Chat</span>
+        </button>
         <button class="nav-item" data-panel="settings">
           <span class="nav-icon">🔧</span>
           <span>Settings</span>
@@ -453,6 +457,46 @@
               <code>HyperNixQuantizer</code>
               <p>GGUF quantization pipeline supporting 30+ quantization types from F32 to IQ2_XXS.</p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chat Panel -->
+      <section id="chat" class="panel">
+        <div class="panel-header">
+          <h1>Assistant Chat</h1>
+          <p class="panel-subtitle">AI-powered help for HyperNix workflows</p>
+        </div>
+        
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            <div class="message assistant">
+              <div class="message-avatar">🤖</div>
+              <div class="message-content">
+                <p>Hello! I'm your HyperNix assistant. I can help you with:</p>
+                <ul>
+                  <li>Building training workflows</li>
+                  <li>Configuring quantization jobs</li>
+                  <li>Planning dataset rounds with Tupperware</li>
+                  <li>Debugging module issues</li>
+                  <li>Generating CLI commands</li>
+                </ul>
+                <p>What would you like to work on?</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="Type your question..." rows="2"></textarea>
+            <button class="btn primary" id="chat-send-btn">
+              <span class="btn-icon">📤</span>
+              <span>Send</span>
+            </button>
+          </div>
+          <div class="chat-suggestions">
+            <button class="suggestion-chip" onclick="sendSuggestion('How do I start training?')">How do I start training?</button>
+            <button class="suggestion-chip" onclick="sendSuggestion('Explain quantization profiles')">Explain quantization profiles</button>
+            <button class="suggestion-chip" onclick="sendSuggestion('Create a Tupperware plan')">Create a Tupperware plan</button>
+            <button class="suggestion-chip" onclick="sendSuggestion('What modules are active?')">What modules are active?</button>
           </div>
         </div>
       </section>

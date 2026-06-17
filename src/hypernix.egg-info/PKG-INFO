@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: hypernix
-Version: 0.70.3b2
+Version: 0.70.3
 Summary: Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M).
 Home-page: https://github.com/minerofthesoal/hypernix-pip
 Author: HyperNix contributors

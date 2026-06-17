@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import signal
+import socket
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +20,108 @@ from urllib.parse import urlparse
 from . import __version__
 
 PACKAGE_STATIC = Path(__file__).parent / "webui_static"
+
+
+def _find_and_kill_webui_on_port(port: int) -> bool:
+    """Check if a hypernix webui process is running on the given port and kill it.
+    
+    Returns True if we found and killed a hypernix webui process.
+    Returns False if port is free or occupied by non-hypernix process.
+    """
+    try:
+        # Use lsof to find process using this port
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return False
+        
+        pids = [int(pid.strip()) for pid in result.stdout.strip().split("\n") if pid.strip()]
+        
+        for pid in pids:
+            try:
+                # Check if this is a hypernix webui process
+                proc_result = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "cmd="],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    check=False,
+                )
+                cmd = proc_result.stdout.strip() if proc_result.returncode == 0 else ""
+                
+                if "hypernix" in cmd.lower() and "webui" in cmd.lower():
+                    # This is our webui, kill it
+                    os.kill(pid, signal.SIGTERM)
+                    print(f"  → Terminated existing hypernix webui (PID {pid}) on port {port}")
+                    return True
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                continue
+        
+        # Port is occupied by non-hypernix process
+        return False
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _is_port_available(port: int) -> bool:
+    """Check if a port is available for binding."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
+def _find_available_port(start_ports: list[int]) -> int:
+    """Find an available port, cycling through the list and killing existing hypernix webui instances.
+    
+    Args:
+        start_ports: List of ports to try in order
+        
+    Returns:
+        An available port number
+        
+    Raises:
+        OSError: If no ports are available after exhausting all options
+    """
+    tried_ports = set()
+    port_index = 0
+    
+    while True:
+        port = start_ports[port_index % len(start_ports)]
+        
+        # If we've cycled through all ports and they're all occupied by non-hypernix processes
+        if port in tried_ports:
+            # Try incrementing from the last port
+            port = max(start_ports) + 1 + len(tried_ports) - len(start_ports)
+        
+        tried_ports.add(port)
+        
+        if _is_port_available(port):
+            return port
+        
+        # Port is occupied, check if it's a hypernix webui
+        if _find_and_kill_webui_on_port(port):
+            # Wait a moment for the port to be released
+            import time
+            time.sleep(0.3)
+            if _is_port_available(port):
+                return port
+            # If still not available, continue to next port
+        
+        # Move to next port in cycle
+        port_index += 1
+        
+        # Safety limit to prevent infinite loop
+        if len(tried_ports) > 20:
+            raise OSError(f"Could not find an available port after trying {len(tried_ports)} ports")
 
 
 def _tailscale_info() -> dict[str, Any]:
@@ -132,15 +237,19 @@ class WebUIHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/modules":
+            # Return list of actually loaded/active HyperNix modules
             self._send_json(
                 {
                     "modules": [
                         "pressure_cooker_v3",
+                        "stovetop_v3_cooker_plus", 
                         "abbicus",
                         "compute_framework",
                         "tupperware",
                         "quantize",
                         "workshop",
+                        "download",
+                        "sink",
                     ]
                 }
             )
@@ -239,15 +348,31 @@ def launch_webui(
 
 def run_webui(
     host: str = "127.0.0.1",
-    port: int = 8080,
+    port: int | None = None,
     enable_tailscale: bool = False,
     static_dir: str | None = None,
 ) -> int:
-    """CLI entry: run until interrupted."""
+    """CLI entry: run until interrupted with automatic port cycling."""
+    # Default ports to try in order
+    default_ports = [8080, 9090, 1010]
+    
+    # Determine starting port
+    if port is not None:
+        # User specified a port, try it first then cycle
+        start_ports = [port] + [p for p in default_ports if p != port]
+    else:
+        start_ports = default_ports
+    
     try:
+        # Find an available port
+        actual_port = _find_available_port(start_ports)
+        
+        if port is not None and actual_port != port:
+            print(f"  → Port {port} was occupied, using {actual_port} instead")
+        
         server = WebUIServer(
             host,
-            port,
+            actual_port,
             enable_tailscale=enable_tailscale,
             static_dir=static_dir,
         )
