@@ -13,7 +13,26 @@
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="logo">
-        <span class="logo-icon">🔥</span>
+        <svg class="logo-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="foxGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
+              <stop offset="100%" style="stop-color:#ea580c;stop-opacity:1" />
+            </linearGradient>
+          </defs>
+          <!-- Fox Head Stylized -->
+          <path d="M20,30 L35,10 L50,30 L65,10 L80,30 L75,55 L50,85 L25,55 Z" fill="url(#foxGradient)" stroke="#fff" stroke-width="2"/>
+          <circle cx="35" cy="40" r="3" fill="#000"/>
+          <circle cx="65" cy="40" r="3" fill="#000"/>
+          <path d="M45,50 Q50,55 55,50" stroke="#000" stroke-width="2" fill="none"/>
+          <!-- Network Node Overlay -->
+          <circle cx="50" cy="20" r="4" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+          <circle cx="20" cy="60" r="4" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+          <circle cx="80" cy="60" r="4" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+          <line x1="50" y1="20" x2="20" y2="60" stroke="#3b82f6" stroke-width="1.5" opacity="0.6"/>
+          <line x1="50" y1="20" x2="80" y2="60" stroke="#3b82f6" stroke-width="1.5" opacity="0.6"/>
+          <line x1="20" y1="60" x2="80" y2="60" stroke="#3b82f6" stroke-width="1.5" opacity="0.6"/>
+        </svg>
         <span class="logo-text">HyperNix</span>
       </div>
       <nav class="side-nav">
@@ -36,6 +55,14 @@
         <button class="nav-item" data-panel="tupperware">
           <span class="nav-icon">🔄</span>
           <span>Tupperware</span>
+        </button>
+        <button class="nav-item" data-panel="tvtop">
+          <span class="nav-icon">🖥️</span>
+          <span>Tvtop Monitor</span>
+        </button>
+        <button class="nav-item" data-panel="network">
+          <span class="nav-icon">🌐</span>
+          <span>Network Mgr</span>
         </button>
         <button class="nav-item" data-panel="modules">
           <span class="nav-icon">🧠</span>
@@ -415,6 +442,136 @@
         </div>
       </section>
 
+      <!-- Tvtop Monitor Panel -->
+      <section id="tvtop" class="panel">
+        <div class="panel-header">
+          <h1>Tvtop Monitor</h1>
+          <p class="panel-subtitle">Real-time process and resource monitoring</p>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>Active Processes</h2>
+            <button class="btn secondary" onclick="refreshTvtop()">🔄 Refresh</button>
+          </div>
+          <div class="tvtop-table-container">
+            <table class="tvtop-table" id="tvtop-table">
+              <thead>
+                <tr>
+                  <th>PID</th>
+                  <th>User</th>
+                  <th>GPU%</th>
+                  <th>RAM%</th>
+                  <th>Command</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="tvtop-tbody">
+                <tr><td colspan="6" class="empty-state">Loading processes...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="cards-row" style="margin-top: 1rem;">
+          <div class="card">
+            <div class="card-header">
+              <h2>GPU Usage</h2>
+            </div>
+            <div class="gpu-stats" id="gpu-stats">
+              <div class="stat-item">
+                <span class="stat-label">GPU 0</span>
+                <div class="progress-track">
+                  <div class="progress-bar gpu-bar" id="gpu0-bar" style="width: 0%"></div>
+                </div>
+                <span class="stat-value" id="gpu0-val">--</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-header">
+              <h2>System Load</h2>
+            </div>
+            <div class="telemetry-grid">
+              <div class="tele-item">
+                <div class="tele-value" id="cpu-load">--</div>
+                <div class="tele-label">CPU Load</div>
+              </div>
+              <div class="tele-item">
+                <div class="tele-value" id="ram-usage">--</div>
+                <div class="tele-label">RAM Used</div>
+              </div>
+              <div class="tele-item">
+                <div class="tele-value" id="disk-io">--</div>
+                <div class="tele-label">Disk I/O</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Network Manager Panel -->
+      <section id="network" class="panel">
+        <div class="panel-header">
+          <h1>Network Manager</h1>
+          <p class="panel-subtitle">Tailscale and network configuration</p>
+        </div>
+        
+        <div class="card max-width-lg">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Tailscale Status</label>
+              <div class="status-badge" id="ts-status-badge">
+                <span class="status-dot"></span>
+                <span id="ts-status-text">Checking...</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Hostname</label>
+              <input type="text" id="net-hostname" readonly value="--">
+            </div>
+            <div class="form-group">
+              <label>Tailscale IP</label>
+              <input type="text" id="ts-ip" readonly value="--">
+            </div>
+            <div class="form-group">
+              <label>Funnel Status</label>
+              <div class="status-badge" id="funnel-status-badge">
+                <span class="status-dot"></span>
+                <span id="funnel-status-text">--</span>
+              </div>
+            </div>
+            <div class="form-group full-width">
+              <label>Share URL</label>
+              <div class="url-display">
+                <code id="share-url">--</code>
+                <button class="icon-btn" onclick="copyShareUrl()" title="Copy">📋</button>
+              </div>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top: 1.5rem;">
+            <button class="btn primary" id="enable-funnel-btn" onclick="toggleFunnel()">
+              <span class="btn-icon">🔓</span>
+              <span>Enable Funnel</span>
+            </button>
+            <button class="btn secondary" onclick="refreshNetwork()">
+              <span class="btn-icon">🔄</span>
+              <span>Refresh Status</span>
+            </button>
+          </div>
+        </div>
+        
+        <div class="card" style="margin-top: 1rem;">
+          <div class="card-header">
+            <h2>Network Interfaces</h2>
+          </div>
+          <div class="interface-list" id="interface-list">
+            <div class="empty-state">Loading interfaces...</div>
+          </div>
+        </div>
+      </section>
+
       <!-- Modules Panel -->
       <section id="modules" class="panel">
         <div class="panel-header">
@@ -423,6 +580,10 @@
         </div>
         
         <div class="card">
+          <div class="card-header">
+            <h2>All Modules</h2>
+            <button class="btn secondary" onclick="refreshModules()">🔄 Refresh</button>
+          </div>
           <div class="module-grid" id="all-module-tags">
             <div class="empty-state">Loading modules...</div>
           </div>

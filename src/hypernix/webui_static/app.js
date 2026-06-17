@@ -22,6 +22,8 @@ function showPanel(id) {
       "training": "Training",
       "quantize": "Quantize",
       "tupperware": "Tupperware",
+      "tvtop": "Tvtop Monitor",
+      "network": "Network Mgr",
       "modules": "Modules",
       "chat": "Assistant Chat",
       "settings": "Settings"
@@ -277,17 +279,25 @@ document.getElementById("tw-plan-btn")?.addEventListener("click", () => {
   log.scrollTop = log.scrollHeight;
 });
 
-// Script Builder - Block drag and drop
+// Script Builder - Block drag and drop (vastly improved)
 let draggedBlockType = null;
 let selectedBlock = null;
 let blockCounter = 0;
+let draggedElement = null;
 
 // Setup draggable blocks in palette
 document.querySelectorAll(".block-palette .block").forEach((block) => {
   block.addEventListener("dragstart", (e) => {
     draggedBlockType = block.dataset.blockType;
+    draggedElement = block;
     e.dataTransfer.setData("text/plain", draggedBlockType);
     e.dataTransfer.effectAllowed = "copy";
+    setTimeout(() => block.classList.add("dragging"), 0);
+  });
+  
+  block.addEventListener("dragend", (e) => {
+    block.classList.remove("dragging");
+    draggedElement = null;
   });
 });
 
@@ -302,8 +312,11 @@ if (canvas) {
     canvas.classList.add("drag-over");
   });
   
-  canvas.addEventListener("dragleave", () => {
-    canvas.classList.remove("drag-over");
+  canvas.addEventListener("dragleave", (e) => {
+    // Only remove class if leaving the canvas itself, not a child
+    if (e.target === canvas) {
+      canvas.classList.remove("drag-over");
+    }
   });
   
   canvas.addEventListener("drop", (e) => {
@@ -316,21 +329,28 @@ if (canvas) {
     // Hide placeholder
     if (placeholder) placeholder.style.display = "none";
     
-    // Create new block instance
-    createWorkflowBlock(blockType);
+    // Create new block instance with animation
+    const blockEl = createWorkflowBlock(blockType);
+    if (blockEl) {
+      blockEl.classList.add("drop-in");
+      setTimeout(() => blockEl.classList.remove("drop-in"), 300);
+    }
+    
+    draggedBlockType = null;
+    draggedElement = null;
   });
 }
 
 function createWorkflowBlock(type) {
-  if (!canvas) return;
+  if (!canvas) return null;
   
   blockCounter++;
   const blockId = `block-${blockCounter}`;
   
   const blockNames = {
     "download": "Download",
-    "pressure-cooker": "Pressure Cooker",
-    "abbicus": "Abbicus",
+    "pressure-cooker": "Pressure Cooker V3",
+    "abbicus": "Abbicus Curriculum",
     "compute-framework": "Compute Framework",
     "quantize": "Quantize",
     "tupperware": "Tupperware",
@@ -351,19 +371,61 @@ function createWorkflowBlock(type) {
   blockEl.className = "workflow-block";
   blockEl.dataset.blockId = blockId;
   blockEl.dataset.blockType = type;
+  blockEl.draggable = true;
   blockEl.innerHTML = `
     <div class="workflow-block-header">
       <span class="workflow-block-icon">${blockIcons[type] || "🧩"}</span>
       <span class="workflow-block-title">${blockNames[type] || type}</span>
-      <button class="workflow-block-remove" onclick="removeBlock('${blockId}')">×</button>
+      <button class="workflow-block-remove" onclick="removeBlock('${blockId}'); event.stopPropagation();">×</button>
     </div>
     <div class="workflow-block-body">
       <small>ID: ${blockId}</small>
+      <div class="block-connector connector-top"></div>
+      <div class="block-connector connector-bottom"></div>
     </div>
   `;
   
-  blockEl.addEventListener("click", () => selectBlock(blockId, type));
+  // Make blocks reorderable within canvas
+  blockEl.addEventListener("dragstart", (e) => {
+    e.dataTransfer.setData("text/block-id", blockId);
+    e.dataTransfer.effectAllowed = "move";
+    blockEl.classList.add("dragging");
+  });
+  
+  blockEl.addEventListener("dragend", () => {
+    blockEl.classList.remove("dragging");
+  });
+  
+  blockEl.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  });
+  
+  blockEl.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData("text/block-id");
+    if (sourceId && sourceId !== blockId) {
+      const sourceBlock = document.querySelector(`[data-block-id="${sourceId}"]`);
+      if (sourceBlock && canvas.contains(sourceBlock)) {
+        const allBlocks = Array.from(canvas.querySelectorAll(".workflow-block"));
+        const sourceIndex = allBlocks.indexOf(sourceBlock);
+        const targetIndex = allBlocks.indexOf(blockEl);
+        if (sourceIndex < targetIndex) {
+          canvas.insertBefore(sourceBlock, blockEl.nextSibling);
+        } else {
+          canvas.insertBefore(sourceBlock, blockEl);
+        }
+      }
+    }
+  });
+  
+  blockEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    selectBlock(blockId, type);
+  });
+  
   canvas.appendChild(blockEl);
+  return blockEl;
 }
 
 function removeBlock(blockId) {
@@ -576,3 +638,164 @@ updateUptime();
 setInterval(updateUptime, 1000);
 refreshStatus();
 statusTimer = setInterval(refreshStatus, refreshInterval);
+
+// Tvtop Monitor functions
+async function refreshTvtop() {
+  try {
+    const res = await fetch('/api/tvtop');
+    const data = await res.json();
+    
+    const tbody = document.getElementById('tvtop-tbody');
+    if (!tbody) return;
+    
+    if (data.processes && data.processes.length > 0) {
+      tbody.innerHTML = data.processes.map(p => `
+        <tr>
+          <td><code>${p.pid}</code></td>
+          <td>${p.user || 'n/a'}</td>
+          <td><span class="gpu-badge">${p.gpu_percent || 0}%</span></td>
+          <td>${p.ram_percent || 0}%</td>
+          <td class="cmd-cell"><code>${p.command || p.cmd || 'unknown'}</code></td>
+          <td><button class="btn-sm danger" onclick="killProcess(${p.pid})">✕</button></td>
+        </tr>
+      `).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No active processes found</td></tr>';
+    }
+    
+    // Update GPU stats
+    if (data.gpus) {
+      data.gpus.forEach((gpu, idx) => {
+        const bar = document.getElementById(`gpu${idx}-bar`);
+        const val = document.getElementById(`gpu${idx}-val`);
+        if (bar && val) {
+          bar.style.width = `${gpu.usage || 0}%`;
+          val.textContent = `${gpu.usage || 0}%`;
+        }
+      });
+    }
+    
+    // Update system load
+    if (data.cpu_load) document.getElementById('cpu-load').textContent = `${data.cpu_load}%`;
+    if (data.ram_usage) document.getElementById('ram-usage').textContent = `${data.ram_usage}%`;
+    if (data.disk_io) document.getElementById('disk-io').textContent = data.disk_io;
+  } catch (err) {
+    console.error('Failed to refresh tvtop:', err);
+  }
+}
+
+async function killProcess(pid) {
+  if (!confirm(`Kill process ${pid}?`)) return;
+  try {
+    await fetch(`/api/tvtop/kill/${pid}`, { method: 'POST' });
+    refreshTvtop();
+  } catch (err) {
+    alert('Failed to kill process: ' + err.message);
+  }
+}
+
+// Network Manager functions
+async function refreshNetwork() {
+  try {
+    const res = await fetch('/api/network');
+    const data = await res.json();
+    
+    // Tailscale status
+    const tsBadge = document.getElementById('ts-status-badge');
+    const tsText = document.getElementById('ts-status-text');
+    if (tsBadge && tsText) {
+      if (data.tailscale_connected) {
+        tsBadge.className = 'status-badge online';
+        tsText.textContent = 'Connected';
+      } else {
+        tsBadge.className = 'status-badge offline';
+        tsText.textContent = 'Disconnected';
+      }
+    }
+    
+    document.getElementById('net-hostname').value = data.hostname || '--';
+    document.getElementById('ts-ip').value = data.tailscale_ip || '--';
+    
+    // Funnel status
+    const funnelBadge = document.getElementById('funnel-status-badge');
+    const funnelText = document.getElementById('funnel-status-text');
+    if (funnelBadge && funnelText) {
+      if (data.funnel_enabled) {
+        funnelBadge.className = 'status-badge online';
+        funnelText.textContent = 'Enabled';
+      } else {
+        funnelBadge.className = 'status-badge offline';
+        funnelText.textContent = 'Disabled';
+      }
+    }
+    
+    document.getElementById('share-url').textContent = data.share_url || '--';
+    
+    // Network interfaces
+    const ifaceList = document.getElementById('interface-list');
+    if (ifaceList && data.interfaces && data.interfaces.length > 0) {
+      ifaceList.innerHTML = data.interfaces.map(i => `
+        <div class="interface-item">
+          <span class="iface-name">${i.name}</span>
+          <span class="iface-ip">${i.ip || 'no ip'}</span>
+          <span class="iface-status ${i.up ? 'up' : 'down'}">${i.up ? 'UP' : 'DOWN'}</span>
+        </div>
+      `).join('');
+    }
+  } catch (err) {
+    console.error('Failed to refresh network:', err);
+  }
+}
+
+async function toggleFunnel() {
+  const btn = document.getElementById('enable-funnel-btn');
+  if (!btn) return;
+  
+  const isCurrentlyEnabled = btn.querySelector('span:last-child').textContent.includes('Enable');
+  const action = isCurrentlyEnabled ? 'enable' : 'disable';
+  
+  try {
+    const res = await fetch(`/api/network/funnel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    const data = await res.json();
+    if (data.success) {
+      refreshNetwork();
+    } else {
+      alert('Failed to ' + action + ' funnel: ' + (data.error || 'unknown error'));
+    }
+  } catch (err) {
+    alert('Failed to ' + action + ' funnel: ' + err.message);
+  }
+}
+
+function copyShareUrl() {
+  const url = document.getElementById('share-url').textContent;
+  if (url && url !== '--') {
+    navigator.clipboard.writeText(url).then(() => {
+      alert('URL copied to clipboard!');
+    }).catch(() => {
+      alert('Failed to copy URL');
+    });
+  }
+}
+
+// Modules refresh
+async function refreshModules() {
+  await refreshStatus(); // Re-fetch modules from status endpoint
+}
+
+// Auto-refresh tvtop and network when panels are active
+setInterval(() => {
+  const tvtopPanel = document.getElementById('tvtop');
+  const networkPanel = document.getElementById('network');
+  
+  if (tvtopPanel && tvtopPanel.classList.contains('active')) {
+    refreshTvtop();
+  }
+  if (networkPanel && networkPanel.classList.contains('active')) {
+    refreshNetwork();
+  }
+}, 5000);

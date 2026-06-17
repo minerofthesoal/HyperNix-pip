@@ -1305,8 +1305,11 @@ body {
     linear-gradient(var(--border-subtle) 1px, transparent 1px),
     linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
   background-size: 20px 20px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
+  display: flex;
+  flex-direction: column;
 }
 
 .canvas-placeholder {
@@ -1332,7 +1335,7 @@ body {
 }
 
 .workflow-block {
-  position: absolute;
+  position: relative;
   min-width: 200px;
   background: var(--bg-tertiary);
   border: 2px solid var(--border-strong);
@@ -1340,17 +1343,26 @@ body {
   box-shadow: var(--shadow-md);
   cursor: move;
   transition: all var(--transition-fast);
+  margin-bottom: 12px;
+}
+
+.workflow-block.drop-in {
   animation: blockDropIn 0.3s ease-out;
+}
+
+.workflow-block.dragging {
+  opacity: 0.5;
+  transform: scale(1.02);
 }
 
 @keyframes blockDropIn {
   from {
     opacity: 0;
-    transform: scale(0.9);
+    transform: scale(0.9) translateY(-10px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -1363,6 +1375,31 @@ body {
 .workflow-block.selected {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.block-connector {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  background: var(--border-strong);
+  border: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.workflow-block:hover .block-connector {
+  opacity: 1;
+}
+
+.connector-top {
+  top: -6px;
+}
+
+.connector-bottom {
+  bottom: -6px;
 }
 
 .workflow-block-header {
@@ -1479,4 +1516,211 @@ body {
 .config-form textarea {
   resize: vertical;
   min-height: 80px;
+}
+
+/* Tvtop Monitor Styles */
+.tvtop-table-container {
+  overflow-x: auto;
+}
+
+.tvtop-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tvtop-table th {
+  text-align: left;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tvtop-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.tvtop-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.tvtop-table .cmd-cell code {
+  max-width: 300px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gpu-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-sm.danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn-sm.danger:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.gpu-stats .stat-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.gpu-stats .stat-label {
+  min-width: 60px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.gpu-stats .progress-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.gpu-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.gpu-stats .stat-value {
+  min-width: 50px;
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Network Manager Styles */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.status-badge.online {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.status-badge.offline {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.url-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-tertiary);
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.url-display code {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.interface-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.interface-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.iface-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.iface-ip {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.iface-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.iface-status.up {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.iface-status.down {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+/* Logo SVG Styles */
+.logo-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.logo-icon svg {
+  width: 100%;
+  height: 100%;
 }

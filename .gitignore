@@ -1,1 +1,13 @@
-Nothing should be ignored based on the provided file changes. The only modified file is `.github/workflows/public-release.yml`, which is a YAML configuration file for GitHub Actions workflow and should not be ignored.
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing
+.pytest_cache/
+
+# Logs
+*.log
+```
