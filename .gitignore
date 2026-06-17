@@ -1,4 +1,5 @@
-```
-# Build artifacts
-docs/dist/
+(docs/update_stats.py, docs/v1.json are source/config files, no build artifacts, dependencies, or temp files in the change list)
+
+```python
+
 ```
