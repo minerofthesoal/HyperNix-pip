@@ -1,1 +1,4 @@
-Nothing should be ignored based on the provided file changes. The modification of 'src/hypernix/webui.py' is a source code file and does not require any new ignore rules.
+```
+# Build artifacts
+docs/dist/
+```
