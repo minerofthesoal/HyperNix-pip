@@ -97,6 +97,9 @@ src/hypernix/utils.py
 src/hypernix/webui.py
 src/hypernix/whisk.py
 src/hypernix/workshop.py
+src/hypernix/webui_static/app.js
+src/hypernix/webui_static/index.html
+src/hypernix/webui_static/style.css
 tests/test_alarms_and_presets.py
 tests/test_arch_mapping.py
 tests/test_cli_integration.py
