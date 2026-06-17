@@ -145,6 +145,145 @@ def _tailscale_info() -> dict[str, Any]:
         return {"enabled": True, "hostname": None}
 
 
+def _enable_tailscale_funnel(port: int) -> bool:
+    """Enable Tailscale funnel on the given port.
+    
+    Returns True if successful, False otherwise.
+    """
+    try:
+        # Enable funnel for the specific port
+        proc = subprocess.run(
+            ["tailscale", "serve", "--funnel", f"https://{port}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if proc.returncode != 0:
+            # Try alternative syntax for older tailscale versions
+            proc = subprocess.run(
+                ["tailscale", "funnel", str(port)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        return proc.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _discover_modules() -> list[str]:
+    """Dynamically discover all HyperNix modules from the package directory."""
+    modules = []
+    try:
+        # Get all .py files in the hypernix package directory (excluding __* and utils)
+        for file in PACKAGE_STATIC.parent.glob("*.py"):
+            name = file.stem
+            if not name.startswith("_") and name not in ("utils", "cli", "webui", "deps", "torch_compat"):
+                # Convert snake_case to readable format for display
+                display_name = name.replace("_", " ").title().replace("V3", " V3").replace("V2", " V2")
+                modules.append(name)
+    except Exception:
+        # Fallback to known modules if discovery fails
+        modules = [
+            "pressure_cooker_v3", "stovetop_v3_cooker_plus", "abbicus",
+            "compute_framework", "tupperware", "quantize", "workshop",
+            "download", "sink", "blender", "cookbook", "countertop",
+            "cutting_board", "deep_fryer", "dishwasher", "espresso_maker",
+            "food_processor", "freezer", "generate", "hyped",
+            "industrial_range", "injection", "instant_pot", "lazy_suzan",
+            "lunchbox", "mediocre_fridge", "menu", "microwave",
+            "new_fridge", "new_range", "old_fridge", "old_oven", "old_range",
+            "outage", "pans", "plasma", "pressure_cooker", "recipe_book",
+            "smoke_alarm", "smoker", "strainer", "table", "thermometer",
+            "timer", "toaster", "train", "tv", "tvtop", "upload", "ups",
+            "whisk", "workshop", "cake_pan", "coffee_maker", "compactor",
+            "convert", "doctor", "ethanol", "fetcher", "flour", "nano_nano",
+            "pepper_shaker", "salt_shaker"
+        ]
+    return sorted(modules)
+
+
+def _get_tvtop_data() -> dict[str, Any]:
+    """Get process list and GPU stats for tvtop monitor."""
+    import psutil
+    
+    processes = []
+    try:
+        # Find python processes running hypernix commands
+        for proc in psutil.process_iter(['pid', 'username', 'cmdline', 'memory_percent']):
+            try:
+                cmdline = ' '.join(proc.info['cmdline'] or []) if proc.info['cmdline'] else ''
+                if 'hypernix' in cmdline.lower() or 'python' in cmdline.lower():
+                    processes.append({
+                        'pid': proc.info['pid'],
+                        'user': proc.info['username'] or 'unknown',
+                        'gpu_percent': 0,  # Would need nvidia-smi for real GPU usage
+                        'ram_percent': round(proc.info['memory_percent'] or 0, 1),
+                        'command': cmdline[:100]
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
+    
+    # Try to get GPU info
+    gpus = []
+    try:
+        result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            for i, line in enumerate(result.stdout.strip().split('\n')):
+                usage = int(line.replace('%', '').strip())
+                gpus.append({'id': i, 'usage': usage})
+    except Exception:
+        pass
+    
+    # System stats
+    cpu_load = round(psutil.cpu_percent(interval=0.1), 1) if psutil else 0
+    ram_usage = round(psutil.virtual_memory().percent, 1) if psutil else 0
+    
+    return {
+        'processes': processes,
+        'gpus': gpus,
+        'cpu_load': cpu_load,
+        'ram_usage': ram_usage,
+        'disk_io': 'N/A'
+    }
+
+
+def _get_network_data() -> dict[str, Any]:
+    """Get network/Tailscale status."""
+    import socket
+    
+    hostname = socket.gethostname()
+    ts_info = _tailscale_info()
+    
+    interfaces = []
+    try:
+        addrs = psutil.net_if_addrs() if 'psutil' in globals() or __import__('psutil') else {}
+        for iface_name, addrs_list in addrs.items():
+            for addr in addrs_list:
+                if addr.family == socket.AF_INET:
+                    interfaces.append({
+                        'name': iface_name,
+                        'ip': addr.address,
+                        'up': True
+                    })
+    except Exception:
+        pass
+    
+    return {
+        'hostname': hostname,
+        'tailscale_connected': ts_info.get('connected', False),
+        'tailscale_ip': ts_info.get('ip', '--'),
+        'funnel_enabled': ts_info.get('funnel', False),
+        'share_url': ts_info.get('share_url', '--'),
+        'interfaces': interfaces[:5]  # Limit to first 5
+    }
+
+
 def _status_payload(
     *,
     host: str,
@@ -158,14 +297,7 @@ def _status_payload(
         "status": "online",
         "version": __version__,
         "url": url,
-        "modules": [
-            "PressureCookerV3",
-            "StovetopV3CookerPlus",
-            "Abbicus",
-            "ComputeFramework",
-            "Tupperware",
-            "HyperNixQuantizer",
-        ],
+        "modules": _discover_modules(),
         "tailscale": _tailscale_info() if tailscale else {"enabled": False},
     }
     if tailscale and payload["tailscale"].get("hostname"):
@@ -237,22 +369,18 @@ class WebUIHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/modules":
-            # Return list of actually loaded/active HyperNix modules
-            self._send_json(
-                {
-                    "modules": [
-                        "pressure_cooker_v3",
-                        "stovetop_v3_cooker_plus", 
-                        "abbicus",
-                        "compute_framework",
-                        "tupperware",
-                        "quantize",
-                        "workshop",
-                        "download",
-                        "sink",
-                    ]
-                }
-            )
+            # Return list of actually loaded/active HyperNix modules (dynamic discovery)
+            self._send_json({"modules": _discover_modules()})
+            return
+
+        if route == "/api/tvtop":
+            # Return process list and GPU stats
+            self._send_json(_get_tvtop_data())
+            return
+
+        if route == "/api/network":
+            # Return network/Tailscale status
+            self._send_json(_get_network_data())
             return
 
         if route.startswith("/static/"):
@@ -264,6 +392,44 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self._send_bytes(data, ctype)
             return
 
+        self.send_error(404)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        route = parsed.path
+        
+        # Handle kill process for tvtop
+        if route.startswith("/api/tvtop/kill/"):
+            try:
+                pid = int(route.split("/")[-1])
+                import os
+                import signal
+                os.kill(pid, signal.SIGTERM)
+                self._send_json({"success": True, "killed": pid})
+            except Exception as e:
+                self._send_json({"success": False, "error": str(e)}, status_code=500)
+            return
+        
+        # Handle funnel toggle
+        if route == "/api/network/funnel":
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else '{}'
+                data = json.loads(body)
+                action = data.get('action', 'toggle')
+                
+                # Execute tailscale funnel command
+                cmd = ["tailscale", "serve", "--funnel"] if action == 'enable' else ["tailscale", "serve", "--funnel=false"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                
+                if result.returncode == 0:
+                    self._send_json({"success": True, "action": action})
+                else:
+                    self._send_json({"success": False, "error": result.stderr or "Command failed"}, status_code=500)
+            except Exception as e:
+                self._send_json({"success": False, "error": str(e)}, status_code=500)
+            return
+        
         self.send_error(404)
 
 
@@ -305,6 +471,14 @@ class WebUIServer:
     def start(self, background: bool = False) -> None:
         handler = self._make_handler()
         self._httpd = ThreadingHTTPServer((self.host, self.port), handler)
+        
+        # Enable Tailscale funnel if requested
+        if self.enable_tailscale:
+            if _enable_tailscale_funnel(self.port):
+                print(f"✓ Tailscale funnel enabled on port {self.port}")
+            else:
+                print("  ⚠ Tailscale funnel could not be enabled (check tailscale status)")
+        
         url = f"http://{self._display_host}:{self.port}"
         print(f"✓ HyperNix Web UI at {url}")
         if self.enable_tailscale:
