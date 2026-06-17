@@ -66,8 +66,8 @@ jobs:
       - name: Validate version format
         run: |
           v='${{ inputs.version }}'
-          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-]?(rc|pre|alpha|beta|a|b)[0-9]*)?$ ]]; then
-            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2)"
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-]?(rc|pre|alpha|beta|a|b|postr)[0-9]*)?$ ]]; then
+            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2, 0.2.0-postr1)"
             exit 1
           fi
 
@@ -76,7 +76,7 @@ jobs:
         run: |
           v='${{ inputs.version }}'
           tag="v$v"
-          if [[ "$v" =~ (rc|pre|alpha|beta|a|b)[0-9]*$ ]]; then
+          if [[ "$v" =~ (rc|pre|alpha|beta|a|b|postr)[0-9]*$ ]]; then
             echo "prerelease=true"  >> "$GITHUB_OUTPUT"
             echo "::notice::$tag is a prerelease (-> TestPyPI)"
           else
