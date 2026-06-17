@@ -175,22 +175,26 @@ function App() {
     downloads: { last_day: 0, last_week: 0, last_month: 0 },
     github: { stars: 0, forks: 0, issues: 0 }
   })
+  const [pypiInfo, setPypiInfo] = useState(null)
+  const [pythonVersionStats, setPythonVersionStats] = useState([])
+  const [systemStats, setSystemStats] = useState([])
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY)
     window.addEventListener('scroll', handleScroll)
     
-    // Fetch latest version from PyPI
+    // Fetch comprehensive PyPI package info
     fetch('https://pypi.org/pypi/hypernix/json')
       .then(res => res.json())
       .then(data => {
-        if (data.info && data.info.version) {
+        if (data.info) {
+          setPypiInfo(data.info)
           setPypiVersion(data.info.version)
         }
       })
-      .catch(err => console.error('Failed to fetch PyPI version:', err))
+      .catch(err => console.error('Failed to fetch PyPI info:', err))
     
-    // Fetch PyPI download stats from pypistats.org
+    // Fetch recent download stats from pypistats.org
     fetch('https://pypistats.org/api/packages/hypernix/recent')
       .then(res => res.json())
       .then(data => {
@@ -202,6 +206,45 @@ function App() {
         }
       })
       .catch(err => console.error('Failed to fetch PyPI stats:', err))
+    
+    // Fetch Python version breakdown
+    fetch('https://pypistats.org/api/packages/hypernix/python_minor')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data) {
+          // Aggregate by version
+          const versionMap = {}
+          data.data.forEach(item => {
+            if (item.category && item.category !== 'null') {
+              versionMap[item.category] = (versionMap[item.category] || 0) + item.downloads
+            }
+          })
+          const sorted = Object.entries(versionMap)
+            .map(([version, downloads]) => ({ version, downloads }))
+            .sort((a, b) => b.downloads - a.downloads)
+          setPythonVersionStats(sorted)
+        }
+      })
+      .catch(err => console.error('Failed to fetch Python version stats:', err))
+    
+    // Fetch OS breakdown
+    fetch('https://pypistats.org/api/packages/hypernix/system')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data) {
+          const osMap = {}
+          data.data.forEach(item => {
+            if (item.category && item.category !== 'null') {
+              osMap[item.category] = (osMap[item.category] || 0) + item.downloads
+            }
+          })
+          const sorted = Object.entries(osMap)
+            .map(([os, downloads]) => ({ os, downloads }))
+            .sort((a, b) => b.downloads - a.downloads)
+          setSystemStats(sorted)
+        }
+      })
+      .catch(err => console.error('Failed to fetch system stats:', err))
     
     // Fetch GitHub stats from GitHub API
     fetch('https://api.github.com/repos/minerofthesoal/hypernix-pip')
@@ -1005,50 +1048,129 @@ function App() {
               <span>GitHub Repository Stats</span>
             </h3>
             <div className="grid md:grid-cols-3 gap-6">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0.1 }}
-                className="text-center p-6 rounded-xl bg-apple-black/30"
-              >
-                <p className="text-4xl font-bold text-apple-accent mb-2">
-                  <a href="https://github.com/minerofthesoal/hypernix-pip/stargazers" target="_blank" rel="noopener noreferrer" className="hover:underline">
-                    Check Stars
-                  </a>
-                </p>
-                <p className="text-apple-text-secondary">Stars on GitHub</p>
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="text-center p-6 rounded-xl bg-apple-black/30"
-              >
-                <p className="text-4xl font-bold text-apple-accent mb-2">
-                  <a href="https://github.com/minerofthesoal/hypernix-pip/network/members" target="_blank" rel="noopener noreferrer" className="hover:underline">
-                    Check Forks
-                  </a>
-                </p>
-                <p className="text-apple-text-secondary">Forks on GitHub</p>
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0.3 }}
-                className="text-center p-6 rounded-xl bg-apple-black/30"
-              >
-                <p className="text-4xl font-bold text-apple-accent mb-2">
-                  <a href="https://github.com/minerofthesoal/hypernix-pip/issues" target="_blank" rel="noopener noreferrer" className="hover:underline">
-                    View Issues
-                  </a>
-                </p>
-                <p className="text-apple-text-secondary">Open Issues</p>
-              </motion.div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-apple-accent mb-2">{stats.github.stars.toLocaleString()}</div>
+                <div className="text-apple-text-secondary">Stars</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-apple-accent mb-2">{stats.github.forks.toLocaleString()}</div>
+                <div className="text-apple-text-secondary">Forks</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-apple-accent mb-2">{stats.github.issues.toLocaleString()}</div>
+                <div className="text-apple-text-secondary">Open Issues</div>
+              </div>
             </div>
           </motion.div>
+
+          {/* Python Version Stats */}
+          {pythonVersionStats.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.5 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow mt-8"
+            >
+              <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+                <Code className="w-6 h-6 text-apple-accent" />
+                <span>Downloads by Python Version</span>
+              </h3>
+              <div className="space-y-3">
+                {pythonVersionStats.slice(0, 10).map((item, index) => {
+                  const maxDownloads = pythonVersionStats[0].downloads
+                  const percent = (item.downloads / maxDownloads) * 100
+                  return (
+                    <div key={item.version} className="flex items-center space-x-4">
+                      <div className="w-20 text-sm text-apple-text-secondary font-mono">{item.version}</div>
+                      <div className="flex-1 h-6 bg-apple-black/50 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          whileInView={{ width: `${percent}%` }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.8, delay: index * 0.1 }}
+                          className="h-full bg-gradient-to-r from-apple-accent to-purple-600 glow-accent"
+                        />
+                      </div>
+                      <div className="w-24 text-right text-sm text-apple-text">{item.downloads.toLocaleString()}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )}
+
+          {/* System/OS Stats */}
+          {systemStats.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.6 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow mt-8"
+            >
+              <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+                <Cpu className="w-6 h-6 text-apple-accent" />
+                <span>Downloads by Operating System</span>
+              </h3>
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {systemStats.map((item, index) => (
+                  <motion.div
+                    key={item.os}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    whileInView={{ opacity: 1, scale: 1 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    className="glass rounded-xl p-6 border border-apple-gray border-glow text-center"
+                  >
+                    <div className="text-2xl font-bold text-apple-accent mb-2">{item.downloads.toLocaleString()}</div>
+                    <div className="text-apple-text-secondary capitalize">{item.os}</div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* PyPI Package Info */}
+          {pypiInfo && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.7 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow mt-8"
+            >
+              <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+                <Package className="w-6 h-6 text-apple-accent" />
+                <span>Package Information</span>
+              </h3>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-sm text-apple-text-secondary mb-1">Latest Version</div>
+                  <div className="text-xl font-semibold text-apple-accent">{pypiInfo.version}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-apple-text-secondary mb-1">License</div>
+                  <div className="text-xl font-semibold text-apple-text">{pypiInfo.license || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-apple-text-secondary mb-1">Author</div>
+                  <div className="text-xl font-semibold text-apple-text">{pypiInfo.author || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-apple-text-secondary mb-1">Home Page</div>
+                  <a href={pypiInfo.home_page} target="_blank" rel="noopener noreferrer" className="text-xl font-semibold text-apple-accent hover:text-apple-accent-hover transition-colors flex items-center space-x-2">
+                    <span>{pypiInfo.home_page}</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+              <div className="mt-6">
+                <div className="text-sm text-apple-text-secondary mb-2">Summary</div>
+                <p className="text-apple-text">{pypiInfo.summary}</p>
+              </div>
+            </motion.div>
+          )}
         </div>
       </section>
 
