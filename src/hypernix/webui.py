@@ -181,8 +181,6 @@ def _discover_modules() -> list[str]:
         for file in PACKAGE_STATIC.parent.glob("*.py"):
             name = file.stem
             if not name.startswith("_") and name not in ("utils", "cli", "webui", "deps", "torch_compat"):
-                # Convert snake_case to readable format for display
-                display_name = name.replace("_", " ").title().replace("V3", " V3").replace("V2", " V2")
                 modules.append(name)
     except Exception:
         # Fallback to known modules if discovery fails
@@ -262,7 +260,8 @@ def _get_network_data() -> dict[str, Any]:
     
     interfaces = []
     try:
-        addrs = psutil.net_if_addrs() if 'psutil' in globals() or __import__('psutil') else {}
+        import psutil
+        addrs = psutil.net_if_addrs()
         for iface_name, addrs_list in addrs.items():
             for addr in addrs_list:
                 if addr.family == socket.AF_INET:

@@ -66,8 +66,10 @@ jobs:
       - name: Validate version format
         run: |
           v='${{ inputs.version }}'
-          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-]?(rc|pre|alpha|beta|a|b|postr)[0-9]*)?$ ]]; then
-            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2, 0.2.0-postr1)"
+          # PEP 440 allows: N.N.N, N.N.NaN, N.N.NbN, N.N.NrcN, N.N.N.postN, N.N.N.devN
+          # We map 'postr' to '.post' for PEP 440 compliance during build
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([._-]?(rc|pre|alpha|beta|a|b|post|postr|dev)[0-9]*)?$ ]]; then
+            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2, 0.2.0postr1)"
             exit 1
           fi
 
@@ -76,6 +78,7 @@ jobs:
         run: |
           v='${{ inputs.version }}'
           tag="v$v"
+          # Treat postr as a post-release (prerelease for PyPI purposes)
           if [[ "$v" =~ (rc|pre|alpha|beta|a|b|postr)[0-9]*$ ]]; then
             echo "prerelease=true"  >> "$GITHUB_OUTPUT"
             echo "::notice::$tag is a prerelease (-> TestPyPI)"
@@ -114,17 +117,20 @@ jobs:
       - name: Bump versions in source
         run: |
           v='${{ inputs.version }}'
+          # Convert postr to PEP 440 compliant .post format for pyproject.toml
+          pep440_v=$(echo "$v" | sed 's/postr/.post/g')
           python - <<PY
           import re
           from pathlib import Path
 
           v = "${{ inputs.version }}"
+          pep440_v = "$pep440_v"
 
           p = Path("pyproject.toml")
-          p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{v}"', p.read_text(), count=1, flags=re.M))
+          p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{pep440_v}"', p.read_text(), count=1, flags=re.M))
 
           s = Path("setup.cfg")
-          s.write_text(re.sub(r'^version = .+$', f'version = {v}', s.read_text(), count=1, flags=re.M))
+          s.write_text(re.sub(r'^version = .+$', f'version = {pep440_v}', s.read_text(), count=1, flags=re.M))
 
           init = Path("src/hypernix/__init__.py")
           init.write_text(re.sub(r'__version__ = "[^"]+"', f'__version__ = "{v}"', init.read_text(), count=1))
