@@ -96,7 +96,7 @@ where = ["src"]
 include = ["hypernix*"]
 
 [tool.setuptools.package-data]
-hypernix = ["py.typed"]
+hypernix = ["py.typed", "webui_static/*"]
 
 # ---------------------------------------------------------------------------
 # Ruff / pytest defaults (also duplicated in ruff.toml / pytest.ini so

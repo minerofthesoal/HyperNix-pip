@@ -46,7 +46,9 @@ def _status_payload(
     port: int,
     tailscale: bool,
 ) -> dict[str, Any]:
-    url = f"http://{host}:{port}"
+    # Use display host (127.0.0.1) for local URLs when bound to 0.0.0.0
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{display_host}:{port}"
     payload: dict[str, Any] = {
         "status": "online",
         "version": __version__,
@@ -173,6 +175,9 @@ class WebUIServer:
         self.static_dir = Path(static_dir) if static_dir else PACKAGE_STATIC
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        # Determine actual bind address for display/API purposes
+        # If host is 0.0.0.0, use localhost for local access URLs
+        self._display_host = "127.0.0.1" if host == "0.0.0.0" else host
 
     def _make_handler(self) -> type[WebUIHandler]:
         sd = self.static_dir
@@ -191,7 +196,7 @@ class WebUIServer:
     def start(self, background: bool = False) -> None:
         handler = self._make_handler()
         self._httpd = ThreadingHTTPServer((self.host, self.port), handler)
-        url = f"http://{self.host}:{self.port}"
+        url = f"http://{self._display_host}:{self.port}"
         print(f"✓ HyperNix Web UI at {url}")
         if self.enable_tailscale:
             ts = _tailscale_info()
