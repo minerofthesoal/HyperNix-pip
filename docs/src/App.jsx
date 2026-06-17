@@ -168,7 +168,7 @@ function App() {
   const [activeSection, setActiveSection] = useState('home')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrollY, setScrollY] = useState(0)
-  const [pypiVersion, setPypiVersion] = useState('0.70.3b2')
+  const [pypiVersion, setPypiVersion] = useState('0.70.3')
   const [wikiContent, setWikiContent] = useState({})
   const [activeWikiPage, setActiveWikiPage] = useState(null)
   const [stats, setStats] = useState({
@@ -183,29 +183,49 @@ function App() {
     const handleScroll = () => setScrollY(window.scrollY)
     window.addEventListener('scroll', handleScroll)
     
-    // Fetch comprehensive PyPI package info
-    fetch('https://pypi.org/pypi/hypernix/json')
+    // Fetch from our local /v1/json endpoint first (fallback to PyPI API)
+    fetch('./v1/json')
       .then(res => res.json())
       .then(data => {
-        if (data.info) {
-          setPypiInfo(data.info)
-          setPypiVersion(data.info.version)
+        if (data.version) {
+          setPypiVersion(data.version)
         }
-      })
-      .catch(err => console.error('Failed to fetch PyPI info:', err))
-    
-    // Fetch recent download stats from pypistats.org
-    fetch('https://pypistats.org/api/packages/hypernix/recent')
-      .then(res => res.json())
-      .then(data => {
-        if (data.data) {
+        if (data.last_day !== undefined) {
           setStats(prev => ({
             ...prev,
-            downloads: data.data
+            downloads: {
+              last_day: data.last_day,
+              last_week: data.last_week,
+              last_month: data.last_month
+            }
           }))
         }
       })
-      .catch(err => console.error('Failed to fetch PyPI stats:', err))
+      .catch(err => {
+        console.log('Failed to fetch local v1/json, using direct API fallback')
+        // Fallback to direct PyPI API
+        fetch('https://pypi.org/pypi/hypernix/json')
+          .then(res => res.json())
+          .then(pypiData => {
+            if (pypiData.info) {
+              setPypiVersion(pypiData.info.version)
+            }
+          })
+          .catch(e => console.error('PyPI fallback failed:', e))
+        
+        // Fallback to pypistats
+        fetch('https://pypistats.org/api/packages/hypernix/recent')
+          .then(res => res.json())
+          .then(pypiStatsData => {
+            if (pypiStatsData.data) {
+              setStats(prev => ({
+                ...prev,
+                downloads: pypiStatsData.data
+              }))
+            }
+          })
+          .catch(e => console.error('PyPIStats fallback failed:', e))
+      })
     
     // Fetch Python version breakdown
     fetch('https://pypistats.org/api/packages/hypernix/python_minor')
