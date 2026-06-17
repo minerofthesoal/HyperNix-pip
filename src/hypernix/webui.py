@@ -406,7 +406,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 os.kill(pid, signal.SIGTERM)
                 self._send_json({"success": True, "killed": pid})
             except Exception as e:
-                self._send_json({"success": False, "error": str(e)}, status_code=500)
+                self._send_json({"success": False, "error": str(e)}, 500)
             return
         
         # Handle funnel toggle
@@ -424,9 +424,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 if result.returncode == 0:
                     self._send_json({"success": True, "action": action})
                 else:
-                    self._send_json({"success": False, "error": result.stderr or "Command failed"}, status_code=500)
+                    self._send_json({"success": False, "error": result.stderr or "Command failed"}, 500)
             except Exception as e:
-                self._send_json({"success": False, "error": str(e)}, status_code=500)
+                self._send_json({"success": False, "error": str(e)}, 500)
             return
         
         self.send_error(404)
