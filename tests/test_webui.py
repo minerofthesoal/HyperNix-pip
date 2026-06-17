@@ -13,7 +13,7 @@ def test_status_payload_tailscale_off() -> None:
     data = _status_payload(host="127.0.0.1", port=8765, tailscale=False)
     assert data["version"]
     assert data["tailscale"]["enabled"] is False
-    assert "Tupperware" in data["modules"]
+    assert "tupperware" in data["modules"]
 
 
 def test_status_payload_tailscale_on() -> None:
