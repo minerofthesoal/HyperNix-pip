@@ -10,17 +10,28 @@
         body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; }
         .card { background-color: #1e293b; border-radius: 0.5rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .stat-value { font-size: 2.25rem; font-weight: bold; color: #38bdf8; }
+        .logo-container { text-align: center; margin-bottom: 2rem; }
         .logo { max-width: 150px; height: auto; display: block; margin: 0 auto; }
+        .centered-content { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            width: 100%;
+            max-width: 4xl;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
     </style>
   </head>
-  <body class="bg-[#0f172a] text-[#e2e8f0] font-sans min-h-screen flex flex-col items-center justify-center p-4 m-0">
-    <div class="w-full max-w-4xl mx-auto flex flex-col items-center space-y-8">
-        <div class="text-center w-full flex flex-col items-center">
+  <body class="flex items-center justify-center min-h-screen">
+    <div id="root"></div>
+    
+    <div class="centered-content hidden" id="stats-page">
+        <div class="logo-container w-full">
             <!-- HyperNix Logo -->
-            <div class="w-full flex justify-center mb-4">
-                <img src="https://github.com/minerofthesoal/HyperNix-pip/raw/main/assets/logo1.png" alt="HyperNix Logo" class="h-32 w-auto object-contain">
-            </div>
-            <h1 class="text-4xl font-bold text-white">HyperNix Statistics</h1>
+            <img src="https://github.com/minerofthesoal/HyperNix-pip/raw/main/assets/logo1.png" alt="HyperNix Logo" class="logo" onerror="this.style.display='none'">
+            <h1 class="text-4xl font-bold mt-4 text-white">HyperNix Statistics</h1>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
@@ -38,13 +49,14 @@
             </div>
         </div>
 
-        <div class="card text-center w-full">
+        <div class="mt-8 card text-center w-full">
             <h3 class="text-gray-400 text-sm uppercase tracking-wide">Last Updated</h3>
             <p id="updated_at" class="text-gray-300 mt-2">-</p>
             <p class="text-xs text-gray-500 mt-4">Data sourced from PyPI API via local cache</p>
         </div>
     </div>
 
+    <script type="module" src="/src/main.jsx"></script>
     <script>
         async function loadStats() {
             try {
@@ -62,9 +74,17 @@
                 document.getElementById('last_day').innerText = (data.last_day || 0).toLocaleString();
                 document.getElementById('last_month').innerText = (data.last_month || 0).toLocaleString();
                 document.getElementById('updated_at').innerText = new Date(data.updated_at).toLocaleString();
+                
+                // Show stats page if React app doesn't mount (simple fallback)
+                setTimeout(() => {
+                    if (!document.querySelector('#root').innerHTML) {
+                        document.getElementById('stats-page').classList.remove('hidden');
+                    }
+                }, 1000);
             } catch (error) {
                 console.error('Failed to load stats:', error);
                 document.getElementById('version').innerText = "Offline";
+                document.getElementById('stats-page').classList.remove('hidden');
             }
         }
         loadStats();
