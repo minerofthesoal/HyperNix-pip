@@ -1,9 +1,9 @@
 name: Refresh PyPI Stats
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *' # Runs every 6 hours automatically
 
 jobs:
   update-stats:
@@ -13,12 +13,12 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
+          python-version: '3.x'
 
       - name: Run update script
         run: python docs/update_stats.py
