@@ -1,45 +1,9 @@
 ```
-# Build artifacts
-dist/
-build/
-target/
-
 # Dependencies
 node_modules/
-venv/
-.venv/
-__pycache__/
-*.egg-info/
-
-# Environment
-.env
-.env.local
-*.env.*
 
 # Editors
 .vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
-*.log
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# OS generated
-.DS_Store
-Thumbs.db
-
-# Python specific
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
 
 # Compressed files
 *.zip
