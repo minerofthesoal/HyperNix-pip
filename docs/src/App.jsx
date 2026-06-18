@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { marked } from 'marked'
+import { BrowserRouter as Router, Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
 import { 
   Terminal, 
   Cpu, 
@@ -25,7 +26,12 @@ import {
   Calendar,
   Clock,
   Heart,
-  MessageCircle
+  MessageCircle,
+  Server,
+  Info,
+  HelpCircle,
+  FileText,
+  Copy
 } from 'lucide-react'
 
 const features = [
@@ -307,6 +313,8 @@ function App() {
     { id: 'docs', label: 'Docs' },
     { id: 'wiki', label: 'Wiki' },
     { id: 'stats', label: 'Stats' },
+    { id: 'api', label: 'API' },
+    { id: 'faqs', label: 'FAQs' },
     { id: 'about', label: 'About' }
   ]
 
@@ -1191,6 +1199,566 @@ function App() {
               </div>
             </motion.div>
           )}
+        </div>
+      </section>
+
+      {/* API Section */}
+      <section id="api" className="py-20 px-6 bg-apple-dark">
+        <div className="max-w-7xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="text-center mb-16"
+          >
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">
+              PyPI Stats<br />
+              <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent">
+                JSON API
+              </span>
+            </h2>
+            <p className="text-apple-text-secondary text-lg max-w-2xl mx-auto mb-8">
+              A simple JSON API for retrieving aggregate download stats and time series for packages
+            </p>
+          </motion.div>
+
+          {/* API Info Cards */}
+          <div className="grid md:grid-cols-3 gap-6 mb-12">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <Server className="w-10 h-10 text-apple-accent mx-auto mb-4 glow-accent" />
+              <h3 className="text-xl font-semibold text-apple-accent mb-3 text-center">Base URL</h3>
+              <code className="block bg-apple-black/50 rounded-lg p-4 text-sm text-apple-text font-mono break-all">
+                https://pypistats.org/api
+              </code>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <Info className="w-10 h-10 text-apple-accent mx-auto mb-4 glow-accent" />
+              <h3 className="text-xl font-semibold text-apple-accent mb-3 text-center">Data Updates</h3>
+              <p className="text-apple-text-secondary text-center">All download data is updated once daily</p>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <Calendar className="w-10 h-10 text-apple-accent mx-auto mb-4 glow-accent" />
+              <h3 className="text-xl font-semibold text-apple-accent mb-3 text-center">Data Retention</h3>
+              <p className="text-apple-text-secondary text-center">Time series data is retained for 180 days</p>
+            </motion.div>
+          </div>
+
+          {/* Notes */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow mb-12"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <FileText className="w-6 h-6 text-apple-accent" />
+              <span>Important Notes</span>
+            </h3>
+            <ul className="space-y-3 text-apple-text-secondary">
+              <li className="flex items-start space-x-3">
+                <CheckCircle className="w-5 h-5 text-apple-accent mt-0.5 flex-shrink-0" />
+                <span>All download stats exclude known mirrors (such as bandersnatch) unless noted otherwise.</span>
+              </li>
+              <li className="flex items-start space-x-3">
+                <CheckCircle className="w-5 h-5 text-apple-accent mt-0.5 flex-shrink-0" />
+                <span>Time series data is retained only for 180 days.</span>
+              </li>
+              <li className="flex items-start space-x-3">
+                <CheckCircle className="w-5 h-5 text-apple-accent mt-0.5 flex-shrink-0" />
+                <span>All download data is updated once daily.</span>
+              </li>
+            </ul>
+          </motion.div>
+
+          {/* Etiquette */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow mb-12"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <HelpCircle className="w-6 h-6 text-apple-accent" />
+              <span>API Etiquette</span>
+            </h3>
+            <div className="prose prose-invert max-w-none">
+              <p className="text-apple-text-secondary leading-relaxed mb-4">
+                If you plan on using the API to download historical data for every python package in the database 
+                (e.g. for some personal data exploration), <strong className="text-apple-accent">DON'T</strong>. 
+                This website runs on limited resources and you will degrade the site performance by doing this.
+              </p>
+              <p className="text-apple-text-secondary leading-relaxed mb-4">
+                You are much better off extracting the data directly from the Google BigQuery pypi downloads tables. 
+                You can query up to 1TB of data FREE every month before having to pay. The volume of data queried 
+                for this website falls well under that limit (each month of data is less than 100 GB queried) and 
+                you will have your data in a relatively short amount of time.
+              </p>
+              <p className="text-apple-text leading-relaxed">
+                If you want to regularly fetch download counts for a particular package or set of packages, 
+                <strong className="text-apple-accent"> cache your results</strong>. The data provided here is 
+                updated once daily, so you should not need to fetch results from the same API endpoint more than 
+                once per day.
+              </p>
+            </div>
+          </motion.div>
+
+          {/* Rate Limiting */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow mb-12"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <Server className="w-6 h-6 text-apple-accent" />
+              <span>Rate Limiting</span>
+            </h3>
+            <p className="text-apple-text-secondary">
+              IP-based rate limiting is imposed application-wide.
+            </p>
+          </motion.div>
+
+          {/* API Client */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow mb-12"
+          >
+            <h3 className="text-2xl font-semibold mb-6 flex items-center space-x-3">
+              <Terminal className="w-6 h-6 text-apple-accent" />
+              <span>Python API Client</span>
+            </h3>
+            <p className="text-apple-text-secondary mb-4">
+              The <code className="bg-apple-black/50 px-2 py-1 rounded text-apple-accent">pypistats</code> package 
+              is a Python client and CLI tool for easily accessing, aggregating, and formatting results from the API.
+            </p>
+            <div className="bg-apple-black/50 rounded-lg p-4 mb-4">
+              <code className="text-apple-text font-mono">pip install -U pypistats</code>
+            </div>
+            <a 
+              href="https://github.com/hugovk/pypistats" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-2 text-apple-accent hover:text-apple-accent-hover transition-colors"
+            >
+              <span>View Documentation</span>
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          </motion.div>
+
+          {/* Endpoints */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+          >
+            <h3 className="text-2xl font-semibold mb-8 flex items-center space-x-3">
+              <Server className="w-6 h-6 text-apple-accent" />
+              <span>API Endpoints</span>
+            </h3>
+
+            {/* Recent Endpoint */}
+            <div className="mb-8 pb-8 border-b border-apple-gray">
+              <div className="flex items-center space-x-3 mb-4">
+                <code className="text-lg text-apple-accent font-mono">/api/packages/{'<package>'}/recent</code>
+              </div>
+              <p className="text-apple-text-secondary mb-4">
+                Retrieve the aggregate download quantities for the last day/week/month.
+              </p>
+              <div className="bg-apple-black/50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Query arguments:</div>
+                <code className="text-apple-text font-mono text-sm">period (optional): day or week or month. If omitted returns all values.</code>
+              </div>
+              <div className="bg-apple-black/50 rounded-lg p-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Example response:</div>
+                <pre className="text-apple-text font-mono text-sm overflow-x-auto">
+{`{
+  "data": {
+    "last_day": 1,
+    "last_month": 2,
+    "last_week": 3
+  },
+  "package": "package_name",
+  "type": "recent_downloads"
+}`}
+                </pre>
+              </div>
+            </div>
+
+            {/* Overall Endpoint */}
+            <div className="mb-8 pb-8 border-b border-apple-gray">
+              <div className="flex items-center space-x-3 mb-4">
+                <code className="text-lg text-apple-accent font-mono">/api/packages/{'<package>'}/overall</code>
+              </div>
+              <p className="text-apple-text-secondary mb-4">
+                Retrieve the aggregate daily download time series with or without mirror downloads.
+              </p>
+              <div className="bg-apple-black/50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Query arguments:</div>
+                <code className="text-apple-text font-mono text-sm">mirrors (optional): true or false. If omitted returns both series data.</code>
+              </div>
+              <div className="bg-apple-black/50 rounded-lg p-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Example response:</div>
+                <pre className="text-apple-text font-mono text-sm overflow-x-auto">
+{`{
+  "data": [
+    {
+      "category": "with_mirrors",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "without_mirrors",
+      "date": "2018-02-08",
+      "downloads": 1
+    }
+  ],
+  "package": "package_name",
+  "type": "overall_downloads"
+}`}
+                </pre>
+              </div>
+            </div>
+
+            {/* Python Major Endpoint */}
+            <div className="mb-8 pb-8 border-b border-apple-gray">
+              <div className="flex items-center space-x-3 mb-4">
+                <code className="text-lg text-apple-accent font-mono">/api/packages/{'<package>'}/python_major</code>
+              </div>
+              <p className="text-apple-text-secondary mb-4">
+                Retrieve the aggregate daily download time series by Python major version number.
+              </p>
+              <div className="bg-apple-black/50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Query arguments:</div>
+                <code className="text-apple-text font-mono text-sm">version (optional): the Python major version number, e.g. 2 or 3. If omitted returns all series data (including null).</code>
+              </div>
+              <div className="bg-apple-black/50 rounded-lg p-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Example response:</div>
+                <pre className="text-apple-text font-mono text-sm overflow-x-auto">
+{`{
+  "data": [
+    {
+      "category": "2",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "null",
+      "date": "2018-02-08",
+      "downloads": 1
+    }
+  ],
+  "package": "package_name",
+  "type": "python_major_downloads"
+}`}
+                </pre>
+              </div>
+            </div>
+
+            {/* Python Minor Endpoint */}
+            <div className="mb-8 pb-8 border-b border-apple-gray">
+              <div className="flex items-center space-x-3 mb-4">
+                <code className="text-lg text-apple-accent font-mono">/api/packages/{'<package>'}/python_minor</code>
+              </div>
+              <p className="text-apple-text-secondary mb-4">
+                Retrieve the aggregate daily download time series by Python minor version number.
+              </p>
+              <div className="bg-apple-black/50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Query arguments:</div>
+                <code className="text-apple-text font-mono text-sm">version (optional): the Python minor version number, e.g. 2.7 or 3.6. If omitted returns all series data (including null).</code>
+              </div>
+              <div className="bg-apple-black/50 rounded-lg p-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Example response:</div>
+                <pre className="text-apple-text font-mono text-sm overflow-x-auto">
+{`{
+  "data": [
+    {
+      "category": "2.6",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "2.7",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3.2",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3.3",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3.4",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3.5",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3.6",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "3.7",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "null",
+      "date": "2018-02-08",
+      "downloads": 1
+    }
+  ],
+  "package": "package_name",
+  "type": "python_minor_downloads"
+}`}
+                </pre>
+              </div>
+            </div>
+
+            {/* System Endpoint */}
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <code className="text-lg text-apple-accent font-mono">/api/packages/{'<package>'}/system</code>
+              </div>
+              <p className="text-apple-text-secondary mb-4">
+                Retrieve the aggregate daily download time series by operating system.
+              </p>
+              <div className="bg-apple-black/50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Query arguments:</div>
+                <code className="text-apple-text font-mono text-sm">os (optional): the operating system name, e.g. windows, linux, darwin or other. If omitted returns all series data (including null).</code>
+              </div>
+              <div className="bg-apple-black/50 rounded-lg p-4">
+                <div className="text-sm text-apple-text-secondary mb-2">Example response:</div>
+                <pre className="text-apple-text font-mono text-sm overflow-x-auto">
+{`{
+  "data": [
+    {
+      "category": "darwin",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "linux",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "null",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "other",
+      "date": "2018-02-08",
+      "downloads": 1
+    },
+    {
+      "category": "windows",
+      "date": "2018-02-08",
+      "downloads": 1
+    }
+  ],
+  "package": "package_name",
+  "type": "system_downloads"
+}`}
+                </pre>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* FAQs Section */}
+      <section id="faqs" className="py-20 px-6">
+        <div className="max-w-4xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="text-center mb-16"
+          >
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">
+              Frequently Asked<br />
+              <span className="bg-gradient-to-r from-apple-accent to-purple-600 bg-clip-text text-transparent">
+                Questions
+              </span>
+            </h2>
+            <p className="text-apple-text-secondary text-lg max-w-2xl mx-auto">
+              Common questions about PyPI Stats and the API
+            </p>
+          </motion.div>
+
+          <div className="space-y-6">
+            {/* FAQ 1 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <h3 className="text-xl font-semibold text-apple-accent mb-4 flex items-center space-x-3">
+                <HelpCircle className="w-6 h-6" />
+                <span>How often is the data updated?</span>
+              </h3>
+              <p className="text-apple-text-secondary leading-relaxed">
+                All download data is updated once daily. The data reflects PyPI downloads from the previous day, 
+                excluding known mirrors such as bandersnatch unless specifically noted.
+              </p>
+            </motion.div>
+
+            {/* FAQ 2 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <h3 className="text-xl font-semibold text-apple-accent mb-4 flex items-center space-x-3">
+                <HelpCircle className="w-6 h-6" />
+                <span>How long is historical data retained?</span>
+              </h3>
+              <p className="text-apple-text-secondary leading-relaxed">
+                Time series data is retained for 180 days. This means you can retrieve detailed daily breakdown 
+                data for the past 6 months. Aggregate statistics (like total downloads) are available for the 
+                entire lifetime of a package.
+              </p>
+            </motion.div>
+
+            {/* FAQ 3 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <h3 className="text-xl font-semibold text-apple-accent mb-4 flex items-center space-x-3">
+                <HelpCircle className="w-6 h-6" />
+                <span>Why are mirrors excluded from the stats?</span>
+              </h3>
+              <p className="text-apple-text-secondary leading-relaxed">
+                Known mirrors like bandersnatch can generate significant duplicate download traffic. By default, 
+                we exclude these to provide a more accurate picture of actual user downloads. Some endpoints offer 
+                options to include mirror data if needed.
+              </p>
+            </motion.div>
+
+            {/* FAQ 4 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <h3 className="text-xl font-semibold text-apple-accent mb-4 flex items-center space-x-3">
+                <HelpCircle className="w-6 h-6" />
+                <span>Can I use the API for bulk data analysis?</span>
+              </h3>
+              <p className="text-apple-text-secondary leading-relaxed mb-4">
+                For large-scale data exploration (e.g., analyzing every Python package), we strongly recommend 
+                using Google BigQuery's public PyPI datasets instead. You get 1TB of free queries per month, 
+                and each month of PyPI data is less than 100GB. This approach is faster and doesn't strain 
+                our limited resources.
+              </p>
+              <a 
+                href="https://packaging.python.org/en/latest/guides/analyzing-pypi-data/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center space-x-2 text-apple-accent hover:text-apple-accent-hover transition-colors"
+              >
+                <span>Guide to Analyzing PyPI Data</span>
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            </motion.div>
+
+            {/* FAQ 5 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.4 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <h3 className="text-xl font-semibold text-apple-accent mb-4 flex items-center space-x-3">
+                <HelpCircle className="w-6 h-6" />
+                <span>Is there rate limiting?</span>
+              </h3>
+              <p className="text-apple-text-secondary leading-relaxed">
+                Yes, IP-based rate limiting is imposed application-wide to ensure fair access for all users. 
+                Since data is updated only once daily, you should cache your results and not fetch the same 
+                endpoint more than once per day.
+              </p>
+            </motion.div>
+
+            {/* FAQ 6 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.5 }}
+              className="glass rounded-2xl p-8 border border-apple-gray border-glow"
+            >
+              <h3 className="text-xl font-semibold text-apple-accent mb-4 flex items-center space-x-3">
+                <HelpCircle className="w-6 h-6" />
+                <span>How do I use the Python client?</span>
+              </h3>
+              <p className="text-apple-text-secondary leading-relaxed mb-4">
+                Install the <code className="bg-apple-black/50 px-2 py-1 rounded text-apple-accent">pypistats</code> 
+                package and use it to easily access and format API results:
+              </p>
+              <div className="bg-apple-black/50 rounded-lg p-4">
+                <code className="text-apple-text font-mono">pip install -U pypistats</code>
+              </div>
+              <p className="text-apple-text-secondary leading-relaxed mt-4">
+                Refer to the official documentation for detailed usage examples.
+              </p>
+            </motion.div>
+          </div>
         </div>
       </section>
 
