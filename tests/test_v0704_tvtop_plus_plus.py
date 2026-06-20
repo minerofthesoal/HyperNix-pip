@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 
 from hypernix import tv
-from hypernix.tvtop_plus_plus import TVTopPlusPlus, _block_history_bar, _frame_panel
+from hypernix.tvtop_plus_plus import TVTopPlusPlus, _block_history_bar
 
 
 def test_looks_like_training_log_resilient(tmp_path: Path) -> None:
