@@ -126,7 +126,7 @@ class TTSEngine(WorkshopFramework):
             # Default model
             model_name = getattr(self.config, 'model_name', 'facebook/mms-tts-eng')
             
-            self.synthesizer = AutoModelForTextToWaveform.from_pretrained(
+            self.model = AutoModelForTextToWaveform.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
@@ -151,6 +151,11 @@ class TTSEngine(WorkshopFramework):
         
         inputs = self.processor(text=text, return_tensors="pt")
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+        # Ensure input dtype matches model dtype
+        model_dtype = next(self.model.parameters()).dtype
+        for k, v in inputs.items():
+            if v.dtype != model_dtype:
+                inputs[k] = v.to(dtype=model_dtype)
         with torch.no_grad():
             output = self.model.generate(**inputs)
         return output.squeeze()
@@ -244,6 +249,11 @@ class ASREngine(WorkshopFramework):
             audio = audio.mean(dim=0)
         inputs = self.processor(audio, sampling_rate=16000, return_tensors="pt")
         inputs = {k: v.to(self.transcriber.device) for k, v in inputs.items()}
+        # Ensure input dtype matches model dtype
+        model_dtype = next(self.transcriber.parameters()).dtype
+        for k, v in inputs.items():
+            if v.dtype != model_dtype:
+                inputs[k] = v.to(dtype=model_dtype)
         with torch.no_grad():
             generated_ids = self.transcriber.generate(inputs["input_features"])
         transcription = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
