@@ -76,7 +76,9 @@ hypernix = "hypernix.version_launcher:main"
 hypernix-quantize = "hypernix.version_launcher:main"
 hnx = "hypernix.version_launcher:main"
 # v0.60.0: tvtop dashboard + ethanol overclock helper.
-tvtop = "hypernix.tv:cli_main"
+# tvtop now launches the premium tvtop++ dashboard; use tvtop-old for the classic view.
+tvtop = "hypernix.tvtop_plus_plus:cli_main"
+tvtop-old = "hypernix.tv:cli_main"
 tvtop-plus-plus = "hypernix.tvtop_plus_plus:cli_main"
 tvtoppp = "hypernix.tvtop_plus_plus:cli_main"
 eth = "hypernix.ethanol:cli_main"
@@ -84,7 +86,7 @@ eth = "hypernix.ethanol:cli_main"
 hyped = "hypernix.hyped:cli_main"
 
 [project.urls]
-Homepage = "https://huggingface.co/ray0rf1re/hyper-Nix.2"
+Homepage = "https://minerofthesoal.github.io/HyperNix-pip/"
 Source = "https://github.com/minerofthesoal/hypernix-pip"
 Issues = "https://github.com/minerofthesoal/hypernix-pip/issues"
 Logo = "https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/assets/logo.png"
