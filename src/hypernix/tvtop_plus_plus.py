@@ -6,11 +6,11 @@ spinners, process list, CPU/RAM/GPU block histories, and asymptotic loss curve e
 Run with:
     tvtop++
     tvtop++ --log train.log
+    
+This module uses Rich v15+ for a locked-window, flicker-free TUI experience.
 """
 from __future__ import annotations
 
-import re
-import shutil
 import sys
 import time
 from collections import deque
@@ -18,20 +18,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+from rich.layout import Layout
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 from .tv import (
-    CLEAR_LINE,
-    CLEAR_SCREEN,
-    CSI,
-    CURSOR_HOME,
-    HIDE_CURSOR,
-    SHOW_CURSOR,
     Frame,
     LogTail,
     _autodetect_log,
     _bar_str,
     _block_history_bar,
-    _bold,
-    _color,
     _fmt_duration,
     _gauge_line,
     _query_nvidia_smi_full,
@@ -47,105 +46,6 @@ from .tv import (
 SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
-def _box_chars(double: bool = False) -> dict[str, str]:
-    if double:
-        return {
-            "tl": "╔", "tr": "╗", "bl": "╚", "br": "╝",
-            "h": "═", "v": "║",
-        }
-    return {
-        "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
-        "h": "─", "v": "│",
-    }
-
-
-def _strip_ansi(s: str) -> str:
-    return re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", s)
-
-
-def _visible_len(s: str) -> int:
-    return len(_strip_ansi(s))
-
-
-def _pad(s: str, width: int) -> str:
-    vis = _visible_len(s)
-    if vis == width:
-        return s
-    if vis < width:
-        return s + " " * (width - vis)
-    plain = _strip_ansi(s)
-    return plain[: max(0, width - 1)] + ("…" if width > 0 else "")
-
-
-def _frame_panel(
-    title: str,
-    body: list[str],
-    *,
-    width: int,
-    ascii_only: bool,
-    color_enabled: bool,
-    title_color: int = 36,
-    double_border: bool = False,
-) -> list[str]:
-    """Frame contents with double or rounded box-drawing characters."""
-    if ascii_only:
-        ch = {"tl": "+", "tr": "+", "bl": "+", "br": "+", "h": "-", "v": "|"}
-    else:
-        ch = _box_chars(double=double_border)
-        
-    inner_w = max(1, width - 2)
-    title_text = f" {title} "
-    title_render = _color(title_color, _bold(title_text, enabled=color_enabled), enabled=color_enabled)
-    title_vis = len(title_text)
-    fill_after = max(0, inner_w - 2 - title_vis)
-    
-    top = ch["tl"] + ch["h"] + title_render + ch["h"] * fill_after + ch["tr"]
-    bot = ch["bl"] + ch["h"] * inner_w + ch["br"]
-    
-    rows = [top]
-    for ln in body:
-        rows.append(ch["v"] + _pad(ln, inner_w) + ch["v"])
-    rows.append(bot)
-    return rows
-
-
-def _hcat(left: list[str], right: list[str], *, gap: int = 1) -> list[str]:
-    n = max(len(left), len(right))
-    while len(left) < n:
-        left.append("")
-    while len(right) < n:
-        right.append("")
-    return [a + " " * gap + b for a, b in zip(left, right, strict=False)]
-
-
-def _get_active_processes() -> list[dict[str, Any]]:
-    """Fetch active hypernix or python training processes."""
-    processes = []
-    try:
-        import psutil
-        for proc in psutil.process_iter(['pid', 'username', 'cpu_percent', 'memory_percent', 'cmdline']):
-            try:
-                cmdline = ' '.join(proc.info['cmdline'] or []) if proc.info['cmdline'] else ''
-                cmd_lower = cmdline.lower()
-                if 'hypernix' in cmd_lower or 'python' in cmd_lower or 'train' in cmd_lower:
-                    # Filter out helper scripts like lsof or self if desired, but keep training
-                    if 'tvtop' in cmd_lower or 'psutil' in cmd_lower:
-                        continue
-                    processes.append({
-                        'pid': proc.info['pid'],
-                        'user': proc.info['username'] or 'unknown',
-                        'cpu': round(proc.info['cpu_percent'] or 0.0, 1),
-                        'mem': round(proc.info['memory_percent'] or 0.0, 1),
-                        'cmd': cmdline[:50]
-                    })
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-    except Exception:
-        pass
-    # Sort by CPU usage desc
-    return sorted(processes, key=lambda p: p['cpu'], reverse=True)[:5]
-
-
 @dataclass
 class TVTopPlusPlus:
     log_path: Path | str | None = None
@@ -156,7 +56,6 @@ class TVTopPlusPlus:
     small_mode: bool = False
     started_at: float = field(default_factory=time.time)
     log_tail: LogTail | None = field(default=None, init=False)
-    _prev_render: str = field(default="", init=False, repr=False)
     tick: int = field(default=0, init=False)
     
     # Histories
@@ -237,176 +136,198 @@ class TVTopPlusPlus:
         f.gpu_util_history = list(self._gpu_util_history)
         return f
 
-    def render(self, f: Frame) -> str:
+    def _build_layout(self, f: Frame, console: Console) -> Layout:
+        """Build the Rich layout for the dashboard."""
         self.tick += 1
-        w = max(72, self.width or self._term_width())
-        c = self.color and not self.ascii_only
-        aa = self.ascii_only
         
-        # Header banner (btop++ style)
-        spinner_char = SPINNERS[self.tick % len(SPINNERS)] if not aa else "*"
-        spinner_colored = _color(96, spinner_char, enabled=c)
-        title_str = _bold(" ✦ HYPERNIX TVTOP++ ✦ ", enabled=c)
-        title_rendered = _color(94, title_str, enabled=c)
-        time_str = time.strftime(" %Y-%m-%d %H:%M:%S ")
-        header_text = f" {spinner_colored} {title_rendered} {CSI}90m{time_str}{CSI}0m"
-        banner_w = _visible_len(header_text)
-        header_line = header_text + " " * max(0, w - banner_w)
-        
-        # Main top row columns: Training (Left) & Hardware Vitals (Right)
-        left_w = max(36, int(w * 0.48))
-        right_w = w - left_w - 1
-        if right_w < 34:
-            right_w = 34
-            left_w = max(36, w - right_w - 1)
-            
-        training_panel = self._build_training_panel(f, left_w, aa, c)
-        hardware_panel = self._build_hardware_panel(f, right_w, aa, c)
-        top_row = _hcat(training_panel, hardware_panel, gap=1)
-        
-        # Middle row: Process Monitor (Left) & GPU Details (Right)
-        process_panel = self._build_process_panel(left_w, aa, c)
-        gpu_panel = self._build_gpu_panel(f, right_w, aa, c)
-        middle_row = _hcat(process_panel, gpu_panel, gap=1)
-        
-        # Bottom Loss Curve
-        loss_panel = self._build_loss_panel(f, w, aa, c)
-        
-        # Log Tail panel
-        log_panel = self._build_log_panel(f, w, aa, c)
-        
-        # Footer
-        footer = _color(
-            90,
-            f" ⎋ Ctrl-C to exit · refresh {self.refresh_seconds:.1f}s · "
-            f"width={w} · cores={len(f.cpu_per_core)} · log={self.log_path or 'auto'}",
-            enabled=c,
+        # Header with spinner
+        spinner_char = SPINNERS[self.tick % len(SPINNERS)] if not self.ascii_only else "*"
+        title_text = Text.assemble(
+            (" ", "default"),
+            (spinner_char, "bright_cyan"),
+            ("  ✦ HYPERNIX TVTOP++ ✦  ", "bold bright_blue"),
+            (time.strftime(" %Y-%m-%d %H:%M:%S "), "dim"),
         )
         
-        if self.small_mode:
-            # Stack layout for small terminals
-            return "\n".join([header_line, *training_panel, *hardware_panel, *log_panel, footer])
-            
-        return "\n".join([header_line, *top_row, *middle_row, *loss_panel, *log_panel, footer])
+        layout = Layout()
+        layout.split_column(
+            Layout(name="header", size=3),
+            Layout(name="body"),
+            Layout(name="footer", size=3),
+        )
+        
+        # Training panel
+        training_panel = self._make_training_panel(f)
+        # Hardware panel  
+        hardware_panel = self._make_hardware_panel(f)
+        
+        # Process and GPU panels
+        process_panel = self._make_process_panel(f)
+        gpu_panel = self._make_gpu_panel(f)
+        
+        # Loss curve panel
+        loss_panel = self._make_loss_panel(f)
+        
+        # Log tail panel
+        log_panel = self._make_log_panel(f)
+        
+        # Split body into top row (training + hardware)
+        layout["body"].split_row(
+            Layout(name="left"),
+            Layout(name="right"),
+        )
+        layout["left"].split_column(
+            Layout(name="training", ratio=2),
+            Layout(name="process", ratio=1),
+        )
+        layout["right"].split_column(
+            Layout(name="hardware", ratio=2),
+            Layout(name="gpu", ratio=1),
+        )
+        
+        # Bottom section
+        layout["body"].split_column(
+            layout["left"],
+            layout["right"],
+            Layout(name="bottom"),
+        )
+        layout["bottom"].split_row(
+            Layout(name="loss", ratio=2),
+            Layout(name="log", ratio=1),
+        )
+        
+        # Assign panels
+        layout["header"].update(Panel(title_text, style="bright_blue", padding=(1, 2)))
+        layout["training"].update(training_panel)
+        layout["hardware"].update(hardware_panel)
+        layout["process"].update(process_panel)
+        layout["gpu"].update(gpu_panel)
+        layout["loss"].update(loss_panel)
+        layout["log"].update(log_panel)
+        
+        # Footer
+        footer_text = Text.assemble(
+            (" ⎋ Ctrl-C to exit · ", "dim"),
+            (f"refresh {self.refresh_seconds:.1f}s", "cyan"),
+            (" · ", "dim"),
+            (f"log={self.log_path or 'auto'}", "green"),
+        )
+        layout["footer"].update(Panel(footer_text, style="dim", padding=(1, 2)))
+        
+        return layout
 
-    def _build_training_panel(self, f: Frame, width: int, aa: bool, c: bool) -> list[str]:
-        inner = max(10, width - 2)
-        body: list[str] = []
+    def _make_training_panel(self, f: Frame) -> Panel:
+        """Create the Training Vitals panel."""
+        content = Text()
+        
         if f.has_training_data:
-            # Step and Progress bar
-            prog_w = max(6, inner - 26)
+            # Progress bar
             pct = f.progress * 100.0
-            step_text = f"Step {f.step:>6}"
+            prog_text = f"Step {f.step}"
             if f.total_steps:
-                step_text += f"/{f.total_steps}"
-            pbar = _bar_str(f.progress, prog_w, ascii_only=aa, color_enabled=c)
-            body.append(_color(36, f"{step_text:<16} {pbar} {pct:>5.1f}%", enabled=c))
-            body.append("")
+                prog_text += f"/{f.total_steps}"
+            pbar = _bar_str(f.progress, 20, ascii_only=self.ascii_only, color_enabled=self.color)
+            content.append(f"{prog_text:<16} {pbar} {pct:>5.1f}%\n\n", style="cyan")
             
             # Metrics
             loss_val = f"{f.loss:.4f}" if f.loss is not None else "—"
             lr_val = f"{f.lr:.2e}" if f.lr is not None else "—"
             tput_val = f"{f.throughput:.2f}/s" if f.throughput is not None else "—"
-            body.append(f" Loss       {_color(33, loss_val, enabled=c)}")
-            body.append(f" LearnRate  {_color(32, lr_val, enabled=c)}")
-            body.append(f" Speed      {_color(35, tput_val, enabled=c)}")
+            content.append(f"Loss       {loss_val}\n", style="yellow")
+            content.append(f"LearnRate  {lr_val}\n", style="green")
+            content.append(f"Speed      {tput_val}\n\n", style="magenta")
             
-            # Duration and ETA
+            # Time
             elapsed = _fmt_duration(f.elapsed_seconds)
             eta = _fmt_duration(f.eta_seconds) if f.eta_seconds is not None else "—"
-            body.append(f" Time       {elapsed:<9}  ETA: {eta}")
+            content.append(f"Time       {elapsed:<9}  ETA: {eta}", style="white")
         else:
-            body.append(_color(33, " ⏳ Waiting for training log data...", enabled=c))
-            body.append("")
-            body.append(f" File: {self.log_path or 'not specified'}")
-            body.append(" Ensure your training scripts output logs containing")
-            body.append(" steps, loss=, and throughput values.")
-            while len(body) < 7:
-                body.append("")
-        return _frame_panel("Training Vitals", body, width=width, ascii_only=aa, color_enabled=c, title_color=36, double_border=True)
+            content.append(" ⏳ Waiting for training log data...\n\n", style="yellow")
+            content.append(f" File: {self.log_path or 'not specified'}\n", style="dim")
+            content.append(" Ensure your training scripts output logs containing\n", style="dim")
+            content.append(" steps, loss=, and throughput values.", style="dim")
+        
+        return Panel(content, title="Training Vitals", border_style="double", title_align="left", style="cyan")
 
-    def _build_hardware_panel(self, f: Frame, width: int, aa: bool, c: bool) -> list[str]:
-        inner = max(10, width - 2)
-        body: list[str] = []
-        bar_w = max(6, inner - 18)
+    def _make_hardware_panel(self, f: Frame) -> Panel:
+        """Create the Hardware Vitals panel."""
+        content = Text()
         
         # Gauges
-        body.append(_gauge_line("CPU", f.cpu_percent, bar_w, ascii_only=aa, color_enabled=c))
-        body.append(_gauge_line("RAM", f.ram_percent, bar_w, ascii_only=aa, color_enabled=c))
+        content.append(_gauge_line("CPU", f.cpu_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n")
+        content.append(_gauge_line("RAM", f.ram_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n")
+        content.append(_gauge_line("GPU", f.gpu_util_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n\n")
         
-        # GPU gauge
-        gpu_pct = f.gpu_util_percent
-        body.append(_gauge_line("GPU", gpu_pct, bar_w, ascii_only=aa, color_enabled=c))
-        body.append("")
-        
-        # Block style history
+        # Block history
         if f.cpu_history:
-            cpu_hist = _block_history_bar(f.cpu_history, max(1, inner - 12), c)
-            body.append(f"CPU History [{cpu_hist}]")
+            cpu_hist = _block_history_bar(f.cpu_history, 30, self.color)
+            content.append(f"CPU History [{cpu_hist}]\n", style="green")
         if f.ram_history:
-            ram_hist = _block_history_bar(f.ram_history, max(1, inner - 12), c)
-            body.append(f"RAM History [{ram_hist}]")
+            ram_hist = _block_history_bar(f.ram_history, 30, self.color)
+            content.append(f"RAM History [{ram_hist}]\n", style="yellow")
         if f.gpu_util_history:
-            gpu_hist = _block_history_bar(f.gpu_util_history, max(1, inner - 12), c)
-            body.append(f"GPU History [{gpu_hist}]")
-            
-        while len(body) < 7:
-            body.append("")
-        return _frame_panel("Hardware Vitals", body, width=width, ascii_only=aa, color_enabled=c, title_color=32)
-
-    def _build_process_panel(self, width: int, aa: bool, c: bool) -> list[str]:
-        inner = max(10, width - 2)
-        body: list[str] = []
-        body.append(f"{'PID':<6} {'USER':<8} {'CPU%':<6} {'MEM%':<6} {'COMMAND':<18}")
+            gpu_hist = _block_history_bar(f.gpu_util_history, 30, self.color)
+            content.append(f"GPU History [{gpu_hist}]", style="red")
         
-        procs = _get_active_processes()
-        if procs:
-            for p in procs:
-                body.append(
-                    f"{p['pid']:<6} {p['user'][:8]:<8} {p['cpu']:>5.1f}% {p['mem']:>5.1f}% {p['cmd'][:inner-30]:<18}"
+        return Panel(content, title="Hardware Vitals", border_style="rounded", title_align="left", style="green")
+
+    def _make_process_panel(self, f: Frame) -> Panel:
+        """Create the Process Monitor panel."""
+        table = Table(show_header=True, header_style="bold blue", show_lines=False, padding=(0, 1))
+        table.add_column("PID", style="cyan", width=6)
+        table.add_column("USER", style="green", width=8)
+        table.add_column("CPU%", style="yellow", width=6)
+        table.add_column("MEM%", style="magenta", width=6)
+        table.add_column("COMMAND", style="white", overflow="ellipsis")
+        
+        processes = self._get_active_processes()
+        if processes:
+            for p in processes:
+                table.add_row(
+                    str(p['pid']),
+                    p['user'][:8],
+                    f"{p['cpu']:>5.1f}",
+                    f"{p['mem']:>5.1f}",
+                    p['cmd'][:40],
                 )
         else:
-            body.append("(no active python/training processes)")
-            
-        while len(body) < 6:
-            body.append("")
-        return _frame_panel("Process Monitor", body, width=width, ascii_only=aa, color_enabled=c, title_color=34)
-
-    def _build_gpu_panel(self, f: Frame, width: int, aa: bool, c: bool) -> list[str]:
-        inner = max(10, width - 2)
-        body: list[str] = []
-        if f.gpu_util_percent is None and f.gpu_mem_total_mib is None:
-            body.append("(no GPU detected or nvidia-smi missing)")
-            while len(body) < 6:
-                body.append("")
-            return _frame_panel("GPU Details", body, width=width, ascii_only=aa, color_enabled=c, title_color=35)
-            
-        if f.gpu_name:
-            body.append(_color(96, f.gpu_name[:inner], enabled=c))
+            table.add_row("", "(no active python/training processes)", "", "", "")
         
-        # VRAM breakdown
-        if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib:
-            mem_pct = 100.0 * f.gpu_mem_used_mib / f.gpu_mem_total_mib
-            bar = _bar_str(mem_pct / 100.0, max(6, inner - 24), ascii_only=aa, color_enabled=c)
-            body.append(f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB")
-            
-        if f.gpu_temp_c is not None:
-            temp_norm = max(0.0, min(1.0, (f.gpu_temp_c - 30) / 70.0))
-            bar = _bar_str(temp_norm, max(6, inner - 24), ascii_only=aa, color_enabled=c)
-            body.append(f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C")
-            
-        if f.gpu_power_w is not None and f.gpu_power_limit_w:
-            pwr_pct = 100.0 * f.gpu_power_w / f.gpu_power_limit_w
-            bar = _bar_str(pwr_pct / 100.0, max(6, inner - 24), ascii_only=aa, color_enabled=c)
-            body.append(f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W")
-            
-        while len(body) < 6:
-            body.append("")
-        return _frame_panel("GPU Details", body, width=width, ascii_only=aa, color_enabled=c, title_color=35)
+        return Panel(table, title="Process Monitor", border_style="rounded", title_align="left", style="blue")
 
-    def _build_loss_panel(self, f: Frame, width: int, aa: bool, c: bool) -> list[str]:
-        inner = max(10, width - 2)
-        loss_title = "Loss Curve"
+    def _make_gpu_panel(self, f: Frame) -> Panel:
+        """Create the GPU Details panel."""
+        content = Text()
+        
+        if f.gpu_util_percent is None and f.gpu_mem_total_mib is None:
+            content.append("(no GPU detected or nvidia-smi missing)", style="dim")
+        else:
+            if f.gpu_name:
+                content.append(f"{f.gpu_name}\n\n", style="bright_cyan bold")
+            
+            # VRAM
+            if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib:
+                mem_pct = 100.0 * f.gpu_mem_used_mib / f.gpu_mem_total_mib
+                bar = _bar_str(mem_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
+                content.append(f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB\n", style="yellow")
+                
+            # Temp
+            if f.gpu_temp_c is not None:
+                temp_norm = max(0.0, min(1.0, (f.gpu_temp_c - 30) / 70.0))
+                bar = _bar_str(temp_norm, 15, ascii_only=self.ascii_only, color_enabled=self.color)
+                content.append(f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C\n", style="red")
+                
+            # Power
+            if f.gpu_power_w is not None and f.gpu_power_limit_w:
+                pwr_pct = 100.0 * f.gpu_power_w / f.gpu_power_limit_w
+                bar = _bar_str(pwr_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
+                content.append(f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
+        
+        return Panel(content, title="GPU Details", border_style="rounded", title_align="left", style="magenta")
+
+    def _make_loss_panel(self, f: Frame) -> Panel:
+        """Create the Loss Curve panel."""
+        content = Text()
         
         if f.recent_losses:
             # Exponential decay dampening projection
@@ -422,97 +343,83 @@ class TVTopPlusPlus:
                     cur += temp_slope
                     cur = max(0.0, cur)
                     future_losses.append(cur)
-                    temp_slope *= 0.85 # exponential decay dampening
+                    temp_slope *= 0.85
                     
                 combined = f.recent_losses + future_losses
-                est_val = future_losses[-1]
-                loss_title = (
-                    f"Loss Curve (min: {min(f.recent_losses):.4f} · max: {max(f.recent_losses):.4f} · "
-                    f"current: {f.loss:.4f} · est: {est_val:.4f})"
-                )
+            
             else:
                 combined = f.recent_losses
-                curr_val = f.loss if f.loss is not None else f.recent_losses[-1]
-                loss_title = f"Loss Curve (min: {min(f.recent_losses):.4f} · max: {max(f.recent_losses):.4f} · current: {curr_val:.4f})"
                 
-            graph_rows = multi_row_graph(combined, width=inner, height=5, ascii_only=aa)
-            if c:
-                colored_rows = []
-                for r in graph_rows:
+            # Render graph as text using block characters
+            graph_rows = multi_row_graph(combined, width=40, height=5, ascii_only=self.ascii_only)
+            for i, row in enumerate(graph_rows):
+                if self.color:
                     if len(combined) > 15:
-                        pred_chars = int((15 / len(combined)) * inner)
-                        real_chars = max(0, inner - pred_chars)
-                        real_str = r[:real_chars]
-                        pred_str = r[real_chars:]
-                        colored_rows.append(_color(36, real_str, enabled=c) + _color(35, pred_str, enabled=c))
+                        pred_chars = int((15 / len(combined)) * 40)
+                        real_chars = max(0, 40 - pred_chars)
+                        real_str = row[:real_chars]
+                        pred_str = row[real_chars:]
+                        content.append(real_str + "\n" if i < len(graph_rows) - 1 else real_str, style="cyan")
+                        if pred_str:
+                            content.append(pred_str + "\n" if i < len(graph_rows) - 1 else pred_str, style="magenta")
                     else:
-                        colored_rows.append(_color(36, r, enabled=c))
-                graph_rows = colored_rows
-        else:
-            graph_rows = ["(no loss values yet — tailing train.log...)"]
-            graph_rows += [""] * 4
-            
-        return _frame_panel(loss_title, graph_rows, width=width, ascii_only=aa, color_enabled=c, title_color=33)
-
-    def _build_log_panel(self, f: Frame, width: int, aa: bool, c: bool) -> list[str]:
-        inner = max(10, width - 2)
-        log_lines = (f.log_tail or [])[-6:]
-        body = [raw[:inner] for raw in log_lines]
-        while len(body) < 6:
-            body.append("")
-        return _frame_panel("Recent Log Tail", body, width=width, ascii_only=aa, color_enabled=c, title_color=37)
-
-    def _term_width(self) -> int:
-        try:
-            return shutil.get_terminal_size((100, 24)).columns
-        except Exception:
-            return 100
-
-    def run(self, *, max_frames: int | None = None) -> None:
-        tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
-        try:
-            if tty:
-                sys.stdout.write(HIDE_CURSOR + CLEAR_SCREEN)
-                sys.stdout.flush()
-            n = 0
-            while True:
-                frame = self.latest_frame()
-                if tty:
-                    body = self.render(frame)
-                    if body != self._prev_render:
-                        out = CURSOR_HOME
-                        for line in body.splitlines():
-                            out += line + CLEAR_LINE + "\n"
-                        prev_count = len(self._prev_render.splitlines())
-                        cur_count = len(body.splitlines())
-                        for _ in range(max(0, prev_count - cur_count)):
-                            out += CLEAR_LINE + "\n"
-                        sys.stdout.write(out)
-                        sys.stdout.flush()
-                        self._prev_render = body
+                        content.append(row + ("\n" if i < len(graph_rows) - 1 else ""), style="cyan")
                 else:
-                    # Degradation for pipe/CI
-                    if frame.has_training_data:
-                        sys.stdout.write(
-                            f"step={frame.step}/{frame.total_steps or '-'} "
-                            f"loss={frame.loss if frame.loss is not None else '-'} "
-                            f"lr={frame.lr if frame.lr is not None else '-'} "
-                            f"tput={frame.throughput if frame.throughput else '-'}\n"
-                        )
-                    else:
-                        sys.stdout.write("waiting for training data...\n")
-                    sys.stdout.flush()
-                
-                n += 1
-                if max_frames is not None and n >= max_frames:
-                    return
-                time.sleep(self.refresh_seconds)
+                    content.append(row + ("\n" if i < len(graph_rows) - 1 else ""))
+        else:
+            content.append("(no loss values yet — tailing train.log...)", style="dim")
+        
+        return Panel(content, title="Loss Curve", border_style="rounded", title_align="left", style="yellow")
+
+    def _make_log_panel(self, f: Frame) -> Panel:
+        """Create the Recent Log Tail panel."""
+        content = Text()
+        log_lines = (f.log_tail or [])[-6:]
+        for line in log_lines:
+            content.append(line[:60] + "\n", style="white")
+        
+        return Panel(content, title="Recent Log Tail", border_style="rounded", title_align="left", style="white")
+
+    def _get_active_processes(self) -> list[dict[str, Any]]:
+        """Fetch active hypernix or python training processes."""
+        processes = []
+        try:
+            import psutil
+            for proc in psutil.process_iter(['pid', 'username', 'cpu_percent', 'memory_percent', 'cmdline']):
+                try:
+                    cmdline = ' '.join(proc.info['cmdline'] or []) if proc.info['cmdline'] else ''
+                    cmd_lower = cmdline.lower()
+                    if 'hypernix' in cmd_lower or 'python' in cmd_lower or 'train' in cmd_lower:
+                        if 'tvtop' in cmd_lower or 'psutil' in cmd_lower:
+                            continue
+                        processes.append({
+                            'pid': proc.info['pid'],
+                            'user': proc.info['username'] or 'unknown',
+                            'cpu': round(proc.info['cpu_percent'] or 0.0, 1),
+                            'mem': round(proc.info['memory_percent'] or 0.0, 1),
+                            'cmd': cmdline[:50]
+                        })
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception:
+            pass
+        return sorted(processes, key=lambda p: p['cpu'], reverse=True)[:5]
+
+    def run(self) -> None:
+        """Run the tvtop++ dashboard using Rich Live."""
+        console = Console()
+        
+        def make_layout(frame: Frame) -> Layout:
+            return self._build_layout(frame, console)
+        
+        try:
+            with Live(make_layout(self.latest_frame()), console=console, refresh_per_second=1/self.refresh_seconds, screen=True) as live:
+                while True:
+                    frame = self.latest_frame()
+                    live.update(make_layout(frame))
+                    time.sleep(self.refresh_seconds)
         except KeyboardInterrupt:
-            return
-        finally:
-            if tty:
-                sys.stdout.write(SHOW_CURSOR + "\n")
-                sys.stdout.flush()
+            pass
 
 
 def cli_main(argv: list[str] | None = None) -> int:
@@ -560,11 +467,11 @@ def cli_main(argv: list[str] | None = None) -> int:
     if log is None:
         log = _autodetect_log()
     
-    # Don't exit if no log found - just show blank dashboard waiting for data
     if log is not None:
         print(f"[tvtop++] Tailing {log}...", file=sys.stderr)
     else:
         print("[tvtop++] No log file specified - displaying live system metrics only", file=sys.stderr)
+    
     TVTopPlusPlus(
         log_path=log,
         color=color,

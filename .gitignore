@@ -4,34 +4,27 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env/
-venv/
-.venv/
-.ENV
-.ENV.local
+
+# Testing
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Environment
 .env
 .env.local
-.env.*
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.gitattributes
-.next
-.next/*
-!.next/static
-!.next/cache
-*.sublime-workspace
+*.env.*
+
+# Editors
+.vscode/
+.idea/
 *.swp
 *.swo
-*~
-.DS_Store
-Thumbs.db
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
 ```
