@@ -1,0 +1,9 @@
+[console_scripts]
+eth = hypernix.ethanol:cli_main
+hnx = hypernix.cli:main
+hyped = hypernix.hyped:cli_main
+hypernix = hypernix.cli:main
+hypernix-quantize = hypernix.cli:main
+tvtop = hypernix.tv:cli_main
+tvtop++ = hypernix.tvtop_plus_plus:cli_main
+tvtoppp = hypernix.tvtop_plus_plus:cli_main
