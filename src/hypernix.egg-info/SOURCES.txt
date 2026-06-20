@@ -126,6 +126,7 @@ tests/test_ranges.py
 tests/test_shakers_and_torchcompat.py
 tests/test_snapshot_roundtrip.py
 tests/test_tupperware.py
+tests/test_tvtop_plus_plus_comprehensive.py
 tests/test_v031_chat_and_archs.py
 tests/test_v047_deep_fryer_cake_pan_presets.py
 tests/test_v050.py

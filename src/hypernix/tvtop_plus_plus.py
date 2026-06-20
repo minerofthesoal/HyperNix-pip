@@ -420,6 +420,9 @@ class TVTopPlusPlus:
         if term_width < 80:
             term_width = 80
         
+        # Create console with explicit width for consistent rendering
+        console = Console(force_terminal=True, width=term_width)
+        
         def make_layout(frame: Frame) -> Layout:
             return self._build_layout(frame, console)
         
@@ -429,7 +432,6 @@ class TVTopPlusPlus:
                 console=console, 
                 refresh_per_second=1/self.refresh_seconds, 
                 screen=True,
-                width=term_width,
             ) as live:
                 while True:
                     frame = self.latest_frame()
