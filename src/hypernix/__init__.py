@@ -306,6 +306,6 @@ else:
     from . import tv, tvtop, tvtop_plus_plus
     __all__ = ["tv", "tvtop", "tvtop_plus_plus"]
 
-__version__ = "0.70.4b2"
+__version__ = "0.70.4b3"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
 DEFAULT_MODEL = "qwen3.5-4b"  # New default model
