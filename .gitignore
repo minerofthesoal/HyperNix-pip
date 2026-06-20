@@ -8,34 +8,10 @@ __pycache__/
 # Build artifacts
 build/
 dist/
-*.so
-*.dylib
-*.dll
+*.egg-info/
 
-# Environment
-.venv/
+# Virtual environments
 venv/
+.venv/
 .env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
-*.log
-
-# Coverage
-.coverage
-coverage/
-htmlcov/
-
-# Temporary files
-*.tmp
-*~
-.DS_Store
-Thumbs.db
 ```

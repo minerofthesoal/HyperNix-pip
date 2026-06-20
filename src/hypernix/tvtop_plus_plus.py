@@ -18,13 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rich.box import DOUBLE, ROUNDED
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.box import DOUBLE, ROUNDED, HEAVY
 
 from .tv import (
     Frame,
