@@ -81,8 +81,6 @@ def test_loss_curve_decay_predictions(tmp_path: Path) -> None:
     assert len(frame.recent_losses) == 5
     
     # Test loss panel creation - should have Loss Curve title
-    from rich.console import Console
-    console = Console(force_terminal=False)
     loss_panel = tvt._make_loss_panel(frame)
     
     # The panel should have a title

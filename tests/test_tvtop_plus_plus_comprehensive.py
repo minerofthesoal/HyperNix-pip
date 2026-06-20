@@ -13,10 +13,7 @@ Tests cover:
 """
 from __future__ import annotations
 
-import os
 import platform
-import sys
-import tempfile
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -145,9 +142,6 @@ class TestLayoutRendering:
         tvt = TVTopPlusPlus(log_path=log_file, color=True)
         frame = tvt.latest_frame()
         
-        from rich.console import Console
-        console = Console(force_terminal=False)
-        
         # Test each panel renderer
         training_panel = tvt._make_training_panel(frame)
         hardware_panel = tvt._make_hardware_panel(frame)
@@ -234,9 +228,6 @@ class TestColorAndAsciiModes:
         log_file = tmp_path / "train.log"
         log_file.write_text("loss=0.5 step=10/100\n", encoding="utf-8")
         
-        tvt = TVTopPlusPlus(log_path=log_file, color=False, ascii_only=True)
-        frame = tvt.latest_frame()
-        
         # Check progress bar uses simpler characters (no block elements when ascii_only)
         from hypernix.tv import _bar_str
         bar = _bar_str(0.5, 20, ascii_only=True, color_enabled=False)
@@ -285,9 +276,6 @@ class TestLiveDashboard:
         log_file.write_text("loss=0.5 step=10/100\n", encoding="utf-8")
         
         tvt = TVTopPlusPlus(log_path=log_file)
-        
-        frame1 = tvt.latest_frame()
-        initial_loss = frame1.loss
         
         # Append new data
         with log_file.open("a") as f:
@@ -465,9 +453,6 @@ class TestRichIntegration:
         
         log_file = tmp_path / "train.log"
         log_file.write_text("loss=0.5\n", encoding="utf-8")
-        
-        tvt = TVTopPlusPlus(log_path=log_file)
-        frame = tvt.latest_frame()
         
         console = Console(force_terminal=False)
         

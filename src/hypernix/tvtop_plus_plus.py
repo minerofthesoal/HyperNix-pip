@@ -11,7 +11,6 @@ This module uses Rich v15+ for a locked-window, flicker-free TUI experience.
 """
 from __future__ import annotations
 
-import shutil
 import sys
 import time
 from collections import deque
@@ -347,16 +346,10 @@ class TVTopPlusPlus:
                     temp_slope *= 0.85
                     
                 combined = f.recent_losses + future_losses
-                est_val = future_losses[-1]
-                title = (
-                    f"Loss Curve (min: {min(f.recent_losses):.4f} · max: {max(f.recent_losses):.4f} · "
-                    f"current: {f.loss:.4f} · est: {est_val:.4f})"
-                )
+            
             else:
                 combined = f.recent_losses
-                curr_val = f.loss if f.loss is not None else f.recent_losses[-1]
-                title = f"Loss Curve (min: {min(f.recent_losses):.4f} · max: {max(f.recent_losses):.4f} · current: {curr_val:.4f})"
-            
+                
             # Render graph as text using block characters
             graph_rows = multi_row_graph(combined, width=40, height=5, ascii_only=self.ascii_only)
             for i, row in enumerate(graph_rows):
