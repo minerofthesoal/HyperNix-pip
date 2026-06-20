@@ -549,21 +549,22 @@ def cli_main(argv: list[str] | None = None) -> int:
             "[--refresh SECONDS] [-s|--small]\n"
             "An advanced btop++ styled training dashboard with moving spinner,\n"
             "process list, block history and improved decay curve estimations.\n"
-            "  -s, --small   compact mode for smaller terminals",
+            "  -s, --small   compact mode for smaller terminals\n"
+            "\n"
+            "If no --log is specified, tvtop++ will search for *.log files in the\n"
+            "current directory. If none are found, it will display a blank dashboard\n"
+            "waiting for training data.",
         )
         return 0
         
     if log is None:
         log = _autodetect_log()
-    if log is None:
-        print(
-            "tvtop++: no training log found. Run from a directory containing a *.log\n"
-            "written by training loops or specify it explicitly with `--log <path>`.",
-            file=sys.stderr,
-        )
-        return 2
-        
-    print(f"[tvtop++] Tailing {log}...")
+    
+    # Don't exit if no log found - just show blank dashboard waiting for data
+    if log is not None:
+        print(f"[tvtop++] Tailing {log}...", file=sys.stderr)
+    else:
+        print("[tvtop++] No log file specified - displaying live system metrics only", file=sys.stderr)
     TVTopPlusPlus(
         log_path=log,
         color=color,
