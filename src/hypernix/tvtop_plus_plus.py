@@ -11,39 +11,36 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 import sys
 import time
 from collections import deque
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .tv import (
-    CSI,
-    CLEAR_SCREEN,
     CLEAR_LINE,
+    CLEAR_SCREEN,
+    CSI,
     CURSOR_HOME,
     HIDE_CURSOR,
     SHOW_CURSOR,
     Frame,
     LogTail,
-    _color,
-    _bold,
-    _sanitise,
-    _fmt_duration,
+    _autodetect_log,
     _bar_str,
-    _gauge_line,
     _block_history_bar,
-    multi_row_graph,
-    _safe_psutil_percent,
-    _safe_psutil_per_core,
+    _bold,
+    _color,
+    _fmt_duration,
+    _gauge_line,
+    _query_nvidia_smi_full,
+    _read_memory_breakdown,
     _read_proc_stat_cpu,
     _read_proc_stat_per_core,
-    _read_memory_breakdown,
-    _query_nvidia_smi_full,
-    _autodetect_log,
+    _safe_psutil_per_core,
+    _safe_psutil_percent,
+    multi_row_graph,
 )
 
 # Premium spinner characters for micro-animations

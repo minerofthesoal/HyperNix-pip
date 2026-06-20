@@ -76,7 +76,7 @@ hypernix-quantize = "hypernix.cli:main"
 hnx = "hypernix.cli:main"
 # v0.60.0: tvtop dashboard + ethanol overclock helper.
 tvtop = "hypernix.tv:cli_main"
-"tvtop++" = "hypernix.tvtop_plus_plus:cli_main"
+tvtop-plus-plus = "hypernix.tvtop_plus_plus:cli_main"
 tvtoppp = "hypernix.tvtop_plus_plus:cli_main"
 eth = "hypernix.ethanol:cli_main"
 # v0.61.1: high-quality TUI chat CLI with a configurator.

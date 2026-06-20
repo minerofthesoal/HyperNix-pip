@@ -1,10 +1,10 @@
 """Tests for version 0.70.3 lazy_suzan module."""
 from __future__ import annotations
 
-import pytest
+from unittest import mock
+
 import torch
 import torch.nn as nn
-from unittest import mock
 
 from hypernix.lazy_suzan import LazySusan, LazySusanConfig
 
@@ -118,7 +118,7 @@ def test_lazy_susan_compress_fp8_fallback() -> None:
         assert torch.allclose(decompressed, tensor, atol=0.05)
     finally:
         if had_attr:
-            setattr(torch, "float8_e4m3fn", old_attr)
+            torch.float8_e4m3fn = old_attr
 
 
 def test_lazy_susan_step_counter() -> None:

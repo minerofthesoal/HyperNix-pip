@@ -11,10 +11,10 @@ import dataclasses
 import math
 import time
 from collections import deque
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import torch
-import torch.nn as nn
 
 __all__ = [
     "GradStats",
@@ -50,7 +50,7 @@ class ScheduleConfig:
         self._plateau_end = self.warmup_steps + self.plateau_steps
         self._total_steps = self.warmup_steps + self.plateau_steps + self.cooldown_steps
 
-    def validate(self) -> "ScheduleConfig":
+    def validate(self) -> ScheduleConfig:
         if self.lr <= 0:
             raise ValueError("lr must be > 0")
         if self.warmup_steps < 0:
@@ -310,7 +310,7 @@ def fused_adamw_step(
     bias_correction1 = 1.0 - beta1 ** step
     bias_correction2 = 1.0 - beta2 ** step
 
-    for p, grad, exp_avg, exp_avg_sq in zip(params, grads, exp_avgs, exp_avg_sqs):
+    for p, grad, exp_avg, exp_avg_sq in zip(params, grads, exp_avgs, exp_avg_sqs, strict=True):
         # Decoupled weight decay
         if weight_decay != 0.0:
             p.mul_(1.0 - lr * weight_decay)
