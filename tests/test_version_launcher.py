@@ -2,16 +2,14 @@
 from __future__ import annotations
 
 import subprocess
-import sys
-import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 # Import the launcher module
 from hypernix.version_launcher import (
-    PythonVersion,
     VERSION_PRIORITY,
+    PythonVersion,
     check_hypernix_installed,
     find_best_python,
     main,
@@ -199,7 +197,6 @@ class TestMainLauncher:
 
     def test_skips_version_check_when_env_var_set(self, monkeypatch):
         """Test that version check is skipped when HYPERNIX_NO_VERSION_CHECK is set."""
-        import os
         # Set the environment variable
         monkeypatch.setenv("HYPERNIX_NO_VERSION_CHECK", "1")
         
