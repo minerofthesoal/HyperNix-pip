@@ -865,6 +865,7 @@ def _run_pipeline(raw: list[str]) -> int:
         description="Run full ASR → LLM → TTS pipeline interactively.",
     )
     p.add_argument("--audio", "-a", help="Path to input audio file")
+    p.add_argument("--active", action="store_true", help="Record from microphone in real-time (press Ctrl+C to stop and process)")
     p.add_argument("--asr", default="nano-whisper", help="ASR engine to use")
     p.add_argument("--llm", default="qwen3.5-1b", help="LLM model to use (default: Qwen3.5 1B)")
     p.add_argument("--tts", default="nano-tacotron", help="TTS engine to use")
@@ -906,7 +907,48 @@ def _run_pipeline(raw: list[str]) -> int:
     # Get audio file
     audio_path = ns.audio
     if not audio_path:
-        audio_path = input("Enter path to audio file: ").strip()
+        if ns.active:
+            # Record from microphone
+            print("Recording from microphone... Press Ctrl+C to stop and process")
+            try:
+                import wave
+
+                import pyaudio
+                
+                CHUNK = 1024
+                FORMAT = pyaudio.paInt16
+                CHANNELS = 1
+                RATE = 16000
+                
+                p = pyaudio.PyAudio()
+                stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+                
+                frames = []
+                print("Recording...")
+                while True:  # Recording until Ctrl+C
+                    data = stream.read(CHUNK)
+                    frames.append(data)
+            except KeyboardInterrupt:
+                print("\nStopped recording. Processing...")
+            finally:
+                stream.stop_stream()
+                stream.close()
+                p.terminate()
+            
+            # Save recorded audio to temporary file
+            import tempfile
+            temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            audio_path = temp_file.name
+            
+            with wave.open(audio_path, 'wb') as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(p.get_sample_size(FORMAT))
+                wf.setframerate(RATE)
+                wf.writeframes(b''.join(frames))
+            
+            print(f"Recorded audio saved to: {audio_path}")
+        else:
+            audio_path = input("Enter path to audio file: ").strip()
     
     if not Path(audio_path).exists():
         print(f"Error: Audio file not found: {audio_path}")

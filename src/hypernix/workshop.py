@@ -120,6 +120,7 @@ class TTSEngine(WorkshopFramework):
             from transformers import AutoModelForTextToWaveform, AutoProcessor
             
             device = "cuda" if torch.cuda.is_available() else "cpu"
+            # Always use float32 on CPU to avoid dtype mismatch errors
             dtype = torch.float16 if device == "cuda" else torch.float32
             
             # Default model
@@ -130,7 +131,7 @@ class TTSEngine(WorkshopFramework):
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
                 use_safetensors=True
-            ).to(device)
+            ).to(device=device, dtype=dtype)
             
             self.processor = AutoProcessor.from_pretrained(model_name)
             self._initialized = True
@@ -210,6 +211,7 @@ class ASREngine(WorkshopFramework):
             from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
             
             device = "cuda" if torch.cuda.is_available() else "cpu"
+            # Always use float32 on CPU to avoid dtype mismatch errors
             dtype = torch.float16 if device == "cuda" else torch.float32
             
             # Default to nano-whisper if not specified
@@ -220,7 +222,7 @@ class ASREngine(WorkshopFramework):
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
                 use_safetensors=True
-            ).to(device)
+            ).to(device=device, dtype=dtype)
             
             self.processor = AutoProcessor.from_pretrained(model_name)
             self._initialized = True
