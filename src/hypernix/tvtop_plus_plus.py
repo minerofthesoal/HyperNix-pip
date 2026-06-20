@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rich.box import DOUBLE, ROUNDED
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -247,7 +248,7 @@ class TVTopPlusPlus:
             content.append(" Ensure your training scripts output logs containing\n", style="dim")
             content.append(" steps, loss=, and throughput values.", style="dim")
         
-        return Panel(content, title="Training Vitals", border_style="double", title_align="left", style="cyan")
+        return Panel(content, title="Training Vitals", box=DOUBLE, title_align="left", style="cyan")
 
     def _make_hardware_panel(self, f: Frame) -> Panel:
         """Create the Hardware Vitals panel."""
@@ -269,7 +270,7 @@ class TVTopPlusPlus:
             gpu_hist = _block_history_bar(f.gpu_util_history, 30, self.color)
             content.append(f"GPU History [{gpu_hist}]", style="red")
         
-        return Panel(content, title="Hardware Vitals", border_style="rounded", title_align="left", style="green")
+        return Panel(content, title="Hardware Vitals", box=ROUNDED, title_align="left", style="green")
 
     def _make_process_panel(self, f: Frame) -> Panel:
         """Create the Process Monitor panel."""
@@ -293,7 +294,7 @@ class TVTopPlusPlus:
         else:
             table.add_row("", "(no active python/training processes)", "", "", "")
         
-        return Panel(table, title="Process Monitor", border_style="rounded", title_align="left", style="blue")
+        return Panel(table, title="Process Monitor", box=ROUNDED, title_align="left", style="blue")
 
     def _make_gpu_panel(self, f: Frame) -> Panel:
         """Create the GPU Details panel."""
@@ -323,7 +324,7 @@ class TVTopPlusPlus:
                 bar = _bar_str(pwr_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
                 content.append(f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
         
-        return Panel(content, title="GPU Details", border_style="rounded", title_align="left", style="magenta")
+        return Panel(content, title="GPU Details", box=ROUNDED, title_align="left", style="magenta")
 
     def _make_loss_panel(self, f: Frame) -> Panel:
         """Create the Loss Curve panel."""
@@ -369,7 +370,7 @@ class TVTopPlusPlus:
         else:
             content.append("(no loss values yet — tailing train.log...)", style="dim")
         
-        return Panel(content, title="Loss Curve", border_style="rounded", title_align="left", style="yellow")
+        return Panel(content, title="Loss Curve", box=ROUNDED, title_align="left", style="yellow")
 
     def _make_log_panel(self, f: Frame) -> Panel:
         """Create the Recent Log Tail panel."""
@@ -378,7 +379,7 @@ class TVTopPlusPlus:
         for line in log_lines:
             content.append(line[:60] + "\n", style="white")
         
-        return Panel(content, title="Recent Log Tail", border_style="rounded", title_align="left", style="white")
+        return Panel(content, title="Recent Log Tail", box=ROUNDED, title_align="left", style="white")
 
     def _get_active_processes(self) -> list[dict[str, Any]]:
         """Fetch active hypernix or python training processes."""
