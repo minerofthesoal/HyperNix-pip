@@ -68,6 +68,7 @@ src/hypernix/new_range.py
 src/hypernix/old_fridge.py
 src/hypernix/old_oven.py
 src/hypernix/old_range.py
+src/hypernix/optimizer_framework.py
 src/hypernix/outage.py
 src/hypernix/pans.py
 src/hypernix/pepper_shaker.py
@@ -95,6 +96,7 @@ src/hypernix/tvtop_plus_plus.py
 src/hypernix/upload.py
 src/hypernix/ups.py
 src/hypernix/utils.py
+src/hypernix/version_launcher.py
 src/hypernix/webui.py
 src/hypernix/whisk.py
 src/hypernix/workshop.py
