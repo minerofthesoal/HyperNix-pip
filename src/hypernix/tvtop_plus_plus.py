@@ -410,11 +410,27 @@ class TVTopPlusPlus:
         """Run the tvtop++ dashboard using Rich Live."""
         console = Console()
         
+        # Get terminal width safely, with fallback for non-TTY environments
+        try:
+            term_width = console.width
+        except Exception:
+            term_width = 80
+        
+        # Ensure minimum width for proper layout rendering
+        if term_width < 80:
+            term_width = 80
+        
         def make_layout(frame: Frame) -> Layout:
             return self._build_layout(frame, console)
         
         try:
-            with Live(make_layout(self.latest_frame()), console=console, refresh_per_second=1/self.refresh_seconds, screen=True) as live:
+            with Live(
+                make_layout(self.latest_frame()), 
+                console=console, 
+                refresh_per_second=1/self.refresh_seconds, 
+                screen=True,
+                width=term_width,
+            ) as live:
                 while True:
                     frame = self.latest_frame()
                     live.update(make_layout(frame))
