@@ -473,9 +473,10 @@ class TestRichIntegration:
         
         training_panel = tvt._make_training_panel(frame)
         
-        # Panel should have title and border style
+        # Panel should have title and box style (Rich v15 uses 'box' not 'border_style' for box characters)
         assert training_panel.title == "Training Vitals"
-        assert training_panel.border_style == "double"
+        from rich.box import DOUBLE
+        assert training_panel.box == DOUBLE
 
     def test_rich_table_creation(self, tmp_path: Path):
         """Test Rich table creation for process monitor."""
