@@ -879,7 +879,7 @@ def _run_pipeline(raw: list[str]) -> int:
     asr_engine.initialize()
     
     print(f"Initializing TTS engine: {ns.tts}")
-    tts_config = TTSConfig(sample_rate=22050, vocab_size=1000)
+    tts_config = TTSConfig(sample_rate=22050)
     tts_engine = TTSEngine(tts_config)
     tts_engine.initialize()
     
@@ -958,7 +958,7 @@ def _run_assistant(raw: list[str]) -> int:
     tts_engine = None
     if ns.voice:
         print("Initializing voice mode...")
-        tts_config = TTSConfig(sample_rate=22050, vocab_size=1000)
+        tts_config = TTSConfig(sample_rate=22050)
         tts_engine = TTSEngine(tts_config)
         tts_engine.initialize()
         print("✓ Voice mode enabled\n")
@@ -1009,7 +1009,7 @@ def _run_assistant(raw: list[str]) -> int:
             if user_input.lower() == "/voice":
                 if tts_engine is None:
                     print("Initializing voice mode...")
-                    tts_config = TTSConfig(sample_rate=22050, vocab_size=1000)
+                    tts_config = TTSConfig(sample_rate=22050)
                     tts_engine = TTSEngine(tts_config)
                     tts_engine.initialize()
                     print("✓ Voice mode enabled")
