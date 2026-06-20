@@ -5,13 +5,16 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Testing
-.pytest_cache/
-.coverage
-coverage/
-htmlcov/
+# Build artifacts
+build/
+dist/
+*.so
+*.dylib
+*.dll
 
 # Environment
+.venv/
+venv/
 .env
 .env.local
 *.env.*
@@ -25,6 +28,14 @@ htmlcov/
 # Logs
 *.log
 
-# Temp files
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Temporary files
 *.tmp
+*~
+.DS_Store
+Thumbs.db
 ```
