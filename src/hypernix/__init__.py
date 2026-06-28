@@ -294,6 +294,7 @@ if not _is_tvtop:
         "plasma",
         "pressure_cooker",
         "pressure_cooker_v3",
+        "pressure_cooker_v4",
         "preheat",
         "print_models",
         "quant_batch",
