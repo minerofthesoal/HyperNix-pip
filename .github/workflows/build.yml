@@ -71,7 +71,9 @@ jobs:
           echo "::notice::building $name $version"
 
       - name: Build sdist + wheel
-        run: python -m build
+        run: |
+          rm -rf dist/
+          python -m build
         env:
           BUILD_CCTVTOP: "1"
 
@@ -91,8 +93,8 @@ jobs:
             mv wheelhouse/*-manylinux*.whl .
             rm -rf wheelhouse
           fi
-          # Remove the original non-manylinux wheels
-          rm -f *-cp*-linux_*.whl
+          # Remove the original non-manylinux wheels (keep only manylinux)
+          find . -name '*-cp*-linux_*.whl' -delete
           ls -la *.whl
           cd ..
 
