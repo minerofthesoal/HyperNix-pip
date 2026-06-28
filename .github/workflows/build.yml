@@ -86,6 +86,11 @@ jobs:
             auditwheel show "$whl" || true
             auditwheel repair --plat manylinux_2_34_x86_64 "$whl"
           done
+          # Move repaired wheels from wheelhouse/ to dist/
+          if [ -d wheelhouse ]; then
+            mv wheelhouse/*-manylinux*.whl .
+            rm -rf wheelhouse
+          fi
           # Remove the original non-manylinux wheels
           rm -f *-cp*-linux_*.whl
           ls -la *.whl
