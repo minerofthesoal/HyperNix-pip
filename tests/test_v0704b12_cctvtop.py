@@ -15,7 +15,7 @@ def test_cctvtop_finds_logs(tmp_path: Path):
     try:
         try:
             cli_main()
-            assert False, "Should have exited"
+            raise AssertionError("Should have exited")
         except SystemExit as e:
             assert e.code == 1
     finally:
