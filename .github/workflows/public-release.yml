@@ -149,6 +149,8 @@ jobs:
         run: PYTHONPATH=src pytest -q
 
       - name: Build sdist + wheel
+        env:
+          BUILD_CCTVTOP: "1"
         run: python -m build
 
       - name: Twine check
