@@ -1,0 +1,26 @@
+{
+  "_comment": "Config for run_hypernix.py. First run bootstraps (downloads the HF snapshot and writes bundle_path); subsequent runs load that bundle directly, so you can ship this JSON + the .pt file anywhere and run offline.",
+
+  "repo_id": "ray0rf1re/hyper-nix.1",
+  "revision": null,
+  "token": null,
+
+  "bundle_path": "./hypernix.pt",
+  "local_dir": null,
+
+  "device": null,
+  "dtype": "float32",
+
+  "mode": "complete",
+  "prompt": "def fibonacci(n):",
+  "fill_prefix": "def add(a, b):\n    return ",
+  "fill_suffix": "\n\nresult = add(1, 2)",
+
+  "max_new_tokens": 128,
+  "temperature": 0.2,
+  "top_k": 40,
+  "top_p": 0.95,
+  "seed": null,
+
+  "output_path": null
+}
