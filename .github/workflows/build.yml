@@ -82,10 +82,13 @@ jobs:
           cd dist
           for whl in *-cp*-*.whl; do
             if [[ "$whl" == *manylinux* ]]; then continue; fi
-            auditwheel repair --plat manylinux_2_34_x86_64 "$whl" || true
+            echo "Repairing $whl..."
+            auditwheel show "$whl" || true
+            auditwheel repair --plat manylinux_2_34_x86_64 "$whl"
           done
-          # Remove the original non-manylinux wheel
+          # Remove the original non-manylinux wheels
           rm -f *-cp*-linux_*.whl
+          ls -la *.whl
           cd ..
 
       - name: twine check (strict)
