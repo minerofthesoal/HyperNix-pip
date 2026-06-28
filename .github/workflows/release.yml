@@ -36,6 +36,13 @@ jobs:
     uses: ./.github/workflows/build.yml
 
   # ---------------------------------------------------------------------------
+  # Build the cctvtop C++ extension wheel (GitHub Releases only, NOT PyPI)
+  # ---------------------------------------------------------------------------
+  build-cctvtop:
+    name: build cctvtop
+    uses: ./.github/workflows/build-cctvtop.yml
+
+  # ---------------------------------------------------------------------------
   # Verify the git tag matches pyproject.toml before any publish step.
   # ---------------------------------------------------------------------------
   verify-tag:
@@ -84,7 +91,7 @@ jobs:
   github-release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, verify-tag, classify]
+    needs: [build, build-cctvtop, verify-tag, classify]
     runs-on: ubuntu-latest
     steps:
       - name: Download build artifact
@@ -92,6 +99,15 @@ jobs:
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: dist
+
+      - name: Download cctvtop wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-cctvtop.outputs.artifact_name }}
+          path: dist-cctvtop
+
+      - name: Move cctvtop wheel to dist
+        run: mv dist-cctvtop/*.whl dist/
 
       - name: Show artifacts
         run: ls -lah dist/
@@ -108,9 +124,18 @@ jobs:
           body: |
             ## hypernix ${{ github.ref_name }}
 
-            **Install:**
+            **Install from PyPI (pure Python, no C++ extension):**
             ```bash
             pip install "hypernix[llama-cpp]==${{ needs.build.outputs.version }}"
+            ```
+
+            **Install with C++ cctvtop extension (from GitHub Releases):**
+            ```bash
+            # First install the base package
+            pip install "hypernix==${{ needs.build.outputs.version }}"
+            # Then download and install the cctvtop wheel from this release
+            # (look for hypernix-cctvtop-*.whl in the Assets below)
+            pip install hypernix-cctvtop-${{ needs.build.outputs.version }}-*.whl
             ```
 
             Default (fp32 + fp16 only, no external binary needed):
@@ -168,8 +193,10 @@ jobs:
           cd dist
           # PyPI only accepts .whl and .tar.gz (the sdist). Drop the extras tarball
           # and the checksum file, which we don't want on the index.
+          # ALSO remove the cctvtop C++ extension wheel - it goes to GitHub Releases only
           rm -f SHA256SUMS
           rm -f *-scripts-examples.tar.gz
+          rm -f *-cctvtop-*.whl
           ls -lah
 
       - name: Publish
@@ -204,6 +231,8 @@ jobs:
           cd dist
           rm -f SHA256SUMS
           rm -f *-scripts-examples.tar.gz
+          # ALSO remove the cctvtop C++ extension wheel - it goes to GitHub Releases only
+          rm -f *-cctvtop-*.whl
           ls -lah
 
       - name: Publish

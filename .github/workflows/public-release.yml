@@ -259,7 +259,8 @@ jobs:
   #   repo      = minerofthesoal/hypernix-pip
   #   workflow  = public-release.yml
   #   environment = pypi
-  # This job rebuilds the wheel with the cctvtop C++ extension for PyPI.
+  # This job publishes ONLY the pure Python wheel (no C++ extension) to PyPI.
+  # The C++ extension wheel is available only via GitHub Releases.
   # ---------------------------------------------------------------------------
   pypi-publish:
     name: publish to PyPI
@@ -291,15 +292,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install "build>=1.2" "twine>=6"
 
-      - name: Checkout for C++ extension build
+      - name: Checkout for pure Python wheel build
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Rebuild wheel with cctvtop C++ extension
-        env:
-          BUILD_CCTVTOP: "1"
+      - name: Rebuild pure Python wheel (no C++ extension)
         run: |
           rm -f dist/*.whl
           python -m build --wheel
@@ -318,6 +317,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Publish prereleases to TestPyPI. Same OIDC setup, different environment.
+  # This job publishes ONLY the pure Python wheel (no C++ extension) to TestPyPI.
+  # The C++ extension wheel is available only via GitHub Releases.
   # ---------------------------------------------------------------------------
   testpypi-publish:
     name: publish to TestPyPI
@@ -339,10 +340,31 @@ jobs:
           name: public-release-${{ inputs.version }}
           path: .
 
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install "build>=1.2" "twine>=6"
+
+      - name: Checkout for pure Python wheel build
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebuild pure Python wheel (no C++ extension)
+        run: |
+          rm -f dist/*.whl
+          python -m build --wheel
+
       - name: Strip non-PyPI files
         run: |
           cd dist
-          rm -f SHA256SUMS
+          rm -f SHA256SUMS *.tar.gz
           ls -lah
 
       - name: Publish

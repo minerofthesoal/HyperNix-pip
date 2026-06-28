@@ -70,31 +70,15 @@ jobs:
           echo "artifact_name=${name}-dist-${version}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "::notice::building $name $version"
 
-      - name: Build sdist + wheel
-        run: python -m build
-        env:
-          BUILD_CCTVTOP: "1"
-
-      - name: Repair wheel with auditwheel (manylinux)
+      - name: Build sdist + wheel (WITHOUT C++ extension for PyPI)
         run: |
-          pip install auditwheel patchelf
-          # Repair all built wheels to manylinux format for PyPI compatibility
-          cd dist
-          for whl in *-cp*-*.whl; do
-            if [[ "$whl" == *manylinux* ]]; then continue; fi
-            echo "Repairing $whl..."
-            auditwheel show "$whl" || true
-            auditwheel repair --plat manylinux_2_34_x86_64 "$whl"
-          done
-          # Move repaired wheels from wheelhouse/ to dist/
-          if [ -d wheelhouse ]; then
-            mv wheelhouse/*-manylinux*.whl .
-            rm -rf wheelhouse
-          fi
-          # Remove the original non-manylinux wheels
-          rm -f *-cp*-linux_*.whl
-          ls -la *.whl
-          cd ..
+          rm -rf dist/
+          python -m build
+        # Do NOT set BUILD_CCTVTOP here - we want a pure Python wheel for PyPI
+        # The C++ extension will be distributed via GitHub Releases only
+
+      # Skip auditwheel repair since we're building a universal wheel
+      # The C++ extension wheel will be built separately for GitHub Releases
 
       - name: twine check (strict)
         run: twine check --strict dist/*
@@ -113,10 +97,11 @@ jobs:
           python -c "from hypernix.compute_framework import ComputeFramework; print('compute_framework OK')"
           python -c "from hypernix.abbicus import Abbicus; print('abbicus OK')"
           python -c "from hypernix.tv import TVTop, sparkline; print('tv OK')"
-          python -c "from hypernix import cctvtop_ext; print('cctvtop_ext C++ module OK')"
+          # Skip cctvtop_ext test - C++ module not included in PyPI wheel
+          # python -c "from hypernix import cctvtop_ext; print('cctvtop_ext C++ module OK')"
           hypernix --help
           tvtop --help
-          cctvtop --help
+          cctvtop --help || true  # cctvtop will warn about missing C++ module, which is expected
           hypernix doctor || true   # llama-quantize is absent on the runner; non-fatal
 
       - name: Install sdist in a clean venv and smoke-test
@@ -127,10 +112,11 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install "rich>=13"
           pip install dist/*.tar.gz
-          python -c "from hypernix import cctvtop_ext; print('cctvtop_ext C++ module OK')"
+          # Skip cctvtop_ext test - C++ module not included in PyPI wheel
+          # python -c "from hypernix import cctvtop_ext; print('cctvtop_ext C++ module OK')"
           hypernix --help
           tvtop --help
-          cctvtop --help
+          cctvtop --help || true  # cctvtop will warn about missing C++ module, which is expected
 
       - name: Bundle scripts + examples for non-pip users
         run: |

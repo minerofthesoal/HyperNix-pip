@@ -1,0 +1,75 @@
+name: build-cctvtop
+
+# Build the cctvtop C++ extension wheel for GitHub Releases only.
+# This is NOT published to PyPI - only attached to GitHub Releases.
+# Users who need the C++ accelerated cctvtop dashboard can download
+# the wheel from the Release assets and install it manually.
+
+on:
+  workflow_call:
+    outputs:
+      artifact_name:
+        description: "Name of the uploaded artifact."
+        value: ${{ jobs.build-cctvtop.outputs.artifact_name }}
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "src/hypernix/cctvtop.cpp"
+      - "setup.py"
+      - ".github/workflows/build-cctvtop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-cctvtop:
+    name: build cctvtop C++ wheel
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install "build>=1.2" "setuptools>=77" wheel
+
+      - name: Read package metadata
+        id: meta
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          name=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["name"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "name=$name"       >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${name}-cctvtop-${version}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "::notice::building cctvtop extension for $name $version"
+
+      - name: Build cctvtop C++ extension wheel
+        run: |
+          rm -rf dist/
+          python -m build --wheel
+        env:
+          BUILD_CCTVTOP: "1"
+
+      - name: List built wheels
+        run: ls -lah dist/
+
+      - name: Upload cctvtop wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 90
