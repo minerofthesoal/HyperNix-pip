@@ -72,8 +72,6 @@ jobs:
 
       - name: Build sdist + wheel
         run: python -m build
-        env:
-          BUILD_CCTVTOP: "1"
 
       - name: twine check (strict)
         run: twine check --strict dist/*
@@ -92,10 +90,8 @@ jobs:
           python -c "from hypernix.compute_framework import ComputeFramework; print('compute_framework OK')"
           python -c "from hypernix.abbicus import Abbicus; print('abbicus OK')"
           python -c "from hypernix.tv import TVTop, sparkline; print('tv OK')"
-          python -c "from hypernix import cctvtop_ext; print('cctvtop_ext C++ module OK')"
           hypernix --help
           tvtop --help
-          cctvtop --help
           hypernix doctor || true   # llama-quantize is absent on the runner; non-fatal
 
       - name: Install sdist in a clean venv and smoke-test
@@ -106,10 +102,8 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install "rich>=13"
           pip install dist/*.tar.gz
-          python -c "from hypernix import cctvtop_ext; print('cctvtop_ext C++ module OK')"
           hypernix --help
           tvtop --help
-          cctvtop --help
 
       - name: Bundle scripts + examples for non-pip users
         run: |
