@@ -1,4 +1,38 @@
 ```
-# CI/CD
-.github/
+# Python build artifacts
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Coverage reports
+.coverage
+htmlcov/
+coverage/
+
+# Distribution archives
+*.whl
+*.tar.gz
+*.zip
+
+# MyPy cache
+.mypy_cache/
 ```
