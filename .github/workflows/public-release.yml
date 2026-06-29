@@ -149,9 +149,7 @@ jobs:
         run: PYTHONPATH=src pytest -q
 
       - name: Build sdist + wheel
-        run: |
-          export BUILD_CCTVTOP=1
-          python -m build
+        run: python -m build
 
       - name: Twine check
         run: twine check --strict dist/*
