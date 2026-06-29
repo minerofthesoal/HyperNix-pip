@@ -75,19 +75,6 @@ jobs:
         env:
           BUILD_CCTVTOP: "1"
 
-      - name: Repair wheel with auditwheel (manylinux)
-        run: |
-          pip install auditwheel patchelf
-          # Repair all built wheels to manylinux format for PyPI compatibility
-          cd dist
-          for whl in *-cp*-*.whl; do
-            if [[ "$whl" == *manylinux* ]]; then continue; fi
-            auditwheel repair --plat manylinux_2_34_x86_64 "$whl" || true
-          done
-          # Remove the original non-manylinux wheel
-          rm -f *-cp*-linux_*.whl
-          cd ..
-
       - name: twine check (strict)
         run: twine check --strict dist/*
 
