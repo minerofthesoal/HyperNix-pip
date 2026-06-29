@@ -230,6 +230,8 @@ static PyObject* run_dashboard(PyObject* self, PyObject* args) {
     }
 
     lock.unlock();
+    std::cout << std::flush;
+    std::cout << "\n\033[0m\033[2J\033[H"; // Reset, clear screen, move to home
     Py_RETURN_NONE;
 }
 
