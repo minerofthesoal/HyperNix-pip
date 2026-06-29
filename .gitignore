@@ -1,12 +1,42 @@
-```
-# Logs and temp files
-*.log
+# Dependencies
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
 
 # Environment
 .env
 .env.local
 *.env.*
 
-# Editors
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor
 .vscode/
-```
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+target/
+.gradle/
+node_modules/
+venv/
+.venv/
+.mypy_cache/
+.tox/
