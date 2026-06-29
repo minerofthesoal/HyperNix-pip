@@ -15,25 +15,6 @@ next release header.
 - 📚 documentation
 - 🔧 internal / plumbing
 
-## 0.70.4.post2
-
-🔧 **PyPI packaging fix — C++ extension separated from pure Python wheel.**  
-Resolved the `manylinux` platform tag issue that prevented wheels with the C++ `cctvtop_ext` module from being uploaded to PyPI/TestPyPI. The build workflow now produces two distinct artifacts:
-- **Pure Python wheel** (`hypernix-<ver>-py3-none-any.whl`) — published to PyPI/TestPyPI, contains no C++ extensions, works everywhere
-- **C++ extension wheel** (`hypernix-cctvtop-<ver>-cpXXX-cpXXX-manylinux_*.whl`) — available only via GitHub Releases for users who want the accelerated `cctvtop` dashboard
-
-Users can install the base package from PyPI with `pip install hypernix`, then optionally download the C++ wheel from GitHub Releases if they want the high-performance `cctvtop` TUI.
-
-🔧 **GitHub Actions workflow updates.** Modified `.github/workflows/build.yml` and `.github/workflows/public-release.yml` to:
-- Build pure Python wheels for PyPI by default (no `BUILD_CCTVTOP` flag)
-- Build C++ extension wheels only for GitHub Releases (with `BUILD_CCTVTOP=1`)
-- Clean `dist/` directory before builds to prevent old incompatible wheels from accumulating
-- Removed silent `|| true` fallbacks that were masking `auditwheel` failures
-
-📚 **Documentation.** Updated installation instructions to clarify the optional nature of the C++ extension and how to obtain it from GitHub Releases.
-
----
-
 ## 0.70.4b11
 
 ✨ **`qa` — Q&A dataset formatter.** New module (`hypernix.qa.QAProcessor`)
