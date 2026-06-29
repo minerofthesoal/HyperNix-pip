@@ -149,7 +149,9 @@ jobs:
         run: PYTHONPATH=src pytest -q
 
       - name: Build sdist + wheel
-        run: python -m build
+        run: |
+          export BUILD_CCTVTOP=1
+          python -m build
 
       - name: Twine check
         run: twine check --strict dist/*
@@ -183,14 +185,6 @@ jobs:
           path: |
             dist/
             CHANGELOG_FRAGMENT.md
-          retention-days: 14
-
-      - name: Upload PyPI-only sdist
-        uses: actions/upload-artifact@v4
-        with:
-          name: pypi-dists-${{ inputs.version }}
-          path: |
-            dist/*.tar.gz
           retention-days: 14
 
       - name: Commit version bump
@@ -257,7 +251,6 @@ jobs:
   #   repo      = minerofthesoal/hypernix-pip
   #   workflow  = public-release.yml
   #   environment = pypi
-  # This job rebuilds the wheel with the cctvtop C++ extension for PyPI.
   # ---------------------------------------------------------------------------
   pypi-publish:
     name: publish to PyPI
@@ -273,39 +266,16 @@ jobs:
       name: pypi
       url: https://pypi.org/project/hypernix/
     steps:
-      - name: Download sdist artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: pypi-dists-${{ inputs.version }}
-          path: dist
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install tooling
-        run: |
-          python -m pip install --upgrade pip
-          pip install "build>=1.2" "twine>=6"
-
-      - name: Checkout for C++ extension build
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Rebuild wheel with cctvtop C++ extension
-        env:
-          BUILD_CCTVTOP: "1"
-        run: |
-          rm -f dist/*.whl
-          python -m build --wheel
+          name: public-release-${{ inputs.version }}
+          path: .
 
       - name: Strip non-PyPI files
         run: |
           cd dist
-          rm -f SHA256SUMS *.tar.gz
+          rm -f SHA256SUMS
           ls -lah
 
       - name: Publish
