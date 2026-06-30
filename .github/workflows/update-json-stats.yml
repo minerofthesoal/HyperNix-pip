@@ -2,7 +2,12 @@ name: Update JSON Stats
 
 # Pulls current PyPI download numbers for `hypernix`, rolls anything older
 # than 30 days into a separate "older" bucket, and commits the refreshed
-# docs/v1/json file back to main.
+# docs/public/v1/json file back to main.
+#
+# This lives under docs/public/ (Vite's publicDir) specifically so that
+# `npm run build` copies it into docs/dist/v1/json and it actually ships
+# with the deployed site — docs/v1/json (no /public/) sits outside Vite's
+# publicDir and silently never makes it into the build output.
 #
 # Runs automatically once a day at ~20:45 UTC, and can also be triggered
 # manually from the Actions tab (workflow_dispatch) — manual runs are
@@ -43,10 +48,10 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Fetch PyPI stats and update docs/v1/json
+      - name: Fetch PyPI stats and update docs/public/v1/json
         env:
           PYPI_PACKAGE: hypernix
-          JSON_PATH: docs/v1/json
+          JSON_PATH: docs/public/v1/json
           MANUAL_RUN_REASON: ${{ github.event.inputs.reason }}
         run: python scripts/update_json_stats.py
 
@@ -54,11 +59,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- docs/v1/json; then
-            echo "No changes to docs/v1/json — skipping commit."
+          if git diff --quiet -- docs/public/v1/json; then
+            echo "No changes to docs/public/v1/json — skipping commit."
             exit 0
           fi
-          git add docs/v1/json
+          git add docs/public/v1/json
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git commit -m "chore: update JSON stats (manual run)"
           else
