@@ -1,9 +1,9 @@
 {
   "version": "0.70.4",
   "total_downloads": 5112,
-  "last_day": 0,
-  "last_week": 0,
-  "last_month": 0,
+  "last_day": 8,
+  "last_week": 163,
+  "last_month": 1656,
   "downloads": {
     "recent": {
       "window_days": 30,
@@ -133,6 +133,5 @@
       "to": "2026-05-29"
     }
   },
-  "updated_at": "2026-06-30T03:33:48.487390Z",
-  "last_manual_run_reason": "testing functionality"
+  "updated_at": "2026-06-30T03:50:28.911955Z"
 }
