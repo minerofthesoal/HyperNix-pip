@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HyperNix Control Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="logo">
+        <svg class="logo-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="foxGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
+              <stop offset="100%" style="stop-color:#ea580c;stop-opacity:1" />
+            </linearGradient>
+          </defs>
+          <!-- Fox Head Stylized -->
+          <path d="M20,30 L35,10 L50,30 L65,10 L80,30 L75,55 L50,85 L25,55 Z" fill="url(#foxGradient)" stroke="#fff" stroke-width="2"/>
+          <circle cx="35" cy="40" r="3" fill="#000"/>
+          <circle cx="65" cy="40" r="3" fill="#000"/>
+          <path d="M45,50 Q50,55 55,50" stroke="#000" stroke-width="2" fill="none"/>
+          <!-- Network Node Overlay -->
+          <circle cx="50" cy="20" r="4" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+          <circle cx="20" cy="60" r="4" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+          <circle cx="80" cy="60" r="4" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+          <line x1="50" y1="20" x2="20" y2="60" stroke="#3b82f6" stroke-width="1.5" opacity="0.6"/>
+          <line x1="50" y1="20" x2="80" y2="60" stroke="#3b82f6" stroke-width="1.5" opacity="0.6"/>
+          <line x1="20" y1="60" x2="80" y2="60" stroke="#3b82f6" stroke-width="1.5" opacity="0.6"/>
+        </svg>
+        <span class="logo-text">HyperNix</span>
+      </div>
+      <nav class="side-nav">
+        <button class="nav-item active" data-panel="dashboard">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-panel="script-builder">
+          <span class="nav-icon">🧩</span>
+          <span>Script Builder</span>
+        </button>
+        <button class="nav-item" data-panel="training">
+          <span class="nav-icon">⚙️</span>
+          <span>Training</span>
+        </button>
+        <button class="nav-item" data-panel="quantize">
+          <span class="nav-icon">📦</span>
+          <span>Quantize</span>
+        </button>
+        <button class="nav-item" data-panel="tupperware">
+          <span class="nav-icon">🔄</span>
+          <span>Tupperware</span>
+        </button>
+        <button class="nav-item" data-panel="tvtop">
+          <span class="nav-icon">🖥️</span>
+          <span>Tvtop Monitor</span>
+        </button>
+        <button class="nav-item" data-panel="network">
+          <span class="nav-icon">🌐</span>
+          <span>Network Mgr</span>
+        </button>
+        <button class="nav-item" data-panel="modules">
+          <span class="nav-icon">🧠</span>
+          <span>Modules</span>
+        </button>
+        <button class="nav-item" data-panel="chat">
+          <span class="nav-icon">💬</span>
+          <span>Assistant Chat</span>
+        </button>
+        <button class="nav-item" data-panel="settings">
+          <span class="nav-icon">🔧</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-pill online">
+          <span class="pulse-dot"></span>
+          <span>Online</span>
+        </div>
+        <span class="version-tag" id="sidebar-version">v--</span>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="top-bar">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">HyperNix</span>
+          <span class="breadcrumb-separator">/</span>
+          <span class="breadcrumb-item active" id="current-panel">Dashboard</span>
+        </div>
+        <div class="top-actions">
+          <div class="info-chip" id="tailscale-chip">
+            <span class="chip-icon">🌐</span>
+            <span class="chip-text">Local Only</span>
+          </div>
+          <div class="info-chip">
+            <span class="chip-icon">🖥️</span>
+            <span class="chip-text" id="host-display">localhost</span>
+          </div>
+          <button class="icon-btn" onclick="refreshStatus()" title="Refresh">
+            <span>🔄</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Dashboard Panel -->
+      <section id="dashboard" class="panel active">
+        <div class="panel-header">
+          <h1>Dashboard</h1>
+          <p class="panel-subtitle">System overview and quick access</p>
+        </div>
+        
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📦</div>
+            <div class="stat-content">
+              <div class="stat-value" id="dash-version">--</div>
+              <div class="stat-label">Version</div>
+            </div>
+            <div class="stat-trend update-available hidden" id="update-indicator">
+              <span>↗ Update</span>
+            </div>
+          </div>
+          
+          <div class="stat-card">
+            <div class="stat-icon">⏱️</div>
+            <div class="stat-content">
+              <div class="stat-value" id="dash-uptime">0s</div>
+              <div class="stat-label">Uptime</div>
+            </div>
+          </div>
+          
+          <div class="stat-card">
+            <div class="stat-icon">🔧</div>
+            <div class="stat-content">
+              <div class="stat-value" id="dash-modules-count">0</div>
+              <div class="stat-label">Active Modules</div>
+            </div>
+          </div>
+          
+          <div class="stat-card">
+            <div class="stat-icon">🌐</div>
+            <div class="stat-content">
+              <div class="stat-value" id="dash-ts-status">Disabled</div>
+              <div class="stat-label">Tailscale</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cards-row">
+          <div class="card">
+            <div class="card-header">
+              <h2>Quick Actions</h2>
+            </div>
+            <div class="quick-actions">
+              <button class="action-card" onclick="showPanel('script-builder')">
+                <span class="action-icon">🧩</span>
+                <span class="action-label">Build Script</span>
+              </button>
+              <button class="action-card" onclick="showPanel('training')">
+                <span class="action-icon">⚙️</span>
+                <span class="action-label">Train Model</span>
+              </button>
+              <button class="action-card" onclick="showPanel('quantize')">
+                <span class="action-icon">📦</span>
+                <span class="action-label">Quantize</span>
+              </button>
+              <button class="action-card" onclick="showPanel('tupperware')">
+                <span class="action-icon">🔄</span>
+                <span class="action-label">Dataset Rounds</span>
+              </button>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-header">
+              <h2>Active Modules</h2>
+            </div>
+            <div class="module-list" id="dash-module-list">
+              <div class="empty-state">Loading modules...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Script Builder Panel (Visual Block-Based) -->
+      <section id="script-builder" class="panel">
+        <div class="panel-header">
+          <h1>Script Builder</h1>
+          <p class="panel-subtitle">Drag and drop blocks to create HyperNix workflows</p>
+        </div>
+        
+        <div class="builder-container">
+          <div class="block-palette">
+            <h3>Blocks</h3>
+            <div class="palette-category">
+              <span class="category-label">Download</span>
+              <div class="block" draggable="true" data-block-type="download">
+                <span class="block-icon">⬇️</span>
+                <span class="block-name">Download</span>
+              </div>
+            </div>
+            <div class="palette-category">
+              <span class="category-label">Training</span>
+              <div class="block" draggable="true" data-block-type="pressure-cooker">
+                <span class="block-icon">🔥</span>
+                <span class="block-name">Pressure Cooker</span>
+              </div>
+              <div class="block" draggable="true" data-block-type="abbicus">
+                <span class="block-icon">📈</span>
+                <span class="block-name">Abbicus</span>
+              </div>
+              <div class="block" draggable="true" data-block-type="compute-framework">
+                <span class="block-icon">💻</span>
+                <span class="block-name">Compute Framework</span>
+              </div>
+            </div>
+            <div class="palette-category">
+              <span class="category-label">Quantization</span>
+              <div class="block" draggable="true" data-block-type="quantize">
+                <span class="block-icon">📦</span>
+                <span class="block-name">Quantize</span>
+              </div>
+            </div>
+            <div class="palette-category">
+              <span class="category-label">Data</span>
+              <div class="block" draggable="true" data-block-type="tupperware">
+                <span class="block-icon">🔄</span>
+                <span class="block-name">Tupperware</span>
+              </div>
+              <div class="block" draggable="true" data-block-type="sink">
+                <span class="block-icon">💾</span>
+                <span class="block-name">Sink</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="workspace">
+            <div class="workspace-toolbar">
+              <button class="tool-btn" onclick="clearWorkspace()">🗑️ Clear</button>
+              <button class="tool-btn" onclick="exportScript()">📤 Export</button>
+              <button class="tool-btn primary" onclick="runScript()">▶️ Run</button>
+            </div>
+            <div class="workflow-canvas" id="workflow-canvas">
+              <div class="canvas-placeholder" id="canvas-placeholder">
+                <span class="placeholder-icon">🧩</span>
+                <span>Drag blocks here to build your workflow</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="block-config" id="block-config">
+            <h3>Configuration</h3>
+            <p class="config-hint">Select a block to configure</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Training Panel -->
+      <section id="training" class="panel">
+        <div class="panel-header">
+          <h1>Training</h1>
+          <p class="panel-subtitle">Configure and monitor model training</p>
+        </div>
+        
+        <div class="two-column">
+          <div class="card">
+            <div class="card-header">
+              <h2>Configuration</h2>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="train-optimizer">Optimizer</label>
+                <select id="train-optimizer">
+                  <option value="PressureCookerV3Plus">PressureCookerV3Plus</option>
+                  <option value="StovetopV3CookerPlus">StovetopV3CookerPlus</option>
+                  <option value="CookerLite">CookerLite</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="train-dtype">Quant Dtype</label>
+                <select id="train-dtype">
+                  <option value="fp16">FP16</option>
+                  <option value="fp8">FP8</option>
+                  <option value="q5_5">Q5.5</option>
+                  <option value="q4_m">Q4M</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="train-curriculum">Abbicus Curriculum</label>
+                <select id="train-curriculum">
+                  <option value="dynamic">Dynamic (auto)</option>
+                  <option value="static">Static</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="train-lr">Learning Rate</label>
+                <input type="text" id="train-lr" value="3e-4" placeholder="e.g., 3e-4">
+              </div>
+              <div class="form-group">
+                <label for="train-batch">Batch Size</label>
+                <input type="number" id="train-batch" value="4" min="1" max="256">
+              </div>
+              <div class="form-group">
+                <label for="train-steps">Max Steps</label>
+                <input type="number" id="train-steps" value="1000" min="100" max="100000">
+              </div>
+            </div>
+            <button class="btn primary full-width" id="train-btn">
+              <span class="btn-icon">▶</span>
+              <span>Start Training</span>
+            </button>
+          </div>
+          
+          <div class="card">
+            <div class="card-header">
+              <h2>Telemetry</h2>
+            </div>
+            <div class="telemetry-grid">
+              <div class="tele-item">
+                <div class="tele-value" id="train-step">0</div>
+                <div class="tele-label">Step</div>
+              </div>
+              <div class="tele-item">
+                <div class="tele-value" id="train-loss">—</div>
+                <div class="tele-label">Loss</div>
+              </div>
+              <div class="tele-item">
+                <div class="tele-value" id="train-status">Idle</div>
+                <div class="tele-label">Status</div>
+              </div>
+            </div>
+            <div class="progress-container">
+              <div class="progress-track">
+                <div class="progress-bar" id="train-progress"></div>
+              </div>
+              <span class="progress-label" id="progress-percent">0%</span>
+            </div>
+            <div class="log-window" id="train-log">
+              <div class="log-line">Waiting for training run...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quantize Panel -->
+      <section id="quantize" class="panel">
+        <div class="panel-header">
+          <h1>Quantize</h1>
+          <p class="panel-subtitle">GGUF quantization studio</p>
+        </div>
+        
+        <div class="card max-width-lg">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label for="quant-profile">Quant Profile</label>
+              <select id="quant-profile">
+                <option value="chat">Chat → q4_k_m, q5_k_m, q6_k</option>
+                <option value="code">Code → q5_k_m, q6_k, q8_0</option>
+                <option value="edge">Edge → q4_k_m, iq4_xs, q3_k_m</option>
+                <option value="quality">Quality → q6_k, q8_0, f16</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="quant-input">Input Model Path</label>
+              <input type="text" id="quant-input" placeholder="/path/to/model.gguf">
+            </div>
+            <div class="form-group">
+              <label for="quant-output">Output Directory</label>
+              <input type="text" id="quant-output" placeholder="./quants/">
+            </div>
+            <div class="form-group">
+              <label for="quant-threads">Threads</label>
+              <input type="number" id="quant-threads" value="4" min="1" max="64">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" id="quant-run-btn">
+              <span class="btn-icon">🚀</span>
+              <span>Run Quantization</span>
+            </button>
+            <button class="btn secondary" onclick="showQuantCLI()">
+              <span class="btn-icon">📋</span>
+              <span>Show CLI</span>
+            </button>
+          </div>
+          <div class="log-window" id="quant-log">
+            <div class="log-line">Ready for quantization jobs...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tupperware Panel -->
+      <section id="tupperware" class="panel">
+        <div class="panel-header">
+          <h1>Tupperware</h1>
+          <p class="panel-subtitle">Dataset round splitting with per-round step budgets</p>
+        </div>
+        
+        <div class="card max-width-lg">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="tw-rounds">Number of Rounds</label>
+              <input type="number" id="tw-rounds" value="4" min="1" max="32">
+            </div>
+            <div class="form-group">
+              <label for="tw-eval">Eval After Each Round</label>
+              <select id="tw-eval">
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div class="form-group full-width">
+              <label for="tw-dataset">Dataset Path</label>
+              <input type="text" id="tw-dataset" placeholder="/path/to/dataset or HF repo">
+            </div>
+            <div class="form-group">
+              <label for="tw-steps">Base Steps per Round</label>
+              <input type="number" id="tw-steps" value="500" min="100" max="10000">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" id="tw-plan-btn">
+              <span class="btn-icon">📋</span>
+              <span>Generate Plan</span>
+            </button>
+            <button class="btn secondary" onclick="showTwCLI()">
+              <span class="btn-icon">🖥️</span>
+              <span>CLI Command</span>
+            </button>
+          </div>
+          <div class="log-window" id="tw-log">
+            <div class="log-line">Plan your rounds above...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tvtop Monitor Panel -->
+      <section id="tvtop" class="panel">
+        <div class="panel-header">
+          <h1>Tvtop Monitor</h1>
+          <p class="panel-subtitle">Real-time process and resource monitoring</p>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>Active Processes</h2>
+            <button class="btn secondary" onclick="refreshTvtop()">🔄 Refresh</button>
+          </div>
+          <div class="tvtop-table-container">
+            <table class="tvtop-table" id="tvtop-table">
+              <thead>
+                <tr>
+                  <th>PID</th>
+                  <th>User</th>
+                  <th>GPU%</th>
+                  <th>RAM%</th>
+                  <th>Command</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="tvtop-tbody">
+                <tr><td colspan="6" class="empty-state">Loading processes...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="cards-row" style="margin-top: 1rem;">
+          <div class="card">
+            <div class="card-header">
+              <h2>GPU Usage</h2>
+            </div>
+            <div class="gpu-stats" id="gpu-stats">
+              <div class="stat-item">
+                <span class="stat-label">GPU 0</span>
+                <div class="progress-track">
+                  <div class="progress-bar gpu-bar" id="gpu0-bar" style="width: 0%"></div>
+                </div>
+                <span class="stat-value" id="gpu0-val">--</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-header">
+              <h2>System Load</h2>
+            </div>
+            <div class="telemetry-grid">
+              <div class="tele-item">
+                <div class="tele-value" id="cpu-load">--</div>
+                <div class="tele-label">CPU Load</div>
+              </div>
+              <div class="tele-item">
+                <div class="tele-value" id="ram-usage">--</div>
+                <div class="tele-label">RAM Used</div>
+              </div>
+              <div class="tele-item">
+                <div class="tele-value" id="disk-io">--</div>
+                <div class="tele-label">Disk I/O</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Network Manager Panel -->
+      <section id="network" class="panel">
+        <div class="panel-header">
+          <h1>Network Manager</h1>
+          <p class="panel-subtitle">Tailscale and network configuration</p>
+        </div>
+        
+        <div class="card max-width-lg">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Tailscale Status</label>
+              <div class="status-badge" id="ts-status-badge">
+                <span class="status-dot"></span>
+                <span id="ts-status-text">Checking...</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Hostname</label>
+              <input type="text" id="net-hostname" readonly value="--">
+            </div>
+            <div class="form-group">
+              <label>Tailscale IP</label>
+              <input type="text" id="ts-ip" readonly value="--">
+            </div>
+            <div class="form-group">
+              <label>Funnel Status</label>
+              <div class="status-badge" id="funnel-status-badge">
+                <span class="status-dot"></span>
+                <span id="funnel-status-text">--</span>
+              </div>
+            </div>
+            <div class="form-group full-width">
+              <label>Share URL</label>
+              <div class="url-display">
+                <code id="share-url">--</code>
+                <button class="icon-btn" onclick="copyShareUrl()" title="Copy">📋</button>
+              </div>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top: 1.5rem;">
+            <button class="btn primary" id="enable-funnel-btn" onclick="toggleFunnel()">
+              <span class="btn-icon">🔓</span>
+              <span>Enable Funnel</span>
+            </button>
+            <button class="btn secondary" onclick="refreshNetwork()">
+              <span class="btn-icon">🔄</span>
+              <span>Refresh Status</span>
+            </button>
+          </div>
+        </div>
+        
+        <div class="card" style="margin-top: 1rem;">
+          <div class="card-header">
+            <h2>Network Interfaces</h2>
+          </div>
+          <div class="interface-list" id="interface-list">
+            <div class="empty-state">Loading interfaces...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Modules Panel -->
+      <section id="modules" class="panel">
+        <div class="panel-header">
+          <h1>Modules</h1>
+          <p class="panel-subtitle">Available HyperNix components</p>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>All Modules</h2>
+            <button class="btn secondary" onclick="refreshModules()">🔄 Refresh</button>
+          </div>
+          <div class="module-grid" id="all-module-tags">
+            <div class="empty-state">Loading modules...</div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>Module Reference</h2>
+          </div>
+          <div class="module-reference">
+            <div class="ref-item">
+              <code>PressureCookerV3</code>
+              <p>Advanced optimizer with quantization-aware training (QAT), gradient checkpointing, adaptive clipping, EMA shadowing, and distributed awareness.</p>
+            </div>
+            <div class="ref-item">
+              <code>StovetopV3CookerPlus</code>
+              <p>Enhanced stovetop variant optimized for stable convergence on consumer hardware.</p>
+            </div>
+            <div class="ref-item">
+              <code>Abbicus</code>
+              <p>Dynamic curriculum learning system that automatically adjusts sequence length and padding based on model size and dataset complexity.</p>
+            </div>
+            <div class="ref-item">
+              <code>ComputeFramework</code>
+              <p>Hardware abstraction layer supporting CUDA, MPS, CPU, and TPU backends with automatic DDP/ZeRO wrapping.</p>
+            </div>
+            <div class="ref-item">
+              <code>Tupperware</code>
+              <p>Dataset round-splitting utility for multi-phase training with per-round step budgets and learning rate schedules.</p>
+            </div>
+            <div class="ref-item">
+              <code>HyperNixQuantizer</code>
+              <p>GGUF quantization pipeline supporting 30+ quantization types from F32 to IQ2_XXS.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chat Panel -->
+      <section id="chat" class="panel">
+        <div class="panel-header">
+          <h1>Assistant Chat</h1>
+          <p class="panel-subtitle">AI-powered help for HyperNix workflows</p>
+        </div>
+        
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            <div class="message assistant">
+              <div class="message-avatar">🤖</div>
+              <div class="message-content">
+                <p>Hello! I'm your HyperNix assistant. I can help you with:</p>
+                <ul>
+                  <li>Building training workflows</li>
+                  <li>Configuring quantization jobs</li>
+                  <li>Planning dataset rounds with Tupperware</li>
+                  <li>Debugging module issues</li>
+                  <li>Generating CLI commands</li>
+                </ul>
+                <p>What would you like to work on?</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="Type your question..." rows="2"></textarea>
+            <button class="btn primary" id="chat-send-btn">
+              <span class="btn-icon">📤</span>
+              <span>Send</span>
+            </button>
+          </div>
+          <div class="chat-suggestions">
+            <button class="suggestion-chip" onclick="sendSuggestion('How do I start training?')">How do I start training?</button>
+            <button class="suggestion-chip" onclick="sendSuggestion('Explain quantization profiles')">Explain quantization profiles</button>
+            <button class="suggestion-chip" onclick="sendSuggestion('Create a Tupperware plan')">Create a Tupperware plan</button>
+            <button class="suggestion-chip" onclick="sendSuggestion('What modules are active?')">What modules are active?</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Panel -->
+      <section id="settings" class="panel">
+        <div class="panel-header">
+          <h1>Settings</h1>
+          <p class="panel-subtitle">Server configuration and preferences</p>
+        </div>
+        
+        <div class="card max-width-md">
+          <div class="form-group">
+            <label>Server URL</label>
+            <div class="input-with-copy">
+              <input type="text" id="settings-url" readonly>
+              <button class="copy-btn" onclick="copyToClipboard('settings-url')">📋</button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label>Tailscale Status</label>
+            <div class="status-box" id="settings-ts-info">
+              <span class="status-dot"></span>
+              <span>Loading...</span>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="settings-refresh">Auto-refresh Interval</label>
+            <select id="settings-refresh">
+              <option value="5000">5 seconds</option>
+              <option value="15000" selected>15 seconds</option>
+              <option value="30000">30 seconds</option>
+              <option value="60000">1 minute</option>
+            </select>
+          </div>
+          
+          <div class="btn-row">
+            <button class="btn secondary" onclick="refreshStatus(true)">
+              <span class="btn-icon">🔄</span>
+              <span>Refresh Now</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  
+  <script src="/static/app.js"></script>
+</body>
+</html>
