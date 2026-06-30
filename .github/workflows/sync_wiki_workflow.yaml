@@ -1,0 +1,49 @@
+name: Sync Wiki
+
+# This triggers the action every time a commit is pushed to the main branch.
+on:
+  push:
+    branches:
+      - main
+    # This ensures it only runs if files inside the 'wiki' folder actually changed, saving action minutes.
+    paths:
+      - 'wiki/**'
+
+jobs:
+  sync-to-wiki:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # This permission is required so the action can push to the wiki repo
+
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+
+      - name: Sync wiki folder to GitHub Wiki
+        run: |
+          # 1. Setup git bot identity for the commit
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 2. Clone the wiki repository into a temporary folder
+          # The ${{ github.repository }} variable automatically injects "minerofthesoal/HyperNix-pip"
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git" wiki-tmp
+
+          # 3. Sync files from your main repo's wiki/ folder to the cloned wiki repo
+          # -a: archive mode (preserves permissions, etc.)
+          # -v: verbose output
+          # --delete: removes files from the wiki that you deleted in the main repo
+          # --exclude '.git': protects the git history of the wiki itself
+          rsync -av --delete --exclude '.git' ./wiki/ ./wiki-tmp/
+
+          # 4. Commit and push the changes to the wiki
+          cd wiki-tmp
+          git add .
+          
+          # Only attempt to commit if there are actual changes
+          if git diff-index --quiet HEAD; then
+            echo "No changes to sync to the wiki."
+          else
+            git commit -m "Auto-sync wiki updates from main repository commit ${{ github.sha }}"
+            git push
+          fi
