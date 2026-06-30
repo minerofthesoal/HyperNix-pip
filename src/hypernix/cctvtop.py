@@ -1,9 +1,27 @@
 """Python wrapper for the C++ cctvtop dashboard."""
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 
-def cli_main() -> None:
+def cli_main(argv: list[str] | None = None) -> None:
+    args = list(argv if argv is not None else sys.argv[1:])
+
+    if "--help" in args or "-h" in args:
+        print(
+            "usage: cctvtop [--help]\n"
+            "A C++-accelerated training dashboard. Searches the current\n"
+            "directory (recursively) for the most recently modified *.log\n"
+            "file and renders a live view of it.\n"
+            "\n"
+            "Requires the optional cctvtop_ext C++ extension, which is not\n"
+            "built by default. Install it with:\n"
+            "  pip install -e . (with BUILD_CCTVTOP=1 set), or\n"
+            "  python setup.py build_ext --inplace"
+        )
+        return
+
     try:
         from hypernix import cctvtop_ext
     except ImportError:

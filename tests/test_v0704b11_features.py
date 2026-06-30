@@ -14,9 +14,13 @@ not break when subsequent beta versions ship further changes.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
+
+if TYPE_CHECKING:
+    from hypernix.tvtop_plus_plus import TVTopPlusPlus
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -279,7 +283,6 @@ class TestSTML:
 
         from hypernix.stml import STML
 
-        calls = []
         fake_reg = MagicMock()
         # side_effect records the call but still returns the batch unmodified
         fake_reg.regulate = MagicMock(side_effect=lambda b: b)
@@ -375,9 +378,12 @@ class TestTurboAbbicus:
             oscillation_enabled=False,
         )
         ta = TurboAbbicus(cfg)
-        ta.step(10); l10 = ta.current_max_length
-        ta.step(50); l50 = ta.current_max_length
-        ta.step(90); l90 = ta.current_max_length
+        ta.step(10)
+        l10 = ta.current_max_length
+        ta.step(50)
+        l50 = ta.current_max_length
+        ta.step(90)
+        l90 = ta.current_max_length
 
         delta_early = l50 - l10
         delta_late = l90 - l50
