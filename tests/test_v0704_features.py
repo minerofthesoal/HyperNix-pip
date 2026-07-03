@@ -51,11 +51,8 @@ from __future__ import annotations
 
 import inspect
 import json
-import math
 import re
 import sys
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -652,7 +649,7 @@ class TestPressureCookerV4:
         opt = PressureCookerV4([w], schedule=self._schedule())
         x, target = torch.tensor([1.0]), torch.tensor([3.0])
         first_loss = None
-        for step in range(50):
+        for _step in range(50):
             opt.zero_grad()
             loss = (w * x - target).pow(2).mean()
             if first_loss is None:
