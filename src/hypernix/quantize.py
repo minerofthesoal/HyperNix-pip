@@ -13,7 +13,7 @@ from typing import Any
 
 from . import fetcher
 
-_HYPERNIX_VERSION = "0.70.4b1"
+_HYPERNIX_VERSION = "0.70.5a1"
 
 # Distro-specific install hints surfaced when llama-quantize is missing.
 # Detected by reading ``ID`` / ``ID_LIKE`` from /etc/os-release.
@@ -487,6 +487,42 @@ def quantize_gguf(
 
     target = resolve_spec(quant_type).name
 
+    # Try native llama_cpp python binding first if available
+    try:
+        import llama_cpp
+        from llama_cpp import llama_model_quantize, llama_model_quantize_params
+        
+        print(f"[hypernix] using native llama_cpp python binding to quantize {target}", file=sys.stderr)
+        params = llama_model_quantize_params()
+        # Find enum value for target
+        ftype_map = {
+            "Q4_0": 2, "Q4_1": 3, "Q5_0": 8, "Q5_1": 9, "Q8_0": 7,
+            "Q2_K": 10, "Q3_K_S": 11, "Q3_K_M": 12, "Q3_K_L": 13,
+            "Q4_K_S": 14, "Q4_K_M": 15, "Q5_K_S": 16, "Q5_K_M": 17,
+            "Q6_K": 18, "IQ2_XXS": 19, "IQ2_XS": 20, "IQ3_XXS": 21,
+            "IQ1_S": 24, "IQ4_NL": 25, "IQ3_S": 26, "IQ2_S": 27,
+            "IQ4_XS": 28, "IQ2_M": 29, "IQ3_M": 30, "IQ1_M": 31
+        }
+        if target in ftype_map:
+            params.ftype = ftype_map[target]
+            if threads and threads > 0:
+                params.nthread = threads
+            
+            # encode strings to bytes
+            src_bytes = str(source).encode('utf-8')
+            out_bytes = str(output).encode('utf-8')
+            
+            # The python binding returns 0 on success
+            ret = llama_model_quantize(src_bytes, out_bytes, params)
+            if ret == 0:
+                return output
+            else:
+                print(f"[hypernix] native quantization failed with code {ret}, falling back to binary", file=sys.stderr)
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[hypernix] native quantization error: {e}, falling back to binary", file=sys.stderr)
+
     binary = _find_llama_quantize(llama_quantize_bin, auto_fetch=auto_fetch, auto=auto)
     cmd: list[str] = [binary]
     if threads and threads > 0:
@@ -496,11 +532,16 @@ def quantize_gguf(
     cmd += [str(source), str(output), target]
 
     print(f"[hypernix] running: {' '.join(cmd)}", file=sys.stderr)
-    proc = subprocess.run(cmd, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"llama-quantize exited with status {proc.returncode} (target {target})."
-        )
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"llama-quantize exited with status {proc.returncode} (target {target}).\n"
+                f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+            )
+    except FileNotFoundError:
+        raise RuntimeError(f"Binary {binary} not found or not executable.")
+    
     return output
 
 

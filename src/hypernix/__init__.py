@@ -64,6 +64,7 @@ if not _is_tvtop:
         dishwasher,
         espresso_maker,
         ethanol,
+        fizzle,
         flour,
         food_processor,
         freezer,
@@ -95,6 +96,7 @@ if not _is_tvtop:
         sink,
         smoke_alarm,
         smoker,
+        spinner,
         stml,
         strainer,
         table,
@@ -332,11 +334,13 @@ if not _is_tvtop:
         "verify_snapshot",
         "whisk",
         "workshop",
+        "fizzle",
+        "spinner",
     ]
 else:
-    from . import tv, tvtop, tvtop_plus_plus
-    __all__ = ["tv", "tvtop", "tvtop_plus_plus"]
+    from . import tv, tvtop, tvtop_plus_plus, spinner
+    __all__ = ["tv", "tvtop", "tvtop_plus_plus", "spinner"]
 
-__version__ = "0.70.4postr2"
+__version__ = "0.70.5a1"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
 DEFAULT_MODEL = "qwen3.5-4b"  # New default model

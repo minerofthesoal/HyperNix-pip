@@ -107,6 +107,9 @@ jobs:
             dist/SHA256SUMS
           body: |
             ## hypernix ${{ github.ref_name }}
+            
+            ![PyPI - Downloads](https://img.shields.io/pypi/dm/hypernix)
+            ![PyPI - Version](https://img.shields.io/pypi/v/hypernix)
 
             **Install:**
             ```bash

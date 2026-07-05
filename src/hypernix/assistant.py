@@ -143,15 +143,55 @@ class InteractiveCLI:
         console.print(Panel("[bold]Automatic Speech Recognition[/]"))
         from .workshop import ASREngine
         
-        audio_file = Prompt.ask("Audio file path")
+        audio_file = Prompt.ask("Audio file path (leave empty to record from microphone)")
+        
+        if not audio_file:
+            console.print("[yellow]Recording from microphone... Press Ctrl+C to stop.[/yellow]")
+            import tempfile
+            temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            audio_file = temp_file.name
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+                RATE = 16000
+                CHANNELS = 1
+                recording = []
+                def callback(indata, frames, time, status):
+                    recording.append(indata.copy())
+                with sd.InputStream(samplerate=RATE, channels=CHANNELS, callback=callback):
+                    try:
+                        while True:
+                            sd.sleep(100)
+                    except KeyboardInterrupt:
+                        pass
+                import numpy as np
+                sf.write(audio_file, np.concatenate(recording, axis=0), RATE)
+                console.print(f"[green]Recording saved to {audio_file}[/green]")
+            except ImportError:
+                console.print("[red]Missing sounddevice or soundfile. Install with: pip install sounddevice soundfile[/red]")
+                return
+            except Exception as e:
+                console.print(f"[red]Error recording: {e}[/red]")
+                return
+                
         if Path(audio_file).exists():
-            ASREngine()
             console.print("[yellow]Loading ASR model...[/]")
-            console.print("[green]Transcription complete[/]")
+            engine = ASREngine()
+            engine.initialize()
+            with console.status("[bold green]Transcribing audio...") as status:
+                import torchaudio
+                audio, sr = torchaudio.load(audio_file)
+                if sr != engine.config.sample_rate:
+                    import torch.nn.functional as F
+                    ratio = engine.config.sample_rate / sr
+                    new_length = int(audio.shape[1] * ratio)
+                    audio = F.interpolate(audio.unsqueeze(0), size=new_length, mode='linear', align_corners=False).squeeze(0)
+                text = engine.transcribe(audio)
+            console.print(f"[green]Transcription complete:[/] {text}")
         else:
             console.print("[red]File not found[/]")
         
-        Prompt.ask("Press Enter")
+        Prompt.ask("Press Enter to continue")
     
     def cmd_tts(self):
         """TTS interface."""
@@ -172,16 +212,64 @@ class InteractiveCLI:
         console.print(Panel("[bold]ASR → LLM → TTS Pipeline[/]"))
         from .workshop import ASRToLLMToTTS
         
-        audio_file = Prompt.ask("Input audio file")
+        audio_file = Prompt.ask("Input audio file (leave empty to record from microphone)")
+        
+        if not audio_file:
+            console.print("[yellow]Recording from microphone... Press Ctrl+C to stop.[/yellow]")
+            import tempfile
+            temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            audio_file = temp_file.name
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+                RATE = 16000
+                CHANNELS = 1
+                recording = []
+                def callback(indata, frames, time, status):
+                    recording.append(indata.copy())
+                with sd.InputStream(samplerate=RATE, channels=CHANNELS, callback=callback):
+                    try:
+                        while True:
+                            sd.sleep(100)
+                    except KeyboardInterrupt:
+                        pass
+                import numpy as np
+                sf.write(audio_file, np.concatenate(recording, axis=0), RATE)
+                console.print(f"[green]Recording saved to {audio_file}[/green]")
+            except ImportError:
+                console.print("[red]Missing sounddevice or soundfile. Install with: pip install sounddevice soundfile[/red]")
+                return
+            except Exception as e:
+                console.print(f"[red]Error recording: {e}[/red]")
+                return
         
         if Path(audio_file).exists():
-            ASRToLLMToTTS()
             console.print("[yellow]Processing pipeline...[/]")
-            console.print("[green]Pipeline complete[/]")
+            from .workshop import ASREngine, TTSEngine
+            asr_engine = ASREngine()
+            tts_engine = TTSEngine()
+            
+            class DummyLLM:
+                def generate(self, prompt, max_new_tokens=256, temperature=0.7):
+                    if "User:" in prompt:
+                        last_msg = prompt.split("User:")[-1].strip().split("\n")[0]
+                        return f"I heard: '{last_msg[:50]}...'"
+                    return "Hello! How can I assist you?"
+            
+            pipeline = ASRToLLMToTTS(asr_engine, DummyLLM(), tts_engine)
+            with console.status("[bold green]Running ASR → LLM → TTS pipeline...") as status:
+                resp_text, audio_bytes = pipeline.process(audio_file)
+            
+            out_path = "pipeline_output.wav"
+            with open(out_path, "wb") as f:
+                f.write(audio_bytes)
+                
+            console.print(f"[green]Pipeline complete! Response: {resp_text}[/]")
+            console.print(f"[green]Saved output audio to {out_path}[/]")
         else:
             console.print("[red]File not found[/]")
         
-        Prompt.ask("Press Enter")
+        Prompt.ask("Press Enter to continue")
     
     def cmd_assistant(self):
         """Local AI assistant."""

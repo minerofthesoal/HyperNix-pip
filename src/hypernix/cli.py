@@ -65,44 +65,89 @@ _SUBCOMMANDS = {
     "webui",
     "cli",
     "stml",
+    "fizzle",
+    "fiz",
 }
 
 
 def _print_usage() -> None:
-    print(
-        """hypernix — download, convert, quantize, train HyperNix models
-
-usage: hypernix <subcommand> [options]
-
-Subcommands:
-  all                    download -> convert -> [quantize] (the classic pipeline)
-  download               fetch a HuggingFace model snapshot to disk
-  convert                produce fp32 / fp16 GGUF from a local snapshot
-  quantize               run llama-quantize on an fp16/fp32 GGUF
-  verify                 read-check a GGUF and print its headers
-  info                   show package + GGUF header info
-  upload                 push files to a HuggingFace repo
-  doctor                 environment diagnostic (pass --fix to install missing deps)
-  fetch-llama-quantize   pre-seed the llama-quantize cache
-  train                  init / expand / run training utilities
-  generate               sample text from a local HyperNix snapshot
-  oven                   code-generation wrapper (preheat + complete/fill)
-  chat                   interactive chat REPL with any HyperNix-family model
-  brew                   run hypernix.instant_pot.brew from a JSON recipe
-  pipeline               ASR → LLM → TTS pipeline (speech-to-speech or speech-to-text-to-speech)
-  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)
-  webui                  Web dashboard with Tailscale integration for remote access
-  cli                    Interactive TUI/CLI menu for all HyperNix operations
-  stml                   VRAM trained context length calculator
-
-Shortcuts:
-  --auto-oven            download the default snapshot and run code completion
-                         (equivalent to `hypernix oven --auto ...`).
-
-Run `hypernix <subcommand> --help` for per-command flags.
-Run `hypernix all --help` for the classic pipeline flags.
-"""
-    )
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.text import Text
+        
+        console = Console()
+        
+        title = Text("HyperNix", style="bold cyan")
+        title.append(" — download, convert, quantize, train HyperNix models", style="dim")
+        
+        table = Table(show_header=True, header_style="bold magenta", border_style="cyan")
+        table.add_column("Command")
+        table.add_column("Description")
+        
+        table.add_row("[green]all[/]", "download -> convert -> [quantize] (classic pipeline)")
+        table.add_row("[green]download[/]", "fetch a HuggingFace model snapshot to disk")
+        table.add_row("[green]convert[/]", "produce fp32 / fp16 GGUF from a local snapshot")
+        table.add_row("[green]quantize[/]", "run llama-quantize on an fp16/fp32 GGUF")
+        table.add_row("[green]verify[/]", "read-check a GGUF and print its headers")
+        table.add_row("[green]info[/]", "show package + GGUF header info")
+        table.add_row("[green]upload[/]", "push files to a HuggingFace repo")
+        table.add_row("[green]doctor[/]", "environment diagnostic (pass --fix to install missing deps)")
+        table.add_row("[green]fetch-llama-quantize[/]", "pre-seed the llama-quantize cache")
+        table.add_row("[green]train[/]", "init / expand / run training utilities")
+        table.add_row("[green]generate[/]", "sample text from a local HyperNix snapshot")
+        table.add_row("[green]oven[/]", "code-generation wrapper (preheat + complete/fill)")
+        table.add_row("[green]chat[/]", "interactive chat REPL with any HyperNix-family model")
+        table.add_row("[green]brew[/]", "run hypernix.instant_pot.brew from a JSON recipe")
+        table.add_row("[green]pipeline[/]", "ASR → LLM → TTS pipeline")
+        table.add_row("[green]assistant[/]", "Linux local AI assistant with voice commands")
+        table.add_row("[green]webui[/]", "Web dashboard with Tailscale integration")
+        table.add_row("[green]cli[/]", "Interactive TUI/CLI menu for all operations")
+        table.add_row("[green]stml[/]", "VRAM trained context length calculator")
+        table.add_row("[green]fizzle[/]", "Fuzed Architecture module: fuse models and LoRAs (CLI: fiz)")
+        
+        shortcuts = Text("Shortcuts:\n", style="bold yellow")
+        shortcuts.append("  --auto-oven            download the default snapshot and run code completion\n", style="white")
+        shortcuts.append("                         (equivalent to `hypernix oven --auto ...`).\n", style="dim")
+        
+        help_text = Text("\nRun `hypernix <subcommand> --help` for per-command flags.\nRun `hypernix all --help` for the classic pipeline flags.", style="italic dim")
+        
+        console.print(Panel.fit(title))
+        console.print(table)
+        console.print(shortcuts)
+        console.print(help_text)
+    except ImportError:
+        print(
+            "hypernix — download, convert, quantize, train HyperNix models\n\n"
+            "usage: hypernix <subcommand> [options]\n\n"
+            "Subcommands:\n"
+            "  all                    download -> convert -> [quantize] (the classic pipeline)\n"
+            "  download               fetch a HuggingFace model snapshot to disk\n"
+            "  convert                produce fp32 / fp16 GGUF from a local snapshot\n"
+            "  quantize               run llama-quantize on an fp16/fp32 GGUF\n"
+            "  verify                 read-check a GGUF and print its headers\n"
+            "  info                   show package + GGUF header info\n"
+            "  upload                 push files to a HuggingFace repo\n"
+            "  doctor                 environment diagnostic (pass --fix to install missing deps)\n"
+            "  fetch-llama-quantize   pre-seed the llama-quantize cache\n"
+            "  train                  init / expand / run training utilities\n"
+            "  generate               sample text from a local HyperNix snapshot\n"
+            "  oven                   code-generation wrapper (preheat + complete/fill)\n"
+            "  chat                   interactive chat REPL with any HyperNix-family model\n"
+            "  brew                   run hypernix.instant_pot.brew from a JSON recipe\n"
+            "  pipeline               ASR → LLM → TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
+            "  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)\n"
+            "  webui                  Web dashboard with Tailscale integration for remote access\n"
+            "  cli                    Interactive TUI/CLI menu for all HyperNix operations\n"
+            "  stml                   VRAM trained context length calculator\n"
+            "  fizzle                 Fuzed Architecture module: fuse models and LoRAs\n\n"
+            "Shortcuts:\n"
+            "  --auto-oven            download the default snapshot and run code completion\n"
+            "                         (equivalent to `hypernix oven --auto ...`).\n\n"
+            "Run `hypernix <subcommand> --help` for per-command flags.\n"
+            "Run `hypernix all --help` for the classic pipeline flags.\n"
+        )
 
 
 def _canonical(quant: str) -> str:
@@ -175,6 +220,7 @@ def _run_all(raw: list[str]) -> int:
     from .convert import convert_to_gguf
     from .download import download_model, verify_snapshot
     from .quantize import quantize_gguf
+    from .spinner import Spinner
 
     args = _build_all_parser().parse_args(raw)
     plan = _plan(args.quants)
@@ -186,9 +232,11 @@ def _run_all(raw: list[str]) -> int:
         if not model_dir.exists():
             print(f"--model-dir {model_dir} does not exist", file=sys.stderr)
             return 2
-        verify_snapshot(model_dir)
+        with Spinner(f"Verifying snapshot at {model_dir}"):
+            verify_snapshot(model_dir)
     else:
-        model_dir = download_model(repo_id=args.repo_id, revision=args.revision, token=args.token)
+        with Spinner(f"Downloading {args.repo_id}", style="arc"):
+            model_dir = download_model(repo_id=args.repo_id, revision=args.revision, token=args.token)
     print(f"[hypernix] model dir: {model_dir}", file=sys.stderr)
 
     base_name = args.repo_id.split("/")[-1].replace(".", "-")
@@ -198,29 +246,32 @@ def _run_all(raw: list[str]) -> int:
 
     if need_fp32:
         out = output_dir / f"{base_name}-fp32.gguf"
-        convert_to_gguf(
-            model_dir, out, dtype="fp32", arch_name=args.arch, name=args.name,
-            n_head_hint=args.n_head, context_length=args.context_length,
-        )
+        with Spinner("Converting to fp32 GGUF", style="grow"):
+            convert_to_gguf(
+                model_dir, out, dtype="fp32", arch_name=args.arch, name=args.name,
+                n_head_hint=args.n_head, context_length=args.context_length,
+            )
         produced["fp32"] = out
     if need_fp16:
         out = output_dir / f"{base_name}-fp16.gguf"
-        convert_to_gguf(
-            model_dir, out, dtype="fp16", arch_name=args.arch, name=args.name,
-            n_head_hint=args.n_head, context_length=args.context_length,
-        )
+        with Spinner("Converting to fp16 GGUF", style="grow"):
+            convert_to_gguf(
+                model_dir, out, dtype="fp16", arch_name=args.arch, name=args.name,
+                n_head_hint=args.n_head, context_length=args.context_length,
+            )
         produced["fp16"] = out
 
     for q in plan:
         if q in {"fp32", "fp16"}:
             continue
         out = output_dir / f"{base_name}-{q}.gguf"
-        quantize_gguf(
-            source_gguf=_pick_source_for(q, produced), output_gguf=out,
-            quant_type=q, threads=args.threads,
-            llama_quantize_bin=args.llama_quantize, auto_fetch=args.auto_fetch,
-            auto=args.auto,
-        )
+        with Spinner(f"Quantizing {q.upper()}", style="bar"):
+            quantize_gguf(
+                source_gguf=_pick_source_for(q, produced), output_gguf=out,
+                quant_type=q, threads=args.threads,
+                llama_quantize_bin=args.llama_quantize, auto_fetch=args.auto_fetch,
+                auto=args.auto,
+            )
         produced[q] = out
 
     if not args.keep_intermediate and "fp16" in produced and "fp16" not in plan:
@@ -237,10 +288,11 @@ def _run_all(raw: list[str]) -> int:
 
     if args.upload_to:
         from .upload import upload_gguf
-        url = upload_gguf(
-            files=list(produced.values()), repo_id=args.upload_to,
-            token=args.token, private=args.upload_private,
-        )
+        with Spinner(f"Uploading to {args.upload_to}", style="arrows"):
+            url = upload_gguf(
+                files=list(produced.values()), repo_id=args.upload_to,
+                token=args.token, private=args.upload_private,
+            )
         print(f"[hypernix] uploaded: {url}", file=sys.stderr)
     return 0
 
@@ -251,6 +303,7 @@ def _run_all(raw: list[str]) -> int:
 
 def _run_download(raw: list[str]) -> int:
     from .download import download_model
+    from .spinner import Spinner
 
     p = argparse.ArgumentParser(prog="hypernix download")
     p.add_argument("--repo-id", default="ray0rf1re/hyper-nix.1")
@@ -264,17 +317,19 @@ def _run_download(raw: list[str]) -> int:
         help="Skip the post-download sanity check.",
     )
     ns = p.parse_args(raw)
-    path = download_model(
-        repo_id=ns.repo_id, revision=ns.revision,
-        local_dir=ns.local_dir, cache_dir=ns.cache_dir, token=ns.token,
-        quiet=ns.quiet, verify=ns.verify,
-    )
+    with Spinner(f"Downloading {ns.repo_id}", style="arc"):
+        path = download_model(
+            repo_id=ns.repo_id, revision=ns.revision,
+            local_dir=ns.local_dir, cache_dir=ns.cache_dir, token=ns.token,
+            quiet=ns.quiet, verify=ns.verify,
+        )
     print(path)
     return 0
 
 
 def _run_convert(raw: list[str]) -> int:
     from .convert import convert_to_gguf
+    from .spinner import Spinner
 
     p = argparse.ArgumentParser(prog="hypernix convert")
     p.add_argument("--model-dir", required=True)
@@ -285,17 +340,19 @@ def _run_convert(raw: list[str]) -> int:
     p.add_argument("--n-head", type=int, default=None)
     p.add_argument("--context-length", type=int, default=None)
     ns = p.parse_args(raw)
-    out = convert_to_gguf(
-        model_dir=ns.model_dir, output=ns.output, dtype=ns.dtype,
-        arch_name=ns.arch, name=ns.name,
-        n_head_hint=ns.n_head, context_length=ns.context_length,
-    )
+    with Spinner(f"Converting to {ns.dtype.upper()} GGUF", style="grow"):
+        out = convert_to_gguf(
+            model_dir=ns.model_dir, output=ns.output, dtype=ns.dtype,
+            arch_name=ns.arch, name=ns.name,
+            n_head_hint=ns.n_head, context_length=ns.context_length,
+        )
     print(out)
     return 0
 
 
 def _run_quantize(raw: list[str]) -> int:
     from .quantize import quantize_gguf
+    from .spinner import Spinner
 
     p = argparse.ArgumentParser(prog="hypernix quantize")
     p.add_argument("--source", required=True)
@@ -312,11 +369,12 @@ def _run_quantize(raw: list[str]) -> int:
              "if GitHub fetching fails.",
     )
     ns = p.parse_args(raw)
-    out = quantize_gguf(
-        source_gguf=ns.source, output_gguf=ns.output, quant_type=ns.qtype,
-        threads=ns.threads, llama_quantize_bin=ns.llama_quantize,
-        auto_fetch=ns.auto_fetch, auto=ns.auto,
-    )
+    with Spinner(f"Quantizing → {ns.qtype.upper()}", style="bar"):
+        out = quantize_gguf(
+            source_gguf=ns.source, output_gguf=ns.output, quant_type=ns.qtype,
+            threads=ns.threads, llama_quantize_bin=ns.llama_quantize,
+            auto_fetch=ns.auto_fetch, auto=ns.auto,
+        )
     print(out)
     return 0
 
@@ -732,11 +790,20 @@ def main(argv: list[str] | None = None) -> int:
 
     # No args / top-level --help / --version -> print the subcommand menu.
     if not raw or raw[0] in ("-h", "--help"):
+        try:
+            from .spinner import anime_print
+            anime_print("HyperNix", style="banner", delay=0.03)
+        except Exception:
+            pass
         _print_usage()
         return 0
     if raw[0] in ("-V", "--version"):
         from . import __version__
-        print(f"hypernix {__version__}")
+        try:
+            from .spinner import anime_print
+            anime_print(f"HyperNix v{__version__}", style="typewriter", delay=0.04)
+        except Exception:
+            print(f"hypernix {__version__}")
         return 0
 
     # Top-level --auto-oven shortcut: translate to `oven --auto ...` so users
@@ -794,7 +861,14 @@ def main(argv: list[str] | None = None) -> int:
         return _run_cli(rest)
     if cmd == "stml":
         return _run_stml(rest)
+    if cmd in ("fizzle", "fiz"):
+        return _run_fizzle(rest)
     raise SystemExit(f"unknown subcommand: {cmd}")
+
+def _run_fizzle(raw: list[str]) -> int:
+    """`hypernix fizzle` / `fiz` — Fuzed Architecture module."""
+    from .fizzle import main as fizzle_main
+    return fizzle_main(raw)
 
 
 def _run_brew(raw: list[str]) -> int:
@@ -924,41 +998,40 @@ def _run_pipeline(raw: list[str]) -> int:
         if ns.active:
             # Record from microphone
             print("Recording from microphone... Press Ctrl+C to stop and process")
-            try:
-                import wave
-
-                import pyaudio
-                
-                CHUNK = 1024
-                FORMAT = pyaudio.paInt16
-                CHANNELS = 1
-                RATE = 16000
-                
-                p = pyaudio.PyAudio()
-                stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-                
-                frames = []
-                print("Recording...")
-                while True:  # Recording until Ctrl+C
-                    data = stream.read(CHUNK)
-                    frames.append(data)
-            except KeyboardInterrupt:
-                print("\nStopped recording. Processing...")
-            finally:
-                stream.stop_stream()
-                stream.close()
-                p.terminate()
-            
-            # Save recorded audio to temporary file
             import tempfile
             temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
             audio_path = temp_file.name
-            
-            with wave.open(audio_path, 'wb') as wf:
-                wf.setnchannels(CHANNELS)
-                wf.setsampwidth(p.get_sample_size(FORMAT))
-                wf.setframerate(RATE)
-                wf.writeframes(b''.join(frames))
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+                
+                RATE = 16000
+                CHANNELS = 1
+                
+                print("Recording... (Using sounddevice for better compatibility)")
+                # Start a recording stream
+                recording = []
+                def callback(indata, frames, time, status):
+                    if status:
+                        print(status)
+                    recording.append(indata.copy())
+                
+                with sd.InputStream(samplerate=RATE, channels=CHANNELS, callback=callback):
+                    try:
+                        while True:
+                            sd.sleep(100)
+                    except KeyboardInterrupt:
+                        pass
+                
+                import numpy as np
+                audio_data = np.concatenate(recording, axis=0)
+                sf.write(audio_path, audio_data, RATE)
+                print("\nStopped recording. Processing...")
+            except ImportError:
+                print("\nMissing sounddevice or soundfile. Install with: pip install sounddevice soundfile")
+                return 1
+            except KeyboardInterrupt:
+                print("\nStopped recording. Processing...")
             
             print(f"Recorded audio saved to: {audio_path}")
         else:

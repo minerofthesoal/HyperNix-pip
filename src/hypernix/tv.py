@@ -1445,8 +1445,26 @@ def cli_main(argv: list[str] | None = None) -> int:
             "  -s, --small   compact mode for smaller terminals",
         )
         return 0
+
+    # --- Startup animation -----------------------------------------------
+    _is_tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    if color and _is_tty:
+        try:
+            from .spinner import Spinner, anime_print
+            anime_print("tvtop", style="glitch", delay=0.04)
+        except Exception:
+            pass
+
     if log is None:
-        log = _autodetect_log()
+        if color and _is_tty:
+            try:
+                from .spinner import Spinner
+                with Spinner("Auto-detecting training log...", style="dots"):
+                    log = _autodetect_log()
+            except Exception:
+                log = _autodetect_log()
+        else:
+            log = _autodetect_log()
     if log is None:
         print(
             "tvtop: no training log found.  Pass --log <path>, or run "

@@ -160,6 +160,8 @@ jobs:
           last=$(git describe --tags --abbrev=0 2>/dev/null || true)
           {
             echo "## Changelog"
+            echo "![PyPI - Downloads](https://img.shields.io/pypi/dm/hypernix)"
+            echo "![PyPI - Version](https://img.shields.io/pypi/v/hypernix)"
             echo ""
             if [ -n "$last" ]; then
               echo "Commits since \`$last\`:"
