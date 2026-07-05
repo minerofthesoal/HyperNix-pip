@@ -9,7 +9,6 @@ CLI Usage:
 """
 from __future__ import annotations
 
-import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +18,7 @@ from typing import Any
 try:
     import torch
     import torch.nn as nn
-    from transformers import AutoConfig, AutoModel, AutoTokenizer, PreTrainedModel
+    from transformers import AutoModel, AutoTokenizer, PreTrainedModel
 except ImportError:
     torch = None
     nn = None
@@ -106,7 +105,7 @@ class FuzedModelArch(nn.Module if nn else object):
         # In a real deep fuzing, we'd combine vocabs, BPE rules, etc.
         # For the scaffolding, we select the LLM tokenizer and add special tokens
         llm_tokenizer = None
-        for cid, tok in self.tokenizers.items():
+        for _cid, tok in self.tokenizers.items():
             if "Tokenizer" in type(tok).__name__:
                 llm_tokenizer = tok
                 break

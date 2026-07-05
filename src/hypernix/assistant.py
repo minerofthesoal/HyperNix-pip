@@ -178,7 +178,7 @@ class InteractiveCLI:
             console.print("[yellow]Loading ASR model...[/]")
             engine = ASREngine()
             engine.initialize()
-            with console.status("[bold green]Transcribing audio...") as status:
+            with console.status("[bold green]Transcribing audio..."):
                 import torchaudio
                 audio, sr = torchaudio.load(audio_file)
                 if sr != engine.config.sample_rate:
@@ -257,7 +257,7 @@ class InteractiveCLI:
                     return "Hello! How can I assist you?"
             
             pipeline = ASRToLLMToTTS(asr_engine, DummyLLM(), tts_engine)
-            with console.status("[bold green]Running ASR → LLM → TTS pipeline...") as status:
+            with console.status("[bold green]Running ASR → LLM → TTS pipeline..."):
                 resp_text, audio_bytes = pipeline.process(audio_file)
             
             out_path = "pipeline_output.wav"

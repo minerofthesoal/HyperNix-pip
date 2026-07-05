@@ -125,7 +125,7 @@ class Spinner:
         finally:
             pass
 
-    def start(self) -> "Spinner":
+    def start(self) -> Spinner:
         self._stop.clear()
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
@@ -145,7 +145,7 @@ class Spinner:
             status = "✓" if succeeded else "✗"
             print(f"{status}  {self.text}")
 
-    def __enter__(self) -> "Spinner":
+    def __enter__(self) -> Spinner:
         return self.start()
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

@@ -801,7 +801,7 @@ def main(argv: list[str] | None = None) -> int:
         from . import __version__
         try:
             from .spinner import anime_print
-            anime_print(f"HyperNix v{__version__}", style="typewriter", delay=0.04)
+            anime_print(f"hypernix {__version__}", style="typewriter", delay=0.04)
         except Exception:
             print(f"hypernix {__version__}")
         return 0

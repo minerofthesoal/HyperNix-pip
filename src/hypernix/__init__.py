@@ -338,7 +338,7 @@ if not _is_tvtop:
         "spinner",
     ]
 else:
-    from . import tv, tvtop, tvtop_plus_plus, spinner
+    from . import spinner, tv, tvtop, tvtop_plus_plus
     __all__ = ["tv", "tvtop", "tvtop_plus_plus", "spinner"]
 
 __version__ = "0.70.5a1"

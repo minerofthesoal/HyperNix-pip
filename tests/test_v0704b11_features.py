@@ -40,7 +40,7 @@ def _make_fake_shaker(prefix: str = "S") -> MagicMock:
 class TestVersion:
     def test_version_is_importable_from_package(self) -> None:
         from hypernix import __version__
-        assert __version__.startswith("0.70.4")
+        assert __version__.startswith("0.70.")
 
 
 # ===========================================================================

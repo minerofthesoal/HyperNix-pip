@@ -1,0 +1,136 @@
+diff --git a/src/hypernix/__init__.py b/src/hypernix/__init__.py
+index 7a1e5e0..7565d53 100644
+--- a/src/hypernix/__init__.py
++++ b/src/hypernix/__init__.py
+@@ -338,7 +338,7 @@ if not _is_tvtop:
+         "spinner",
+     ]
+ else:
+-    from . import tv, tvtop, tvtop_plus_plus, spinner
++    from . import spinner, tv, tvtop, tvtop_plus_plus
+     __all__ = ["tv", "tvtop", "tvtop_plus_plus", "spinner"]
+ 
+ __version__ = "0.70.5a1"
+diff --git a/src/hypernix/assistant.py b/src/hypernix/assistant.py
+index ebd15bf..68b700a 100644
+--- a/src/hypernix/assistant.py
++++ b/src/hypernix/assistant.py
+@@ -178,7 +178,7 @@ class InteractiveCLI:
+             console.print("[yellow]Loading ASR model...[/]")
+             engine = ASREngine()
+             engine.initialize()
+-            with console.status("[bold green]Transcribing audio...") as status:
++            with console.status("[bold green]Transcribing audio..."):
+                 import torchaudio
+                 audio, sr = torchaudio.load(audio_file)
+                 if sr != engine.config.sample_rate:
+@@ -257,7 +257,7 @@ class InteractiveCLI:
+                     return "Hello! How can I assist you?"
+             
+             pipeline = ASRToLLMToTTS(asr_engine, DummyLLM(), tts_engine)
+-            with console.status("[bold green]Running ASR → LLM → TTS pipeline...") as status:
++            with console.status("[bold green]Running ASR → LLM → TTS pipeline..."):
+                 resp_text, audio_bytes = pipeline.process(audio_file)
+             
+             out_path = "pipeline_output.wav"
+diff --git a/src/hypernix/cli.py b/src/hypernix/cli.py
+index f66694a..4d482e3 100644
+--- a/src/hypernix/cli.py
++++ b/src/hypernix/cli.py
+@@ -801,7 +801,7 @@ def main(argv: list[str] | None = None) -> int:
+         from . import __version__
+         try:
+             from .spinner import anime_print
+-            anime_print(f"HyperNix v{__version__}", style="typewriter", delay=0.04)
++            anime_print(f"hypernix {__version__}", style="typewriter", delay=0.04)
+         except Exception:
+             print(f"hypernix {__version__}")
+         return 0
+diff --git a/src/hypernix/fizzle.py b/src/hypernix/fizzle.py
+index 8fbd3d2..57b8514 100644
+--- a/src/hypernix/fizzle.py
++++ b/src/hypernix/fizzle.py
+@@ -9,7 +9,6 @@ CLI Usage:
+ """
+ from __future__ import annotations
+ 
+-import argparse
+ import sys
+ from dataclasses import dataclass
+ from pathlib import Path
+@@ -19,7 +18,7 @@ from typing import Any
+ try:
+     import torch
+     import torch.nn as nn
+-    from transformers import AutoConfig, AutoModel, AutoTokenizer, PreTrainedModel
++    from transformers import AutoModel, AutoTokenizer, PreTrainedModel
+ except ImportError:
+     torch = None
+     nn = None
+@@ -106,7 +105,7 @@ class FuzedModelArch(nn.Module if nn else object):
+         # In a real deep fuzing, we'd combine vocabs, BPE rules, etc.
+         # For the scaffolding, we select the LLM tokenizer and add special tokens
+         llm_tokenizer = None
+-        for cid, tok in self.tokenizers.items():
++        for _cid, tok in self.tokenizers.items():
+             if "Tokenizer" in type(tok).__name__:
+                 llm_tokenizer = tok
+                 break
+diff --git a/src/hypernix/quantize.py b/src/hypernix/quantize.py
+index 9aaaaf5..9bfabbc 100644
+--- a/src/hypernix/quantize.py
++++ b/src/hypernix/quantize.py
+@@ -489,7 +489,6 @@ def quantize_gguf(
+ 
+     # Try native llama_cpp python binding first if available
+     try:
+-        import llama_cpp
+         from llama_cpp import llama_model_quantize, llama_model_quantize_params
+         
+         print(f"[hypernix] using native llama_cpp python binding to quantize {target}", file=sys.stderr)
+@@ -539,8 +538,8 @@ def quantize_gguf(
+                 f"llama-quantize exited with status {proc.returncode} (target {target}).\n"
+                 f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+             )
+-    except FileNotFoundError:
+-        raise RuntimeError(f"Binary {binary} not found or not executable.")
++    except FileNotFoundError as err:
++        raise RuntimeError(f"Binary {binary} not found or not executable.") from err
+     
+     return output
+ 
+diff --git a/src/hypernix/spinner.py b/src/hypernix/spinner.py
+index 9ca0878..9ab4a5d 100644
+--- a/src/hypernix/spinner.py
++++ b/src/hypernix/spinner.py
+@@ -125,7 +125,7 @@ class Spinner:
+         finally:
+             pass
+ 
+-    def start(self) -> "Spinner":
++    def start(self) -> Spinner:
+         self._stop.clear()
+         self._thread = threading.Thread(target=self._spin, daemon=True)
+         self._thread.start()
+@@ -145,7 +145,7 @@ class Spinner:
+             status = "✓" if succeeded else "✗"
+             print(f"{status}  {self.text}")
+ 
+-    def __enter__(self) -> "Spinner":
++    def __enter__(self) -> Spinner:
+         return self.start()
+ 
+     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+diff --git a/tests/test_v0704b11_features.py b/tests/test_v0704b11_features.py
+index 28a6daa..414c7ef 100644
+--- a/tests/test_v0704b11_features.py
++++ b/tests/test_v0704b11_features.py
+@@ -40,7 +40,7 @@ def _make_fake_shaker(prefix: str = "S") -> MagicMock:
+ class TestVersion:
+     def test_version_is_importable_from_package(self) -> None:
+         from hypernix import __version__
+-        assert __version__.startswith("0.70.4")
++        assert __version__.startswith("0.70.")
+ 
+ 
+ # ===========================================================================

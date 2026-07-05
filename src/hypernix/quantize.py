@@ -489,7 +489,6 @@ def quantize_gguf(
 
     # Try native llama_cpp python binding first if available
     try:
-        import llama_cpp
         from llama_cpp import llama_model_quantize, llama_model_quantize_params
         
         print(f"[hypernix] using native llama_cpp python binding to quantize {target}", file=sys.stderr)
@@ -539,8 +538,8 @@ def quantize_gguf(
                 f"llama-quantize exited with status {proc.returncode} (target {target}).\n"
                 f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
             )
-    except FileNotFoundError:
-        raise RuntimeError(f"Binary {binary} not found or not executable.")
+    except FileNotFoundError as err:
+        raise RuntimeError(f"Binary {binary} not found or not executable.") from err
     
     return output
 
