@@ -1,9 +1,9 @@
 {
   "version": "0.70.4",
-  "total_downloads": 5158,
-  "last_day": 0,
-  "last_week": 0,
-  "last_month": 0,
+  "total_downloads": 5164,
+  "last_day": 6,
+  "last_week": 60,
+  "last_month": 1161,
   "downloads": {
     "recent": {
       "window_days": 30,
@@ -115,6 +115,10 @@
         {
           "date": "2026-07-03",
           "downloads": 30
+        },
+        {
+          "date": "2026-07-05",
+          "downloads": 6
         }
       ]
     },
@@ -167,6 +171,6 @@
       "downloads": 8
     }
   ],
-  "updated_at": "2026-07-06T00:26:58.069733Z",
-  "last_manual_run_reason": "Teat"
+  "updated_at": "2026-07-06T02:14:31.422982Z",
+  "last_manual_run_reason": "testing"
 }
