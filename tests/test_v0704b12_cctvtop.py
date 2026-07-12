@@ -13,10 +13,7 @@ def test_cctvtop_finds_logs(tmp_path: Path):
     orig_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        try:
-            cli_main()
-            raise AssertionError("Should have exited")
-        except SystemExit as e:
-            assert e.code == 1
+        res = cli_main()
+        assert res == 1, f"Expected cli_main to return 1, got {res}"
     finally:
         os.chdir(orig_cwd)

@@ -1,18 +1,18 @@
 """Python wrapper for the C++ cctvtop dashboard (upgraded)."""
 from __future__ import annotations
 
+import subprocess
 import sys
 import time
-import subprocess
 from pathlib import Path
 
 from rich.console import Console
 from rich.layout import Layout
-from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from .tvtop_plus_plus import TVTopPlusPlus, Frame, SPINNERS
+from .tvtop_plus_plus import SPINNERS, Frame, TVTopPlusPlus
+
 
 def ensure_vnc() -> dict[str, str]:
     """Ensure a VNC server is running and return its info."""

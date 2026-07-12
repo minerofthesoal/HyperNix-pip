@@ -137,6 +137,12 @@ class TVTopPlusPlus:
         f.gpu_util_history = list(self._gpu_util_history)
         return f
 
+    def _build_layout(self, f: Frame, console: Console) -> Layout:
+        """Backward compatibility for tests."""
+        layout = self._init_layout()
+        self._update_layout(f, console, layout)
+        return layout
+
     def _init_layout(self) -> Layout:
         """Create the static layout tree once."""
         layout = Layout()
@@ -436,7 +442,7 @@ class TVTopPlusPlus:
                 console=console,
                 refresh_per_second=1 / self.refresh_seconds,
                 screen=True,
-            ) as live:
+            ):
                 while True:
                     frame = self.latest_frame()
                     self._update_layout(frame, console, layout)
