@@ -12,9 +12,9 @@ import shutil
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
 
 try:
     from rich.box import ROUNDED
@@ -64,8 +64,8 @@ class HyperLogger:
     def _listen_for_input(self):
         """Background thread listening for emergency stop/pause."""
         import select
-        import tty
         import termios
+        import tty
         
         fd = sys.stdin.fileno()
         if not os.isatty(fd):
@@ -125,7 +125,7 @@ class HyperLogger:
         if gpu['power_w']:
             h_text.append(f"GPU Power  {gpu['power_w']:.1f} W\n", style="yellow")
         h_text.append(f"Storage    {storage_gb:.1f} GB free\n", style="green")
-        h_text.append(f"Next auto-delete in ~2 checkpoints", style="dim")
+        h_text.append("Next auto-delete in ~2 checkpoints", style="dim")
         
         layout["hardware"].update(Panel(h_text, title="Hardware & System", box=ROUNDED, border_style="green"))
         
