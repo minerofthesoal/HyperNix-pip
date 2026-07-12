@@ -225,10 +225,12 @@ class Agedcookerv4(PressureCookerV4):
         kwargs["stochastic_rounding"] = False  # Not well supported on Pascal
         super().__init__(params, **kwargs)
         if not self.cuda_61_compatible:
+            # To:
             warnings.warn(
-                "Agedcookerv4 is specifically optimized for CUDA 6.1/6.2 (Pascal). "
-                "Running on newer hardware may be suboptimal; consider StovetopV4Cooker instead."
-            )
+                    "Agedcookerv4 is specifically optimized for CUDA 6.1/6.2 (Pascal). "
+                    "Running on newer hardware may be suboptimal; consider StovetopV4Cooker instead.",
+                    stacklevel=2,
+)
 
 
 class Ultracookerv4(PressureCookerV4):
