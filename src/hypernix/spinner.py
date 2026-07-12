@@ -54,6 +54,84 @@ SPINNERS: dict[str, list[str]] = {
     "matrix":  ["0", "1", "0", "1", "0", "1"],
 }
 
+# ---------------------------------------------------------------------------
+# 3x3 grid spinner (no center) — cells light up to show estimated progress
+# ---------------------------------------------------------------------------
+#
+# Eight cells are arranged clockwise around a deliberately blank center:
+#
+#     0 1 2
+#     7 · 3
+#     6 5 4
+#
+# `progress` (0..1) sets how many of the 8 outer cells are "filled" to
+# represent estimated loaded progress; filled cells ramp red -> yellow ->
+# green as progress increases, so the grid reads as a loading gauge at a
+# glance. A bright highlight also rotates around the ring each tick so the
+# grid keeps animating even when progress hasn't changed yet.
+
+_GRID3X3_CELL_COUNT = 8
+_GRID3X3_LAYOUT: tuple[tuple[int | None, ...], ...] = (
+    (0, 1, 2),
+    (7, None, 3),
+    (6, 5, 4),
+)
+_GRID3X3_RAMP = [
+    f"{_CSI}31m",  # red          — just started
+    _YELLOW,       # yellow       — a little over a third done
+    _GREEN,        # green        — over halfway
+    f"{_CSI}92m",  # bright green — nearly / fully done
+]
+_GRID3X3_ACTIVE_COLOR = f"{_BOLD}{_CSI}96m"  # bright cyan highlight
+
+
+def _grid3x3_ramp_color(progress: float) -> str:
+    progress = max(0.0, min(1.0, progress))
+    idx = min(len(_GRID3X3_RAMP) - 1, int(progress * len(_GRID3X3_RAMP)))
+    return _GRID3X3_RAMP[idx]
+
+
+def _grid3x3_frame(progress: float, tick: int, *, color: bool = True, label: str = "") -> list[str]:
+    """Render one frame of the 3x3 (no-center) grid loader as text lines.
+
+    Returns the 3 grid rows plus (if `label` is given) a trailing label
+    row showing the text and numeric percentage, so callers can redraw
+    the whole block in place each tick.
+    """
+    progress = max(0.0, min(1.0, progress))
+    filled = round(progress * _GRID3X3_CELL_COUNT)
+    active = tick % _GRID3X3_CELL_COUNT
+    fill_color = _grid3x3_ramp_color(progress)
+
+    lines: list[str] = []
+    for row in _GRID3X3_LAYOUT:
+        cells = []
+        for pos in row:
+            if pos is None:
+                cells.append(" ")  # blank center — deliberately no cell here
+                continue
+            is_filled = pos < filled
+            glyph = "█" if is_filled else "▫"
+            if not color:
+                cells.append(glyph)
+                continue
+            if pos == active:
+                cells.append(f"{_GRID3X3_ACTIVE_COLOR}{glyph}{_RESET}")
+            elif is_filled:
+                cells.append(f"{fill_color}{glyph}{_RESET}")
+            else:
+                cells.append(f"{_DIM}{glyph}{_RESET}")
+        lines.append(" ".join(cells))
+
+    if label:
+        pct = f"{progress * 100:.0f}%"
+        if color:
+            lines.append(f"{_BOLD}{label}{_RESET}  {_DIM}{pct}{_RESET}")
+        else:
+            lines.append(f"{label}  {pct}")
+    return lines
+
+
 BANNER_FRAMES = [
     "H Y P E R N I X",
     "H·Y·P·E·R·N·I·X",
@@ -88,8 +166,10 @@ class Spinner:
         style: str = "dots",
         fps: float = 10,
         color: bool = True,
+        progress: float = 0.0,
     ) -> None:
         self.text = text
+        self._style = style
         self._frames = SPINNERS.get(style, SPINNERS["dots"])
         self._interval = 1.0 / max(fps, 1)
         self._color = color and _is_tty()
@@ -98,10 +178,18 @@ class Spinner:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._succeeded: bool = True
+        self._progress = max(0.0, min(1.0, progress))
+        self._grid_lines_drawn = 0
 
     def update(self, text: str) -> None:
         with self._lock:
             self.text = text
+
+    def set_progress(self, progress: float) -> None:
+        """Update the estimated loaded progress (0..1) shown by the
+        ``grid3x3`` style. No-op for other styles."""
+        with self._lock:
+            self._progress = max(0.0, min(1.0, progress))
 
     def _spin(self) -> None:
         idx = 0
@@ -110,10 +198,13 @@ class Spinner:
             sys.stdout.flush()
         try:
             while not self._stop.is_set():
-                frame = self._frames[idx % len(self._frames)]
                 with self._lock:
                     msg = self.text
-                if self._tty:
+                    progress = self._progress
+                if self._style == "grid3x3":
+                    self._render_grid3x3_frame(progress, idx, msg)
+                elif self._tty:
+                    frame = self._frames[idx % len(self._frames)]
                     if self._color:
                         line = f"\r{_CYAN}{frame}{_RESET}  {_BOLD}{msg}{_RESET}  "
                     else:
@@ -124,6 +215,20 @@ class Spinner:
                 time.sleep(self._interval)
         finally:
             pass
+
+    def _render_grid3x3_frame(self, progress: float, tick: int, msg: str) -> None:
+        """Redraw the 3x3 (no-center) progress grid in place."""
+        if not self._tty:
+            return
+        grid_lines = _grid3x3_frame(progress, tick, color=self._color, label=msg)
+        if self._grid_lines_drawn:
+            # Move the cursor back up to the top of the previously drawn
+            # block so this frame overwrites it instead of scrolling.
+            sys.stdout.write(f"{_CSI}{self._grid_lines_drawn}A")
+        for line in grid_lines:
+            sys.stdout.write(f"\r{_CSI}2K{line}\n")
+        self._grid_lines_drawn = len(grid_lines)
+        sys.stdout.flush()
 
     def start(self) -> Spinner:
         self._stop.clear()

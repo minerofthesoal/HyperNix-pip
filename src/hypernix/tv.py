@@ -1379,7 +1379,16 @@ def _autodetect_log(start: Path = Path(".")) -> Path | None:
     Logs that match neither are still acceptable as a fallback,
     but only if no shaped log exists.  This stops the dashboard
     from latching onto random Konsole / browser / system logs.
+
+    Before doing any of that, ``~/checkpoints/train.log`` is checked
+    first and returned immediately if present -- it's the conventional
+    location hypernix training runs write to, so tvtop finds it without
+    needing a full glob scan of the current directory.
     """
+    home_default = Path.home() / "checkpoints" / "train.log"
+    if home_default.exists():
+        return home_default
+
     candidates: list[tuple[float, Path]] = []
     for pattern in ("**/train*.log", "**/*training*.log", "**/*.log"):
         for p in start.glob(pattern):

@@ -91,6 +91,7 @@ if not _is_tvtop:
         pressure_cooker,
         pressure_cooker_v3,
         pressure_cooker_v4,
+        pressure_cooker_v5,
         qa,
         recipe_book,
         salt_shaker,
@@ -162,6 +163,12 @@ if not _is_tvtop:
         ULTRAagedcookerv4,
         Ultracookerv4,
     )
+    from .pressure_cooker_v5 import (
+        Agedcookerv5,
+        PressureCookerV5,
+        PressureCookerV5Plus,
+        ULTRAagedcookerv5,
+    )
     from .qa import QAProcessor
     from .quantize import CATALOG as QUANT_CATALOG  # noqa: I001
     from .quantize import QUANT_TYPES, HyperNixQuantizer, QuantJob, QuantSpec, quantize_gguf
@@ -199,6 +206,7 @@ if not _is_tvtop:
         "Abbicus",
         "AbbicusConfig",
         "Agedcookerv4",
+        "Agedcookerv5",
         "CardboardBox",
         "CookerLite",
         "TurboAbbicus",
@@ -224,6 +232,8 @@ if not _is_tvtop:
         "PressureCookerV3",
         "PressureCookerV3Plus",
         "PressureCookerV4",
+        "PressureCookerV5",
+        "PressureCookerV5Plus",
         "QUANT_CATALOG",
         "QUANT_TYPES",
         "QuantConfig",
@@ -238,6 +248,7 @@ if not _is_tvtop:
         "Tupperware",
         "TupperwareConfig",
         "ULTRAagedcookerv4",
+        "ULTRAagedcookerv5",
         "Ultracookerv4",
         "abbicus",
         "apron",
@@ -298,6 +309,7 @@ if not _is_tvtop:
         "pressure_cooker",
         "pressure_cooker_v3",
         "pressure_cooker_v4",
+        "pressure_cooker_v5",
         "preheat",
         "print_models",
         "quant_batch",

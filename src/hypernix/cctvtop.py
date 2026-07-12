@@ -11,7 +11,37 @@ from rich.layout import Layout
 from rich.panel import Panel
 from rich.text import Text
 
+from .tv import LogTail, _autodetect_log
 from .tvtop_plus_plus import SPINNERS, Frame, TVTopPlusPlus
+
+
+def _resolve_cctvtop_log(explicit: Path | str | None = None) -> Path | None:
+    """Resolve the training log cctvtop should tail.
+
+    No longer hardcoded to a single path -- this checks, in order:
+
+    1. An explicit path (``--log`` flag / constructor argument).
+    2. ``~/checkpoints/train.log`` -- cctvtop's preferred, prioritized
+       convention (matches tvtop's autodetect priority).
+    3. ``./checkpoints/train.log`` -- the legacy cwd-relative location
+       cctvtop used to hardcode unconditionally.
+    4. Whatever :func:`hypernix.tv._autodetect_log` finds by scanning
+       the current directory for a training-shaped log.
+
+    Returns ``None`` if nothing is found anywhere.
+    """
+    if explicit is not None:
+        return Path(explicit)
+
+    home_default = Path.home() / "checkpoints" / "train.log"
+    if home_default.exists():
+        return home_default
+
+    cwd_default = Path.cwd() / "checkpoints" / "train.log"
+    if cwd_default.exists():
+        return cwd_default
+
+    return _autodetect_log()
 
 
 def ensure_vnc() -> dict[str, str]:
@@ -40,8 +70,15 @@ def ensure_vnc() -> dict[str, str]:
 class CCTVTop(TVTopPlusPlus):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # cctvtop forces hardcoded log path
-        self.log_path = Path.cwd() / "checkpoints" / "train.log"
+        # cctvtop no longer forces a hardcoded log path: if the caller
+        # already supplied one (e.g. via cli_main's --log handling) it is
+        # respected as-is; otherwise it's resolved through the same
+        # priority chain as tvtop (~/checkpoints/train.log first).
+        if self.log_path is None:
+            resolved = _resolve_cctvtop_log(None)
+            if resolved is not None:
+                self.log_path = resolved
+                self.log_tail = LogTail(Path(self.log_path), history_size=8)
         self.vnc_info = ensure_vnc()
 
     def _init_layout(self) -> Layout:
@@ -87,18 +124,34 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     if "--help" in args or "-h" in args:
         print(
-            "usage: hnx cctvtop [--help]\n\n"
-            "A pure-Python training dashboard that hardcodes its log path to\n"
-            "./checkpoints/train.log and provides hardware metrics and VNC capabilities."
+            "usage: hnx cctvtop [--log path] [--help]\n\n"
+            "A pure-Python training dashboard with hardware metrics and VNC\n"
+            "capabilities. Prioritizes ~/checkpoints/train.log, then falls back to\n"
+            "./checkpoints/train.log, then auto-detects a training-shaped log under\n"
+            "the current directory. Pass --log <path> to point at something else."
         )
         return 0
 
-    log_file = Path.cwd() / "checkpoints" / "train.log"
-    if not log_file.exists():
-        print(f"Error: Hardcoded log file '{log_file}' does not exist.")
-        print("cctvtop is hardcoded to only log from ./checkpoints/train.log")
+    explicit_log: Path | None = None
+    if "--log" in args:
+        i = args.index("--log")
+        if i + 1 < len(args):
+            explicit_log = Path(args[i + 1])
+            del args[i : i + 2]
+
+    log_file = _resolve_cctvtop_log(explicit_log)
+    if log_file is None or not log_file.exists():
+        home_default = Path.home() / "checkpoints" / "train.log"
+        cwd_default = Path.cwd() / "checkpoints" / "train.log"
+        print(
+            f"Error: no training log found.\n"
+            f"Looked for: {explicit_log or '(no --log given)'}, {home_default}, "
+            f"{cwd_default}, and an auto-detected *.log under {Path.cwd()}.\n"
+            "Pass --log <path> for an explicit location.",
+            file=sys.stderr,
+        )
         return 1
-        
+
     app = CCTVTop(log_path=log_file, refresh_seconds=1.0)
     app.run()
     return 0
