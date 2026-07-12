@@ -131,6 +131,7 @@ def test_fuze_tokenizers_selects_llm_tokenizer_ignoring_key() -> None:
     assert result.added == {
         "additional_special_tokens": [
             "<|asr_start|>", "<|asr_end|>", "<|tts_start|>", "<|tts_end|>",
+            "<|image_start|>", "<|image_end|>",
         ]
     }
 
