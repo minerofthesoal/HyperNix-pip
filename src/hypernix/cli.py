@@ -912,9 +912,64 @@ def _run_tvtop(raw: list[str]) -> int:
 
 
 def _run_brew(raw: list[str]) -> int:
-    """`hypernix brew` — custom architecture builder and model training suite."""
+    """`hypernix brew` — custom architecture builder and model training suite.
+    
+    When invoked with a JSON recipe file path, runs instant_pot.brew().
+    When invoked with subcommands (new, list, train, export), uses the brewer CLI.
+    """
+    # Check if first argument is a JSON file path (for instant_pot.brew)
+    if raw and len(raw) >= 1:
+        first_arg = raw[0]
+        # If it looks like a file path (not a subcommand), treat as recipe
+        if not first_arg.startswith('-') and first_arg.endswith('.json'):
+            from pathlib import Path
+            import json
+            from .instant_pot import brew
+            
+            recipe_path = Path(first_arg)
+            if not recipe_path.exists():
+                print(f"Error: Recipe file not found: {recipe_path}", file=sys.stderr)
+                return 1
+            
+            try:
+                recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Error reading recipe: {e}", file=sys.stderr)
+                return 1
+            
+            # Parse optional --set overrides
+            parser = argparse.ArgumentParser(prog="hypernix brew")
+            parser.add_argument("recipe", help="Path to a JSON recipe file.")
+            parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                              help="Override a recipe key (repeatable).")
+            ns = parser.parse_args(raw)
+            
+            # Apply --set overrides
+            for override in ns.set:
+                if "=" not in override:
+                    print(f"Error: Invalid --set format: {override} (expected KEY=VALUE)", file=sys.stderr)
+                    return 1
+                key, value = override.split("=", 1)
+                # Try to parse as JSON for proper type conversion
+                try:
+                    recipe[key] = json.loads(value)
+                except json.JSONDecodeError:
+                    recipe[key] = value
+            
+            try:
+                brew(recipe)
+                return 0
+            except Exception as e:
+                print(f"Error running brew: {e}", file=sys.stderr)
+                return 1
+    
+    # Otherwise, delegate to brewer CLI for subcommands
     from .brewer import cli_main as brewer_main
-    return brewer_main(raw)
+    try:
+        brewer_main(raw)
+        return 0
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
 
 
 def _run_webui(raw: list[str]) -> int:
