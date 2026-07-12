@@ -1,17 +1,13 @@
 {
   "version": "0.70.4",
   "total_downloads": 5864,
-  "last_day": 2,
+  "last_day": 0,
   "last_week": 706,
-  "last_month": 1566,
+  "last_month": 1310,
   "downloads": {
     "recent": {
       "window_days": 30,
       "daily": [
-        {
-          "date": "2026-06-11",
-          "downloads": 256
-        },
         {
           "date": "2026-06-12",
           "downloads": 30
@@ -127,10 +123,10 @@
       ]
     },
     "three_month": {
-      "days": 45,
-      "total_downloads": 4298,
+      "days": 46,
+      "total_downloads": 4554,
       "from": "2026-04-21",
-      "to": "2026-06-09"
+      "to": "2026-06-11"
     },
     "older": {
       "days": 0,
@@ -175,5 +171,5 @@
       "downloads": 14
     }
   ],
-  "updated_at": "2026-07-11T21:31:58.690860Z"
+  "updated_at": "2026-07-12T21:31:40.471321Z"
 }
