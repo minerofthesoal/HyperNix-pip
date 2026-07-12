@@ -42,6 +42,7 @@ class ModelInfo:
     repo_id: str
     arch: str
     notes: str = ""
+    family: str = ""
 
 
 # Registry of known HyperNix-family repos on the HuggingFace Hub. Users can
@@ -358,9 +359,57 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
         "microsoft/Phi-4-mini", "auto",
         "Phi-4 mini.",
     ),
+    # ---- New 0.70.5a2 additions -------------------------------------------
+    "glm-5.2": ModelInfo(
+        "THUDM/glm-5.2", "auto", "GLM 5.2 model.", family="glm"
+    ),
+    "nex-n2": ModelInfo(
+        "NEX/Nex-N2", "auto", "Nex-N2 model.", family="nex"
+    ),
+    "nemo-12b-instruct": ModelInfo(
+        "nvidia/Mistral-NeMo-12B-Instruct", "mistral", "Nemo 12B Instruct.", family="nemo"
+    ),
+    "lfm-2.5": ModelInfo(
+        "liquidai/lfm-2.5", "auto", "Liquid Foundation Model 2.5.", family="lfm"
+    ),
+    "smollm-3": ModelInfo(
+        "HuggingFaceTB/SmolLM-3", "auto", "SmolLM 3.", family="smollm"
+    ),
+    "z-image": ModelInfo(
+        "Z-Image/z-image-v1", "auto", "Z-Image Vision Model.", family="vision"
+    ),
+    "whisper-tiny": ModelInfo(
+        "openai/whisper-tiny", "asr", "Whisper Tiny.", family="whisper"
+    ),
+    "whisper-base": ModelInfo(
+        "openai/whisper-base", "asr", "Whisper Base.", family="whisper"
+    ),
+    "whisper-small": ModelInfo(
+        "openai/whisper-small", "asr", "Whisper Small.", family="whisper"
+    ),
+    "whisper-medium": ModelInfo(
+        "openai/whisper-medium", "asr", "Whisper Medium.", family="whisper"
+    ),
+    "whisper-large-v3": ModelInfo(
+        "openai/whisper-large-v3", "asr", "Whisper Large V3.", family="whisper"
+    ),
     "deepseek-v4": ModelInfo(
-        "deepseek-ai/DeepSeek-V4", "auto",
-        "DeepSeek V4.",
+        "deepseek-ai/DeepSeek-V4", "auto", "DeepSeek V4.", family="deepseek"
+    ),
+    "kimi-k2.5+": ModelInfo(
+        "MoonshotAI/Kimi-K2.5-Plus", "auto", "Kimi K2.5+.", family="kimi"
+    ),
+    "gemma-4-27b": ModelInfo(
+        "google/gemma-4-27b-it", "auto", "Gemma 4 27B.", family="gemma4"
+    ),
+    "qwen3.6-14b": ModelInfo(
+        "Qwen/Qwen3.6-14B", "auto", "Qwen3.6 14B.", family="qwen"
+    ),
+    "qwen3.6-32b": ModelInfo(
+        "Qwen/Qwen3.6-32B", "auto", "Qwen3.6 32B.", family="qwen"
+    ),
+    "mimo": ModelInfo(
+        "Mimo/Mimo-1", "auto", "Mimo model.", family="mimo"
     ),
 }
 

@@ -13,7 +13,7 @@ from typing import Any
 
 from . import fetcher
 
-_HYPERNIX_VERSION = "0.70.5a1"
+_HYPERNIX_VERSION = "0.70.5a2"
 
 # Distro-specific install hints surfaced when llama-quantize is missing.
 # Detected by reading ``ID`` / ``ID_LIKE`` from /etc/os-release.

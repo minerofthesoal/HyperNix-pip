@@ -18,7 +18,13 @@ from typing import Any
 try:
     import torch
     import torch.nn as nn
-    from transformers import AutoModel, AutoTokenizer, PreTrainedModel
+    from transformers import (
+        AutoImageProcessor,
+        AutoModel,
+        AutoProcessor,
+        AutoTokenizer,
+        PreTrainedModel,
+    )
 except ImportError:
     torch = None
     nn = None
@@ -55,6 +61,8 @@ class FuzedModelArch(nn.Module if nn else object):
             return "asr"
         if "tts" in path_lower or "vits" in path_lower or "speech" in path_lower:
             return "tts"
+        if "vit" in path_lower or "clip" in path_lower or "vision" in path_lower or "image" in path_lower or "siglip" in path_lower:
+            return "vision"
         return "llm"
         
     def load_components(self) -> None:
@@ -73,9 +81,10 @@ class FuzedModelArch(nn.Module if nn else object):
             
             # Load tokenizer/processor
             try:
-                from transformers import AutoProcessor
                 if comp_type == "asr":
                     self.tokenizers[comp.id] = AutoProcessor.from_pretrained(comp.name_or_path)
+                elif comp_type == "vision":
+                    self.tokenizers[comp.id] = AutoImageProcessor.from_pretrained(comp.name_or_path)
                 else:
                     self.tokenizers[comp.id] = AutoTokenizer.from_pretrained(comp.name_or_path)
             except Exception as e:
@@ -113,7 +122,7 @@ class FuzedModelArch(nn.Module if nn else object):
         if llm_tokenizer is None:
             return None
             
-        special_tokens = ["<|asr_start|>", "<|asr_end|>", "<|tts_start|>", "<|tts_end|>"]
+        special_tokens = ["<|asr_start|>", "<|asr_end|>", "<|tts_start|>", "<|tts_end|>", "<|image_start|>", "<|image_end|>"]
         llm_tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
         return llm_tokenizer
         

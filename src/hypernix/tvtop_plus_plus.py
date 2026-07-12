@@ -473,7 +473,12 @@ def cli_main(argv: list[str] | None = None) -> int:
         return 0
         
     if log is None:
-        log = _autodetect_log()
+        try:
+            from hypernix.spinner import Spinner
+            with Spinner("Detecting training log...", style="dots"):
+                log = _autodetect_log()
+        except Exception:
+            log = _autodetect_log()
     
     if log is not None:
         print(f"[tvtop++] Tailing {log}...", file=sys.stderr)

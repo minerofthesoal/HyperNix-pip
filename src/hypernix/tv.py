@@ -1384,6 +1384,9 @@ def _autodetect_log(start: Path = Path(".")) -> Path | None:
     for pattern in ("**/train*.log", "**/*training*.log", "**/*.log"):
         for p in start.glob(pattern):
             try:
+                name = p.name.lower()
+                if "chromium" in name or "chrome" in name:
+                    continue
                 candidates.append((p.stat().st_mtime, p))
             except OSError:
                 continue
@@ -1459,7 +1462,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         if color and _is_tty:
             try:
                 from .spinner import Spinner
-                with Spinner("Auto-detecting training log...", style="dots"):
+                with Spinner("Detecting training log...", style="dots"):
                     log = _autodetect_log()
             except Exception:
                 log = _autodetect_log()

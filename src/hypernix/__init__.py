@@ -68,6 +68,8 @@ if not _is_tvtop:
         flour,
         food_processor,
         freezer,
+        generate,
+        hyper_log,
         hyped,
         industrial_range,
         injection,
@@ -336,11 +338,12 @@ if not _is_tvtop:
         "workshop",
         "fizzle",
         "spinner",
+        "hyper_log",
     ]
 else:
     from . import spinner, tv, tvtop, tvtop_plus_plus
     __all__ = ["tv", "tvtop", "tvtop_plus_plus", "spinner"]
 
-__version__ = "0.70.5a1"
+__version__ = "0.70.5a2"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
 DEFAULT_MODEL = "qwen3.5-4b"  # New default model

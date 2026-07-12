@@ -301,7 +301,7 @@ const MODULES = [
 const WIKI_PAGES = [
   'Home', 'Ovens', 'Fridges', 'Ranges', 'Freezer', 'Alarms', 'Kitchen',
   'Pascal', 'Architectures', 'Training', 'CLI', 'Quantization', 'Changelog',
-  'macOS-legacy',
+  'macOS-legacy', 'Camouflage', 'HyperLog', 'Pressure-Cooker-V4',
 ]
 
 
@@ -1475,6 +1475,46 @@ print("Perturbed:", perturbed)`,
     starter: `from hypernix.deep_fryer import ___, ___, ___\nfrom hypernix.espresso_maker import ___\n\nsnap = ___(model)\nbaseline = ___(model, prompts)\n\n___(model, noise_scale=___)\nperturbed = ___(model, prompts)\n\n___(model, snap)\nprint("Baseline:", baseline)\nprint("Perturbed:", perturbed)`,
     solution: `from hypernix.deep_fryer import HeavyFry, snapshot, restore\nfrom hypernix.espresso_maker import Ristretto\n\nsnap = snapshot(model)\nbaseline = Ristretto(model, prompts)\n\nHeavyFry(model, noise_scale=0.05)\nperturbed = Ristretto(model, prompts)\n\nrestore(model, snap)\nprint("Baseline:", baseline)\nprint("Perturbed:", perturbed)`,
     hints: ['snapshot → Ristretto → HeavyFry → Ristretto → restore', 'All three deep_fryer imports: HeavyFry, snapshot, restore'],
+  },
+  {
+    id: 'camo-rlaf',
+    title: 'Camouflage (RLHF/RLAF)',
+    track: 'Advanced Alignment',
+    trackColor: '#c8192e',
+    concept: `Camouflage (hypernix.camouflage) provides built-in RLHF and RLAF model alignment loops. By specifying a reward model (-Ai with -M), you can train a local model (-Lmodel) through automated feedback. It uses a REINFORCE loop to optimize the local policy.`,
+    example: `from hypernix.camouflage import run_rlhf
+
+run_rlhf(
+    local_model="meta-llama/Llama-3.2-1B",
+    steps=100,
+    use_ai=True,
+    evaluator_path="meta-llama/Llama-3.1-8B-Instruct",
+    sys_prompt="Rate this response from 1 to 10."
+)`,
+    exercise: `Run RLHF for 200 steps on "my-local-model", using AI evaluator "my-reward-model" with prompt "Score it!".`,
+    starter: `from hypernix.camouflage import run_rlhf\n\n___(\n    local_model=___,\n    steps=___,\n    use_ai=___,\n    evaluator_path=___,\n    sys_prompt=___\n)`,
+    solution: `from hypernix.camouflage import run_rlhf\n\nrun_rlhf(\n    local_model="my-local-model",\n    steps=200,\n    use_ai=True,\n    evaluator_path="my-reward-model",\n    sys_prompt="Score it!"\n)`,
+    hints: ['run_rlhf with local_model="my-local-model"', 'use_ai=True and evaluator_path="my-reward-model"'],
+  },
+  {
+    id: 'hyper-log',
+    title: 'Hyper-Log Dashboard',
+    track: 'Dashboards',
+    trackColor: '#34c759',
+    concept: `Hyper-Log provides a premium TUI for training metrics with support for grad norm, ETA, Epoch, and Hardware Telemetry. It is fully compatible with tvtop and can be manually paused or stopped via TUI interactions.`,
+    example: `from hypernix.hyper_log import HyperLogger
+
+logger = HyperLogger(total_steps=5000)
+logger.start()
+
+# Inside loop:
+# logger.update(step, loss, grad_norm, lr, epoch)
+
+logger.stop()`,
+    exercise: `Initialize HyperLogger for 1000 steps, start it, update with step=10, loss=0.5, grad_norm=0.1, lr=1e-4, epoch=0.1, and then stop it.`,
+    starter: `from hypernix.hyper_log import ___\n\nlogger = ___(total_steps=___)\nlogger.___()\n\nlogger.update(___, ___, ___, ___, ___)\n\nlogger.___()`,
+    solution: `from hypernix.hyper_log import HyperLogger\n\nlogger = HyperLogger(total_steps=1000)\nlogger.start()\n\nlogger.update(10, 0.5, 0.1, 1e-4, 0.1)\n\nlogger.stop()`,
+    hints: ['HyperLogger(total_steps=1000) then start()', 'logger.update(10, 0.5, 0.1, 1e-4, 0.1)'],
   },
 ]
 

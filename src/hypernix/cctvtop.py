@@ -31,7 +31,12 @@ def cli_main(argv: list[str] | None = None) -> None:
         
     # Find the most recently modified .log file in the current directory or subdirectories
     cwd = Path.cwd()
-    logs = list(cwd.glob("**/*.log"))
+    try:
+        from hypernix.spinner import Spinner
+        with Spinner("Searching for .log files...", style="dots"):
+            logs = list(cwd.glob("**/*.log"))
+    except Exception:
+        logs = list(cwd.glob("**/*.log"))
     if not logs:
         print(f"No .log files found in {cwd}")
         sys.exit(1)

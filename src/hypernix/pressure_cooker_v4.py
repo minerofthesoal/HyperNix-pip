@@ -10,6 +10,7 @@ v0.70.4b14:
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Iterable
 from typing import Any
 
@@ -105,8 +106,21 @@ class PressureCookerV4(OptimizerBase):
         self._apply_lr_schedule()
         
         if self._grad_clip is not None:
-            # Custom Sophia clipping could augment this, but we use base for now
-            self.gradient_clip()
+            if self.sophia_clipping:
+                for group in self.param_groups:
+                    for p in group["params"]:
+                        if p.grad is not None:
+                            state = self.state[p]
+                            if "grad_ema" not in state:
+                                state["grad_ema"] = p.grad.abs().clone()
+                            else:
+                                state["grad_ema"].lerp_(p.grad.abs(), weight=0.1)
+                            p.grad.copy_(
+                                (p.grad / state["grad_ema"].clamp(min=1e-4))
+                                .clamp_(-self._grad_clip, self._grad_clip)
+                            )
+            else:
+                self.gradient_clip()
 
         self._adamw_step()
 
@@ -211,8 +225,10 @@ class Agedcookerv4(PressureCookerV4):
         kwargs["stochastic_rounding"] = False  # Not well supported on Pascal
         super().__init__(params, **kwargs)
         if not self.cuda_61_compatible:
-            # We don't crash, but we warn (test mock or warning could go here)
-            pass
+            warnings.warn(
+                "Agedcookerv4 is specifically optimized for CUDA 6.1/6.2 (Pascal). "
+                "Running on newer hardware may be suboptimal; consider StovetopV4Cooker instead."
+            )
 
 
 class Ultracookerv4(PressureCookerV4):
@@ -223,7 +239,11 @@ class Ultracookerv4(PressureCookerV4):
         self.stochastic_rounding = True  # Enforced for low-bit QAT
 
     def _adamw_step(self):
-        # Hooks for specialized iq-quantization scaling could go here
+        if self.qat_mode.startswith("iq"):
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is not None and p.dtype in (torch.float16, torch.bfloat16):
+                        p.grad.mul_(0.85)  # Heuristic scaling for low-bit quantization sensitivity
         super()._adamw_step()
 
 

@@ -64,9 +64,11 @@ _SUBCOMMANDS = {
     "assistant",
     "webui",
     "cli",
-    "stml",
+    "tvtop",
     "fizzle",
-    "fiz",
+    "stml",
+    "camo",
+    "camouflage",
 }
 
 
@@ -588,7 +590,7 @@ def _run_train(raw: list[str]) -> int:
             use_abbicus=ns.use_abbicus,
             use_turbo_abbicus=ns.use_turbo_abbicus,
             use_stml=ns.use_stml,
-            untrained_max_context=ns.untrained_max_context,
+            untrained-max-context=ns.untrained_max_context,
             segment_length=ns.segment_length,
         )
     print(out)
@@ -857,6 +859,12 @@ def main(argv: list[str] | None = None) -> int:
         return _run_assistant(rest)
     if cmd == "webui":
         return _run_webui(rest)
+    if cmd == "fizzle":
+        return _run_fizzle(rest)
+    if cmd in ("camo", "camouflage"):
+        return _run_camo(rest)
+    if cmd == "tvtop":
+        return _run_tvtop(rest)
     if cmd == "cli":
         return _run_cli(rest)
     if cmd == "stml":
@@ -1182,6 +1190,12 @@ def _run_assistant(raw: list[str]) -> int:
             break
     
     return 0
+
+
+def _run_camo(raw: list[str]) -> int:
+    """`hypernix camo` - RLHF/RLAF alignment module."""
+    from .camouflage import main as camo_main
+    return camo_main(raw)
 
 
 def _run_stml(raw: list[str]) -> int:

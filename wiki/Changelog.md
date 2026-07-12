@@ -15,6 +15,16 @@ next release header.
 - 📚 documentation
 - 🔧 internal / plumbing
 
+## 0.70.5a2
+
+✨ **Massive Model Support Expansion.** Added support for GLM 5.2, Nex-N2, more Nemo models, LFM 2.5, SmolLM 3, Z Image, all Whisper models, DeepSeekV4, Kimi K2.5+, more Gemma 4, more Qwen, and Mimo models. Added explicit support for "Model Families" grouping.
+✨ **Camouflage (RLHF/RLAF).** Added a new module `hypernix.camouflage` with CLI support via `hnx camo`. Includes AI-assisted modes `-Ai` and full scaffolding for RLHF loops.
+✨ **Fizzle Image Models.** `fizzle` now automatically supports Vision/Image models using `AutoImageProcessor` to construct multi-modal architectures seamlessly.
+✨ **Hyper-Log TUI.** New premium dashboard (`hyper_log`) providing consistent, styled console logs for training with deep metrics: 5-decimal grad norm, learning rate, epoch progress, GPU telemetry, ETA, and emergency stop features.
+✨ **Pressure Cooker V4 Enhancements.** Fleshed out quantization scaling stubs, added Sophia clipping approximation, and enhanced Pascal architectural warnings.
+✨ **Spinner Consistency.** Brought the new `spinner` animations across `tvtop++`, `tvtop` (old), and `cctvtop`.
+📚 **Documentation Updates.** Expanded GitHub Pages docs to highlight Camouflage and Hyper-Log, plus corresponding Wiki entries.
+
 ## 0.70.4b11
 
 ✨ **`qa` — Q&A dataset formatter.** New module (`hypernix.qa.QAProcessor`)
