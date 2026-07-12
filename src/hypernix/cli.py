@@ -590,7 +590,7 @@ def _run_train(raw: list[str]) -> int:
             use_abbicus=ns.use_abbicus,
             use_turbo_abbicus=ns.use_turbo_abbicus,
             use_stml=ns.use_stml,
-            untrained-max-context=ns.untrained_max_context,
+            untrained_max_context=ns.untrained_max_context,
             segment_length=ns.segment_length,
         )
     print(out)
