@@ -68,7 +68,6 @@ if not _is_tvtop:
         flour,
         food_processor,
         freezer,
-        generate,
         hyper_log,
         hyped,
         industrial_range,
