@@ -879,6 +879,12 @@ def _run_fizzle(raw: list[str]) -> int:
     return fizzle_main(raw)
 
 
+def _run_tvtop(raw: list[str]) -> int:
+    """`hypernix tvtop` — live training dashboard."""
+    from .tv import cli_main as tvtop_main
+    return tvtop_main(raw)
+
+
 def _run_brew(raw: list[str]) -> int:
     """`hypernix brew` — run instant_pot.brew from a JSON recipe file."""
     import json
