@@ -15,6 +15,36 @@ next release header.
 - 📚 documentation
 - 🔧 internal / plumbing
 
+## 0.70.5b2
+
+✨ **Net Module.** New `hypernix.net` module for distributed network operations and Tailscale integration. Features: `config`, `auto-setup`, `m-setup`, `connect`, `status`, `m-ip`, `a-il` (auto-connect), `mutli-a-port`, `ex-port`, `s-storage` (distributed storage sharing), `onef-all`, `tail acheck` (automatic Python script checks over Tailscale SSH), and `tail stop`. Accessible via `hnx net <cmd>`. Fully implemented using `subprocess` with `tailscale` and `ssh` commands without relying on mocked stubs.
+
+✨ **Protect Module.** New `hypernix.protect` module for hardware health and monitor protection. Configurable via `hnx prot bind [set|reset] <word>`. Sleeps the monitor via `xset dpms force off` and uses raw terminal input modes to invisibly wait for the wake word (default: "bon") before waking the monitor via `xset dpms force on`.
+
+🐛 **cctvtop Python Rewrite.** Completely rewrote the buggy C++ `cctvtop_ext` wrapper (`cctvtop.py`) into a pure Python 2D interface using `rich.live.Live` with `screen=True`. Fixes terminal scrolling artifacts, duplicate text, and lockups, cleanly tracking and rendering the latest `.log` file in a robust layout.
+
+🛡️ **CLI Default Polish.** Running `hypernix` or `hnx` with no valid subcommand or just invalid flags now cleanly prints the usage menu instead of silently falling back to the legacy `all` (download -> convert -> quantize) pipeline.
+
+## 0.70.5b1
+
+✨ **Brewer Module.** New `hypernix.brewer` module for building fully custom transformer architectures from scratch with no base model. Features: `BrewerConfig` dataclass, `BrewerModel` (RMSNorm + RoPE + GQA + SwiGLU + optional sliding-window), the **hyperNix0x-v2** preset family (Small 9L/ctx=20482, Medium 18L/ctx=40964, Large 36L/ctx=103724), training loop with cosine LR schedule, PyTorch + GGUF export, auto-registration into `KNOWN_MODELS`, and full CLI via `hnx brew`.
+
+✨ **WebUI Overhaul.** Complete rewrite of the web dashboard with in-depth controls for every HyperNix module: Training (PressureCookerV4 params), Brewer (architecture builder + registry), Camouflage (RLHF/RLAF config), Fizzle (model fusion), Download, Quantize (30+ quant types), Tupperware (round planner), Pans/Data Prep, Pressure Cooker (code gen), Abbicus (curriculum config), Hyper-Log (code gen), Upload, Ethanol (GPU controls), Script Builder (now exports Python), Network, and Settings. All panels generate real CLI snippets.
+
+✨ **Autofix Scripts.** New standalone scripts in `scripts/`:
+  - `autofix-B` — bash script for CI failures: runs `ruff --fix` + `--unsafe-fixes`, commits with `[autofix-B]` message.
+  - `autofix-E` — Python script for public release failures: fixes dup imports, bare `except:`, `from __future__ import annotations` gaps, empty tests, type-checking guards, then `py_compile`-validates every file.
+
+✨ **GitHub Actions — Python 3.14 + macOS M-series.** Updated `ci.yml` to test against Python 3.11/3.12/3.13/3.14 (`allow-prereleases` for 3.14) on `ubuntu-latest`, `ubuntu-22.04`, and `macos-latest` (Apple Silicon). Torch installs routed by OS.
+
+🐛 **tvtop++ Border Artifacts Fixed.** Refactored `run()` to build the Rich `Layout` tree once and only call `.update()` on named slots each tick, eliminating ghost border artifacts from repeated full layout reconstruction.
+
+✨ **tvtop++ All-Process Monitor.** `_get_active_processes` now shows the top 12 system-wide processes by CPU (all processes, not just python/train), adds a STATUS column, and uses a `show_all` toggle.
+
+🐛 **Chromium Log Filter.** `_autodetect_log` in `tv.py` now skips any `.log` file with `chromium` or `chrome` in the name to prevent auto-tailing browser debug logs.
+
+🔧 **CLI `brew` → Brewer.** `hnx brew` now routes to `brewer.cli_main` instead of `instant_pot.brew`.
+
 ## 0.70.5a2
 
 ✨ **Massive Model Support Expansion.** Added support for GLM 5.2, Nex-N2, more Nemo models, LFM 2.5, SmolLM 3, Z Image, all Whisper models, DeepSeekV4, Kimi K2.5+, more Gemma 4, more Qwen, and Mimo models. Added explicit support for "Model Families" grouping.
@@ -91,7 +121,17 @@ internal details).
 
 ---
 
-## 0.70.4b1
+## 0.70.5b2
+
+✨ **Net Module.** New `hypernix.net` module for distributed network operations and Tailscale integration. Features: `config`, `auto-setup`, `m-setup`, `connect`, `status`, `m-ip`, `a-il` (auto-connect), `mutli-a-port`, `ex-port`, `s-storage` (distributed storage sharing), `onef-all`, `tail acheck` (automatic Python script checks over Tailscale SSH), and `tail stop`. Accessible via `hnx net <cmd>`. Fully implemented using `subprocess` with `tailscale` and `ssh` commands without relying on mocked stubs.
+
+✨ **Protect Module.** New `hypernix.protect` module for hardware health and monitor protection. Configurable via `hnx prot bind [set|reset] <word>`. Sleeps the monitor via `xset dpms force off` and uses raw terminal input modes to invisibly wait for the wake word (default: "bon") before waking the monitor via `xset dpms force on`.
+
+🐛 **cctvtop Python Rewrite.** Completely rewrote the buggy C++ `cctvtop_ext` wrapper (`cctvtop.py`) into a pure Python 2D interface using `rich.live.Live` with `screen=True`. Fixes terminal scrolling artifacts, duplicate text, and lockups, cleanly tracking and rendering the latest `.log` file in a robust layout.
+
+🛡️ **CLI Default Polish.** Running `hypernix` or `hnx` with no valid subcommand or just invalid flags now cleanly prints the usage menu instead of silently falling back to the legacy `all` (download -> convert -> quantize) pipeline.
+
+## 0.70.5b1
 
 ✨ **`hnx` CLI Shortcut.** Added a new CLI shortcut alias `hnx` which matches all capability of the main `hypernix` command.
 

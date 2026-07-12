@@ -69,6 +69,9 @@ _SUBCOMMANDS = {
     "stml",
     "camo",
     "camouflage",
+    "prot",
+    "protect",
+    "net",
 }
 
 
@@ -814,10 +817,10 @@ def main(argv: list[str] | None = None) -> int:
     if raw[0] == "--auto-oven":
         return _run_oven(["--auto", *raw[1:]])
 
-    # First arg isn't a subcommand -> assume classic pipeline flags and run
-    # `all` with them so existing scripts keep working.
+    # First arg isn't a subcommand -> print help instead of falling back to 'all'
     if raw[0] not in _SUBCOMMANDS:
-        return _run_all(raw)
+        _print_usage()
+        return 1
 
     cmd, rest = raw[0], raw[1:]
     if cmd == "all":
@@ -871,7 +874,22 @@ def main(argv: list[str] | None = None) -> int:
         return _run_stml(rest)
     if cmd in ("fizzle", "fiz"):
         return _run_fizzle(rest)
-    raise SystemExit(f"unknown subcommand: {cmd}")
+    if cmd in ("prot", "protect"):
+        return _run_protect(rest)
+    if cmd == "net":
+        return _run_net(rest)
+    _print_usage()
+    return 1
+
+def _run_protect(raw: list[str]) -> int:
+    """`hypernix protect` / `prot` — Hardware health and monitor protection."""
+    from .protect import cli_main as protect_main
+    return protect_main(raw)
+
+def _run_net(raw: list[str]) -> int:
+    """`hypernix net` — Advanced tailscale & distributed network manager."""
+    from .net import cli_main as net_main
+    return net_main(raw)
 
 def _run_fizzle(raw: list[str]) -> int:
     """`hypernix fizzle` / `fiz` — Fuzed Architecture module."""
