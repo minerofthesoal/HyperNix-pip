@@ -13,9 +13,7 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import subprocess
 import sys
 import threading
@@ -38,7 +36,7 @@ def load_config() -> dict:
     if not CONFIG_FILE.exists():
         return {"wake_word": DEFAULT_WAKE_WORD, "health_checks": True}
     try:
-        with open(CONFIG_FILE, "r") as f:
+        with open(CONFIG_FILE) as f:
             return json.load(f)
     except Exception:
         return {"wake_word": DEFAULT_WAKE_WORD, "health_checks": True}
@@ -108,7 +106,7 @@ def start_protection() -> None:
     wake_word = cfg.get("wake_word", DEFAULT_WAKE_WORD)
     do_health = cfg.get("health_checks", True)
 
-    print(f"[protect] Entering protection mode.")
+    print("[protect] Entering protection mode.")
     print(f"[protect] Monitor will sleep. Type '{wake_word}' to wake up.")
     time.sleep(1.5)
 

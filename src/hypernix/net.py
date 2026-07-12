@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +30,7 @@ def load_config() -> dict:
     if not NET_CONFIG_FILE.exists():
         return {"ports": [], "storage_dir": str(Path.home() / "hypernix_storage")}
     try:
-        with open(NET_CONFIG_FILE, "r") as f:
+        with open(NET_CONFIG_FILE) as f:
             return json.load(f)
     except Exception:
         return {"ports": [], "storage_dir": str(Path.home() / "hypernix_storage")}
@@ -61,7 +60,7 @@ def get_tailscale_peers() -> list[str]:
     try:
         data = json.loads(out)
         peers = []
-        for peer_id, peer_info in data.get("Peer", {}).items():
+        for _peer_id, peer_info in data.get("Peer", {}).items():
             if peer_info.get("Online") and peer_info.get("TailscaleIPs"):
                 peers.append(peer_info["TailscaleIPs"][0])
         return peers
@@ -150,7 +149,7 @@ def cmd_s_storage(args: argparse.Namespace) -> None:
         run_cmd(["rsync", "-avz", f"{storage}/", f"{peer}:{storage}/"], capture=False)
 
 def cmd_onef_all(args: argparse.Namespace) -> None:
-    print(f"[net] Configuring node as onef-all (centralized storage).")
+    print("[net] Configuring node as onef-all (centralized storage).")
     print(f"[net] Tailscale IP: {run_cmd(['tailscale', 'ip', '-4'])}")
     print("[net] Use this IP in your client nodes' configs.")
 
@@ -212,17 +211,28 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    if args.cmd == "config": cmd_config(args)
-    elif args.cmd == "auto-setup": cmd_auto_setup(args)
-    elif args.cmd == "m-setup": cmd_m_setup(args)
-    elif args.cmd == "connect": cmd_connect(args)
-    elif args.cmd == "status": cmd_status(args)
-    elif args.cmd == "m-ip": cmd_m_ip(args)
-    elif args.cmd == "a-il": cmd_a_il(args)
-    elif args.cmd == "mutli-a-port": cmd_multi_a_port(args)
-    elif args.cmd == "ex-port": cmd_ex_port(args)
-    elif args.cmd == "s-storage": cmd_s_storage(args)
-    elif args.cmd == "onef-all": cmd_onef_all(args)
+    if args.cmd == "config":
+        cmd_config(args)
+    elif args.cmd == "auto-setup":
+        cmd_auto_setup(args)
+    elif args.cmd == "m-setup":
+        cmd_m_setup(args)
+    elif args.cmd == "connect":
+        cmd_connect(args)
+    elif args.cmd == "status":
+        cmd_status(args)
+    elif args.cmd == "m-ip":
+        cmd_m_ip(args)
+    elif args.cmd == "a-il":
+        cmd_a_il(args)
+    elif args.cmd == "mutli-a-port":
+        cmd_multi_a_port(args)
+    elif args.cmd == "ex-port":
+        cmd_ex_port(args)
+    elif args.cmd == "s-storage":
+        cmd_s_storage(args)
+    elif args.cmd == "onef-all":
+        cmd_onef_all(args)
     elif args.cmd == "tail":
         if args.action == "acheck":
             cmd_tail_acheck(args)

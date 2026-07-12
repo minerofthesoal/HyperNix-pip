@@ -27,12 +27,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -114,14 +113,14 @@ class BrewerConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "BrewerConfig":
+    def from_dict(cls, d: dict) -> BrewerConfig:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     def save(self, path: str | Path) -> None:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2))
 
     @classmethod
-    def load(cls, path: str | Path) -> "BrewerConfig":
+    def load(cls, path: str | Path) -> BrewerConfig:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     def approx_params(self) -> int:
@@ -279,7 +278,7 @@ class BrewerAttention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         B, T, _ = x.shape
 
@@ -370,7 +369,7 @@ class BrewerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # Attention residual
         x = x + self.drop(self.attn(self.norm1(x), attn_mask))
@@ -429,7 +428,7 @@ class BrewerModel(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
@@ -577,7 +576,7 @@ class _SimpleTextDataset:
         self, batch_size: int, device: torch.device
     ) -> tuple[torch.Tensor, torch.Tensor]:
         indices = torch.randint(0, len(self), (batch_size,))
-        xs, ys = zip(*[self[i] for i in indices.tolist()])
+        xs, ys = zip(*[self[i] for i in indices.tolist()], strict=True)
         return torch.stack(xs).to(device), torch.stack(ys).to(device)
 
 
@@ -590,7 +589,7 @@ def train_model(
     batch_size: int = 4,
     device: str = "auto",
     checkpoint_dir: str | Path | None = None,
-    log_callback: Optional[Callable[[int, float], None]] = None,
+    log_callback: Callable[[int, float], None] | None = None,
 ) -> None:
     """Train *model* in-place on a plain-text corpus.
 
@@ -815,13 +814,13 @@ class Brewer:
     def __init__(
         self,
         config: BrewerConfig,
-        name: Optional[str] = None,
-        save_dir: Optional[str | Path] = None,
+        name: str | None = None,
+        save_dir: str | Path | None = None,
     ) -> None:
         self.config = config
         self.name = name or config.name
         self.save_dir = Path(save_dir) if save_dir else Path.cwd() / "brewer_models" / self.name
-        self._model: Optional[BrewerModel] = None
+        self._model: BrewerModel | None = None
         self._register()
 
     # ------------------------------------------------------------------
@@ -884,7 +883,7 @@ class Brewer:
         lr: float = 3e-4,
         batch_size: int = 4,
         device: str = "auto",
-        log_callback: Optional[Callable[[int, float], None]] = None,
+        log_callback: Callable[[int, float], None] | None = None,
     ) -> None:
         """Train the model on a text corpus.  Builds if not yet built."""
         if self._model is None:
@@ -906,7 +905,7 @@ class Brewer:
 
     def export(
         self,
-        out_path: Optional[str | Path] = None,
+        out_path: str | Path | None = None,
         fmt: str = "pt",
     ) -> Path:
         """Export the model to a file.
@@ -945,7 +944,7 @@ class Brewer:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_checkpoint(cls, ckpt_path: str | Path, name: Optional[str] = None) -> "Brewer":
+    def from_checkpoint(cls, ckpt_path: str | Path, name: str | None = None) -> Brewer:
         """Restore a :class:`Brewer` (with built model) from a ``.pt`` checkpoint."""
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         cfg = BrewerConfig.from_dict(ckpt["config"])
@@ -1046,7 +1045,7 @@ def _cmd_export(args: argparse.Namespace) -> None:
     print(f"[brewer] Exported → {out}")
 
 
-def cli_main(argv: Optional[list[str]] = None) -> None:
+def cli_main(argv: list[str] | None = None) -> None:
     """Entry point for the ``brew`` sub-command family.
 
     Can be wired into the main HyperNix CLI or invoked standalone::
