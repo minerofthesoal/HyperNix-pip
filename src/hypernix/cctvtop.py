@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 
+
 def cli_main(argv: list[str] | None = None) -> None:
     args = list(argv if argv is not None else sys.argv[1:])
 
@@ -25,9 +26,9 @@ def cli_main(argv: list[str] | None = None) -> None:
 
     try:
         from rich.console import Console
+        from rich.layout import Layout
         from rich.live import Live
         from rich.panel import Panel
-        from rich.layout import Layout
         from rich.text import Text
     except ImportError:
         print("Error: 'rich' library is required for cctvtop.")
@@ -82,7 +83,7 @@ def cli_main(argv: list[str] | None = None) -> None:
 
     try:
         # screen=True locks the terminal screen
-        with Live(layout, console=console, refresh_per_second=4, screen=True) as live:
+        with Live(layout, console=console, refresh_per_second=4, screen=True):
             while True:
                 term_height = console.height
                 # leave room for header (3) and panel borders (2)
