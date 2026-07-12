@@ -104,13 +104,17 @@ def _print_usage() -> None:
         table.add_row("[green]generate[/]", "sample text from a local HyperNix snapshot")
         table.add_row("[green]oven[/]", "code-generation wrapper (preheat + complete/fill)")
         table.add_row("[green]chat[/]", "interactive chat REPL with any HyperNix-family model")
-        table.add_row("[green]brew[/]", "run hypernix.instant_pot.brew from a JSON recipe")
+        table.add_row("[green]brew[/]", "custom architecture builder & model training suite (brewer)")
         table.add_row("[green]pipeline[/]", "ASR → LLM → TTS pipeline")
         table.add_row("[green]assistant[/]", "Linux local AI assistant with voice commands")
         table.add_row("[green]webui[/]", "Web dashboard with Tailscale integration")
         table.add_row("[green]cli[/]", "Interactive TUI/CLI menu for all operations")
         table.add_row("[green]stml[/]", "VRAM trained context length calculator")
         table.add_row("[green]fizzle[/]", "Fuzed Architecture module: fuse models and LoRAs (CLI: fiz)")
+        table.add_row("[green]cctvtop[/]", "Live training dashboard TUI")
+        table.add_row("[green]camo[/]", "RLHF/RLAF Camouflage scaffolding module")
+        table.add_row("[green]net[/]", "Distributed network operations & Tailscale integration")
+        table.add_row("[green]prot[/]", "Hardware health and monitor protection module")
         
         shortcuts = Text("Shortcuts:\n", style="bold yellow")
         shortcuts.append("  --auto-oven            download the default snapshot and run code completion\n", style="white")
@@ -140,13 +144,17 @@ def _print_usage() -> None:
             "  generate               sample text from a local HyperNix snapshot\n"
             "  oven                   code-generation wrapper (preheat + complete/fill)\n"
             "  chat                   interactive chat REPL with any HyperNix-family model\n"
-            "  brew                   run hypernix.instant_pot.brew from a JSON recipe\n"
+            "  brew                   custom architecture builder & training suite\n"
             "  pipeline               ASR → LLM → TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
             "  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)\n"
             "  webui                  Web dashboard with Tailscale integration for remote access\n"
             "  cli                    Interactive TUI/CLI menu for all HyperNix operations\n"
             "  stml                   VRAM trained context length calculator\n"
-            "  fizzle                 Fuzed Architecture module: fuse models and LoRAs\n\n"
+            "  fizzle                 Fuzed Architecture module: fuse models and LoRAs\n"
+            "  cctvtop                Live training dashboard TUI\n"
+            "  camo                   RLHF/RLAF Camouflage scaffolding\n"
+            "  net                    Distributed network & Tailscale integration\n"
+            "  prot                   Hardware health & monitor protection\n\n"
             "Shortcuts:\n"
             "  --auto-oven            download the default snapshot and run code completion\n"
             "                         (equivalent to `hypernix oven --auto ...`).\n\n"
@@ -904,34 +912,9 @@ def _run_tvtop(raw: list[str]) -> int:
 
 
 def _run_brew(raw: list[str]) -> int:
-    """`hypernix brew` — run instant_pot.brew from a JSON recipe file."""
-    import json
-
-    from . import instant_pot
-
-    p = argparse.ArgumentParser(
-        prog="hypernix brew",
-        description="Run hypernix.instant_pot.brew from a JSON recipe file.",
-    )
-    p.add_argument("recipe", help="Path to a JSON recipe file.")
-    p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                   help="Override a recipe key (repeatable).")
-    ns = p.parse_args(raw)
-
-    recipe = json.loads(Path(ns.recipe).read_text(encoding="utf-8"))
-    for override in ns.set:
-        if "=" not in override:
-            raise SystemExit(f"bad --set value: {override!r} (expected KEY=VALUE)")
-        key, value = override.split("=", 1)
-        # Accept JSON literals for typed overrides, else plain string.
-        try:
-            recipe[key] = json.loads(value)
-        except json.JSONDecodeError:
-            recipe[key] = value
-
-    out = instant_pot.brew(recipe)
-    print(out)
-    return 0
+    """`hypernix brew` — custom architecture builder and model training suite."""
+    from .brewer import cli_main as brewer_main
+    return brewer_main(raw)
 
 
 def _run_webui(raw: list[str]) -> int:
