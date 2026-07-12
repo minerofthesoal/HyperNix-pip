@@ -1,0 +1,12 @@
+[console_scripts]
+cctvtop = hypernix.cctvtop:cli_main
+eth = hypernix.ethanol:cli_main
+hnx = hypernix.version_launcher:main
+hyped = hypernix.hyped:cli_main
+hypernix = hypernix.version_launcher:main
+hypernix-quantize = hypernix.version_launcher:main
+tvtop = hypernix.cctvtop:cli_main
+tvtop-old = hypernix.tvtop_plus_plus:cli_main
+tvtop-older = hypernix.tv:cli_main
+tvtop-plus-plus = hypernix.tvtop_plus_plus:cli_main
+tvtoppp = hypernix.tvtop_plus_plus:cli_main
