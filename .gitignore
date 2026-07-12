@@ -1,4 +1,4 @@
 ```
-# CI/CD
-.github/workflows/
+__pycache__/
+*.pyc
 ```
