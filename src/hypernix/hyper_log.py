@@ -22,7 +22,6 @@ try:
     from rich.layout import Layout
     from rich.live import Live
     from rich.panel import Panel
-    from rich.progress import BarColumn, Progress, TextColumn
     from rich.text import Text
 except ImportError:
     pass
