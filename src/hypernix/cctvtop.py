@@ -1,107 +1,107 @@
-"""cctvtop — Python rewrite of the C++ cctvtop dashboard.
-
-This replaces the old cctvtop_ext C++ wrapper with a pure Python rich dashboard
-that locks the terminal (using screen=True) and reliably tails the latest .log
-file in the current directory tree without scrolling artifacts or duplicate text.
-"""
+"""Python wrapper for the C++ cctvtop dashboard (upgraded)."""
 from __future__ import annotations
 
-import os
 import sys
 import time
+import subprocess
 from pathlib import Path
 
+from rich.console import Console
+from rich.layout import Layout
+from rich.live import Live
+from rich.panel import Panel
+from rich.text import Text
 
-def cli_main(argv: list[str] | None = None) -> None:
+from .tvtop_plus_plus import TVTopPlusPlus, Frame, SPINNERS
+
+def ensure_vnc() -> dict[str, str]:
+    """Ensure a VNC server is running and return its info."""
+    try:
+        # Check if x11vnc is running
+        res = subprocess.run(["pgrep", "-x", "x11vnc"], capture_output=True, text=True)
+        if res.returncode != 0:
+            # Not running, try to start it
+            try:
+                subprocess.Popen(["x11vnc", "-display", ":0", "-nopw", "-bg", "-forever", "-q"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.5)
+            except FileNotFoundError:
+                return {"status": "Not Installed (x11vnc missing)", "ip": "Unknown"}
+                
+        # Get tailscale IP
+        ip_res = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True)
+        ip = ip_res.stdout.strip() if ip_res.returncode == 0 else "localhost"
+        
+        return {"status": "Running", "ip": f"{ip}:5900"}
+    except Exception as e:
+        return {"status": f"Error: {e}", "ip": "Unknown"}
+
+
+class CCTVTop(TVTopPlusPlus):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # cctvtop forces hardcoded log path
+        self.log_path = Path.cwd() / "checkpoints" / "train.log"
+        self.vnc_info = ensure_vnc()
+
+    def _init_layout(self) -> Layout:
+        layout = super()._init_layout()
+        # Replace the right column to include VNC
+        layout["right"].split_column(
+            Layout(name="hardware", ratio=4),
+            Layout(name="gpu", ratio=2),
+            Layout(name="vnc", ratio=1)
+        )
+        return layout
+
+    def _update_layout(self, f: Frame, console: Console, layout: Layout) -> None:
+        # Let the parent update training, process, hardware, gpu, loss, log
+        super()._update_layout(f, console, layout)
+        
+        # Override header text for CCTVTop
+        spinner_char = SPINNERS[self.tick % len(SPINNERS)] if not self.ascii_only else "*"
+        title_text = Text.assemble(
+            (" ", "default"),
+            (spinner_char, "bright_cyan"),
+            ("  ✦ HYPERNIX CCTVTop (VNC+PRO) ✦  ", "bold bright_red"),
+            (time.strftime(" %Y-%m-%d %H:%M:%S "), "dim"),
+        )
+        layout["header"].update(Panel(title_text, style="bold red", padding=(0, 2)))
+        
+        # Add VNC panel
+        vnc_text = Text()
+        if self.vnc_info["status"] == "Running":
+            vnc_text.append("VNC Server: ", style="bold white")
+            vnc_text.append("RUNNING\n", style="bold green")
+            vnc_text.append(f"Connect to: {self.vnc_info['ip']}", style="cyan")
+        else:
+            vnc_text.append("VNC Server: ", style="bold white")
+            vnc_text.append(f"{self.vnc_info['status']}\n", style="bold red")
+            vnc_text.append("(Please install x11vnc)", style="dim")
+            
+        layout["vnc"].update(Panel(vnc_text, title="Remote Desktop", border_style="blue"))
+
+
+def cli_main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
 
     if "--help" in args or "-h" in args:
         print(
             "usage: hnx cctvtop [--help]\n\n"
-            "A pure-Python training dashboard (formerly C++).\n"
-            "Searches the current directory recursively for the most recently\n"
-            "modified *.log file and renders a live, locking 2D view of it."
+            "A pure-Python training dashboard that hardcodes its log path to\n"
+            "./checkpoints/train.log and provides hardware metrics and VNC capabilities."
         )
-        return
+        return 0
 
-    try:
-        from rich.console import Console
-        from rich.layout import Layout
-        from rich.live import Live
-        from rich.panel import Panel
-        from rich.text import Text
-    except ImportError:
-        print("Error: 'rich' library is required for cctvtop.")
-        sys.exit(1)
-
-    cwd = Path.cwd()
-    logs = list(cwd.glob("**/*.log"))
-    
-    # Filter out chromium/chrome logs automatically just like tv.py
-    logs = [p for p in logs if "chromium" not in p.name.lower() and "chrome" not in p.name.lower()]
-
-    if not logs:
-        print(f"No valid .log files found in {cwd}")
-        sys.exit(1)
-
-    # Sort by modification time, newest first
-    logs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    latest_log = logs[0]
-    
-    console = Console()
-    
-    def read_tail(path: Path, lines: int = 40) -> str:
-        """Read the last N lines of a file quickly."""
-        try:
-            with open(path, 'rb') as f:
-                f.seek(0, os.SEEK_END)
-                buffer = bytearray()
-                pointer_location = f.tell()
-                while pointer_location >= 0 and lines > 0:
-                    f.seek(pointer_location)
-                    pointer_location -= 1
-                    char = f.read(1)
-                    if char == b'\n':
-                        lines -= 1
-                    buffer.extend(char)
-                return buffer[::-1].decode('utf-8', errors='replace').lstrip()
-        except Exception as e:
-            return f"Error reading log: {e}"
-
-    # Build static layout structure once
-    layout = Layout()
-    layout.split_column(
-        Layout(name="header", size=3),
-        Layout(name="body")
-    )
-
-    header_text = Text()
-    header_text.append(" 🎥 CCTVTop ", style="bold white on red")
-    header_text.append(f" Tailing: {latest_log.relative_to(cwd) if cwd in latest_log.parents else latest_log}", style="bold cyan")
-
-    layout["header"].update(Panel(header_text, style="white on black"))
-
-    try:
-        # screen=True locks the terminal screen
-        with Live(layout, console=console, refresh_per_second=4, screen=True):
-            while True:
-                term_height = console.height
-                # leave room for header (3) and panel borders (2)
-                tail_lines = max(5, term_height - 5)
-                
-                content = read_tail(latest_log, lines=tail_lines)
-                
-                body_panel = Panel(
-                    Text(content, style="green"),
-                    title="[bold]Live Log Feed[/bold]",
-                    border_style="cyan"
-                )
-                
-                layout["body"].update(body_panel)
-                time.sleep(0.25)
-    except KeyboardInterrupt:
-        # Exits cleanly and restores the original terminal screen thanks to screen=True
-        pass
+    log_file = Path.cwd() / "checkpoints" / "train.log"
+    if not log_file.exists():
+        print(f"Error: Hardcoded log file '{log_file}' does not exist.")
+        print("cctvtop is hardcoded to only log from ./checkpoints/train.log")
+        return 1
+        
+    app = CCTVTop(log_path=log_file, refresh_seconds=1.0)
+    app.run()
+    return 0
 
 if __name__ == "__main__":
-    cli_main()
+    sys.exit(cli_main())

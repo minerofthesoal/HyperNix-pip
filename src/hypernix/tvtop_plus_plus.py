@@ -137,35 +137,8 @@ class TVTopPlusPlus:
         f.gpu_util_history = list(self._gpu_util_history)
         return f
 
-    def _build_layout(self, f: Frame, console: Console) -> Layout:
-        """Build the Rich layout for the dashboard."""
-        self.tick += 1
-
-        # Header with spinner
-        spinner_char = SPINNERS[self.tick % len(SPINNERS)] if not self.ascii_only else "*"
-        title_text = Text.assemble(
-            (" ", "default"),
-            (spinner_char, "bright_cyan"),
-            ("  ✦ HYPERNIX TVTOP++ ✦  ", "bold bright_blue"),
-            (time.strftime(" %Y-%m-%d %H:%M:%S "), "dim"),
-        )
-
-        # Training panel
-        training_panel = self._make_training_panel(f, console)
-        # Hardware panel
-        hardware_panel = self._make_hardware_panel(f, console)
-
-        # Process and GPU panels
-        process_panel = self._make_process_panel(f)
-        gpu_panel = self._make_gpu_panel(f)
-
-        # Loss curve panel
-        loss_panel = self._make_loss_panel(f, console)
-
-        # Log tail panel
-        log_panel = self._make_log_panel(f, console)
-
-        # Build a clean, static layout tree from scratch — never mutate an existing split.
+    def _init_layout(self) -> Layout:
+        """Create the static layout tree once."""
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
@@ -192,6 +165,51 @@ class TVTopPlusPlus:
             Layout(name="loss", ratio=2),
             Layout(name="log", ratio=1),
         )
+        return layout
+
+    def _update_layout(self, f: Frame, console: Console, layout: Layout) -> None:
+        """Update the Rich layout for the dashboard."""
+        self.tick += 1
+
+        # Header with spinner
+        spinner_char = SPINNERS[self.tick % len(SPINNERS)] if not self.ascii_only else "*"
+        title_text = Text.assemble(
+            (" ", "default"),
+            (spinner_char, "bright_cyan"),
+            ("  ✦ HYPERNIX TVTOP++ ✦  ", "bold bright_blue"),
+            (time.strftime(" %Y-%m-%d %H:%M:%S "), "dim"),
+        )
+
+        # Training panel
+        training_panel = self._make_training_panel(f, console)
+        # Hardware panel
+        hardware_panel = self._make_hardware_panel(f, console)
+
+        # Process and GPU panels
+        process_panel = self._make_process_panel(f)
+        gpu_panel = self._make_gpu_panel(f)
+
+        # Loss curve panel
+        loss_panel = self._make_loss_panel(f, console)
+
+        # Log tail panel
+        log_panel = self._make_log_panel(f, console)
+        layout["top"].split_row(
+            Layout(name="left"),
+            Layout(name="right"),
+        )
+        layout["left"].split_column(
+            Layout(name="training", ratio=2),
+            Layout(name="process", ratio=1),
+        )
+        layout["right"].split_column(
+            Layout(name="hardware", ratio=2),
+            Layout(name="gpu", ratio=1),
+        )
+        layout["bottom"].split_row(
+            Layout(name="loss", ratio=2),
+            Layout(name="log", ratio=1),
+        )
 
         # Assign panels
         layout["header"].update(Panel(title_text, style="bright_blue", padding=(0, 2)))
@@ -202,16 +220,13 @@ class TVTopPlusPlus:
         layout["loss"].update(loss_panel)
         layout["log"].update(log_panel)
 
-        # Footer
         footer_text = Text.assemble(
-            (" ⎋ Ctrl-C to exit · ", "dim"),
-            (f"refresh {self.refresh_seconds:.1f}s", "cyan"),
+            (" ❖ Ctrl-C to exit · ", "dim"),
+            (f"refresh {self.refresh_seconds:.1f}s", "dim green"),
             (" · ", "dim"),
-            (f"log={self.log_path or 'auto'}", "green"),
+            (f"log={self.log_path}", "dim green"),
         )
-        layout["footer"].update(Panel(footer_text, style="dim", padding=(0, 2)))
-
-        return layout
+        layout["footer"].update(Panel(footer_text, style="white", padding=(0, 2)))
 
     def _make_training_panel(self, f: Frame, console: Console | None = None) -> Panel:
         """Create the Training Vitals panel."""
@@ -412,19 +427,19 @@ class TVTopPlusPlus:
         # dynamically on each refresh so resizing the window is correctly reflected.
         console = Console(force_terminal=True)
 
-        def make_layout(frame: Frame) -> Layout:
-            return self._build_layout(frame, console)
+        layout = self._init_layout()
 
         try:
+            self._update_layout(self.latest_frame(), console, layout)
             with Live(
-                make_layout(self.latest_frame()),
+                layout,
                 console=console,
                 refresh_per_second=1 / self.refresh_seconds,
                 screen=True,
             ) as live:
                 while True:
                     frame = self.latest_frame()
-                    live.update(make_layout(frame))
+                    self._update_layout(frame, console, layout)
                     time.sleep(self.refresh_seconds)
         except KeyboardInterrupt:
             pass
