@@ -36,6 +36,7 @@ src/hypernix/arch.py
 src/hypernix/assistant.py
 src/hypernix/bell.py
 src/hypernix/blender.py
+src/hypernix/brewer.py
 src/hypernix/cake_pan.py
 src/hypernix/camouflage.py
 src/hypernix/cardboard_box.py
@@ -72,6 +73,7 @@ src/hypernix/mediocre_fridge.py
 src/hypernix/menu.py
 src/hypernix/microwave.py
 src/hypernix/nano_nano.py
+src/hypernix/net.py
 src/hypernix/new_fridge.py
 src/hypernix/new_range.py
 src/hypernix/old_fridge.py
@@ -85,6 +87,7 @@ src/hypernix/plasma.py
 src/hypernix/pressure_cooker.py
 src/hypernix/pressure_cooker_v3.py
 src/hypernix/pressure_cooker_v4.py
+src/hypernix/protect.py
 src/hypernix/py.typed
 src/hypernix/qa.py
 src/hypernix/quantize.py

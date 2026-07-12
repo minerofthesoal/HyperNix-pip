@@ -922,10 +922,10 @@ def _run_brew(raw: list[str]) -> int:
         first_arg = raw[0]
         # If it looks like a file path (not a subcommand), treat as recipe
         if not first_arg.startswith('-') and first_arg.endswith('.json'):
-            from pathlib import Path
             import json
+
             from .instant_pot import brew
-            
+
             recipe_path = Path(first_arg)
             if not recipe_path.exists():
                 print(f"Error: Recipe file not found: {recipe_path}", file=sys.stderr)
