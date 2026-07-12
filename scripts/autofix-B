@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# autofix-B — run after a CI lint failure to auto-fix and commit
+# Usage: ./scripts/autofix-B
+set -euo pipefail
+
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+RESET='\033[0m'
+
+echo -e "${BOLD}${CYAN}=== autofix-B: ruff auto-fix pass ===${RESET}"
+
+# ── 1. Safe fixes ────────────────────────────────────────────────────────────
+echo -e "\n${YELLOW}[1/2] Running ruff --fix (safe fixes)…${RESET}"
+if ruff check --fix src tests 2>&1; then
+    echo -e "${GREEN}  ✓ Safe fixes applied (or nothing to fix).${RESET}"
+else
+    echo -e "${YELLOW}  ⚠ ruff reported remaining issues after safe fixes.${RESET}"
+fi
+
+# ── 2. Unsafe fixes ──────────────────────────────────────────────────────────
+echo -e "\n${YELLOW}[2/2] Running ruff --fix --unsafe-fixes (unsafe fixes)…${RESET}"
+if ruff check --fix --unsafe-fixes src tests 2>&1; then
+    echo -e "${GREEN}  ✓ Unsafe fixes applied (or nothing to fix).${RESET}"
+else
+    echo -e "${YELLOW}  ⚠ ruff reported remaining issues after unsafe fixes.${RESET}"
+fi
+
+# ── 3. Check for staged changes ──────────────────────────────────────────────
+echo -e "\n${CYAN}Checking for modified files…${RESET}"
+
+CHANGED_FILES=$(git diff --name-only -- src/ tests/ 2>/dev/null || true)
+
+if [ -z "$CHANGED_FILES" ]; then
+    echo -e "${GREEN}No files were modified — nothing to commit.${RESET}"
+    echo -e "\n${BOLD}autofix-B complete.${RESET}"
+    exit 0
+fi
+
+# ── 4. Report what changed ───────────────────────────────────────────────────
+echo -e "${BOLD}Files modified by ruff:${RESET}"
+while IFS= read -r f; do
+    echo -e "  ${GREEN}+${RESET} $f"
+done <<< "$CHANGED_FILES"
+
+# ── 5. Commit ────────────────────────────────────────────────────────────────
+echo -e "\n${CYAN}Staging and committing…${RESET}"
+git add src/ tests/
+git commit -m "[autofix-B] auto lint fixes"
+echo -e "${GREEN}  ✓ Committed: [autofix-B] auto lint fixes${RESET}"
+
+# ── 6. Summary ───────────────────────────────────────────────────────────────
+NFILES=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')
+echo -e "\n${BOLD}${GREEN}=== autofix-B summary ===${RESET}"
+echo -e "  Files fixed : ${BOLD}${NFILES}${RESET}"
+echo -e "  Commit msg  : [autofix-B] auto lint fixes"
+echo -e "  Branch      : $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+echo -e "\n${BOLD}Done.${RESET}"
