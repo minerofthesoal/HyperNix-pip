@@ -43,7 +43,7 @@ def _get_all_modules() -> list[str]:
     """Discover all hypernix modules by scanning the package."""
     root = _get_hypernix_root()
     modules = []
-    for _finder, name, ispkg in pkgutil.iter_modules([str(root)]):
+    for _finder, name, _ispkg in pkgutil.iter_modules([str(root)]):
         if name.startswith("_"):
             continue
         modules.append(name)
@@ -375,7 +375,7 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     if version_flag:
         import hypernix
-        console.print(f"[bold]HyperNix Wiki[/]")
+        console.print("[bold]HyperNix Wiki[/]")
         console.print(f"  Version range: [cyan]{VERSION_START}[/] → [cyan]latest[/]")
         console.print(f"  Package: [cyan]{hypernix.__file__}[/]")
         return 0
