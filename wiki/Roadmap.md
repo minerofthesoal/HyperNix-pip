@@ -1,22 +1,15 @@
 # Roadmap
 
-Planned releases (edit freely — version numbers are placeholders).
 
-## 0.70.4
+## 0.71.0
 
-- _
-- _
-- _
-
-## 0.70.6
-
-- _
+- security improvements
 - _
 - _
 
  ## 0.71.2
 
-- _
+- new tui
 - _
 - _
 
