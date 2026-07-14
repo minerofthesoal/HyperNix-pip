@@ -401,7 +401,8 @@ Release.
 
 
 ##usage
-
+ <img src="https://github.com/minerofthesoal/HyperNix-pip/blob/main/02_optimizer_speed_and_memory.pdf" alt="hypernix logo" width="240" />
+https://github.com/minerofthesoal/HyperNix-pip/blob/main/02_optimizer_speed_and_memory.pdf
 
 ## License
 
