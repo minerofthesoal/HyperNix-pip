@@ -1,17 +1,19 @@
 """workshop — Model frameworks and TTS/ASR pipelines.
 
-v0.70.0: New room for building model frameworks, TTS, ASR, and complete pipelines.
+v0.70.5: Added native Multi-Token Prediction (MTP) support and QAT integration.
 Supports ray0rf1re/nano-nano collection and 30+ additional architectures.
 """
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import torch
 import torch.nn as nn
+
+from .mtp import MTPConfig, MTPHead, MTPTrainer
 
 # =============================================================================
 # Workshop Frameworks - Base templates for model creation
@@ -21,11 +23,17 @@ import torch.nn as nn
 class FrameworkConfig:
     """Base configuration for model frameworks."""
     name: str = "base_framework"
-    version: str = "0.70.0"
+    version: str = "0.70.5"
     dtype: torch.dtype = torch.float32
     device: str = "cpu"
     quantization: str | None = None
     checkpoint_path: Path | None = None
+    # MTP (Multi-Token Prediction) support
+    enable_mtp: bool = False
+    mtp_config: MTPConfig | None = None
+    # QAT (Quantization-Aware Training) support
+    enable_qat: bool = False
+    qat_bits: int = 6
 
 
 class WorkshopFramework:
@@ -75,7 +83,82 @@ class WorkshopFramework:
             "device": self.config.device,
             "quantization": self.config.quantization,
             "initialized": self._initialized,
+            "mtp_enabled": self.config.enable_mtp,
+            "qat_enabled": self.config.enable_qat,
         }
+
+    # ------------------------------------------------------------------
+    # MTP (Multi-Token Prediction) support
+    # ------------------------------------------------------------------
+
+    def attach_mtp_head(
+        self,
+        hidden_dim: int,
+        vocab_size: int,
+        num_tokens: int | None = None,
+    ) -> MTPHead | None:
+        """Attach an MTP head for multi-token prediction training.
+
+        Args:
+            hidden_dim: Model hidden dimension.
+            vocab_size: Vocabulary size.
+            num_tokens: Override default number of future tokens.
+
+        Returns:
+            The attached MTP head, or None if MTP is not enabled.
+        """
+        if not self.config.enable_mtp:
+            return None
+
+        mtp_cfg = self.config.mtp_config or MTPConfig(
+            num_tokens=num_tokens or 4,
+        )
+        if num_tokens:
+            mtp_cfg.num_tokens = num_tokens
+
+        self.mtp_trainer = MTPTrainer(
+            model=self.model,
+            config=mtp_cfg,
+        )
+        mtp_head = self.mtp_trainer.attach_head(
+            hidden_dim=hidden_dim,
+            vocab_size=vocab_size,
+        )
+        return mtp_head
+
+    def compute_mtp_loss(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        hidden_states: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Compute combined main + MTP loss.
+
+        Args:
+            logits: Main model logits [batch, seq, vocab].
+            labels: Target token IDs [batch, seq].
+            hidden_states: Optional hidden states for MTP.
+
+        Returns:
+            Dict with 'main', 'mtp', 'total' losses.
+        """
+        if not hasattr(self, "mtp_trainer") or self.mtp_trainer is None:
+            # MTP not attached — return main loss only
+            import torch.nn.functional as F
+            loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                labels.view(-1),
+                ignore_index=-100,
+            )
+            return {"main": loss, "mtp": torch.tensor(0.0), "total": loss}
+
+        return self.mtp_trainer.compute_loss(logits, labels, hidden_states)
+
+    def get_mtp_stats(self) -> dict[str, Any]:
+        """Get MTP training statistics."""
+        if hasattr(self, "mtp_trainer") and self.mtp_trainer is not None:
+            return self.mtp_trainer.get_stats()
+        return {"mtp_enabled": False}
 
 
 # =============================================================================
@@ -186,7 +269,6 @@ class ASRConfig(FrameworkConfig):
     sample_rate: int = 16000
     n_mels: int = 80
     n_fft: int = 400
-    hop_length: int = 160
     vocab_size: int = 5000
     max_audio_length: float = 30.0  # seconds
     use_conformer: bool = True
