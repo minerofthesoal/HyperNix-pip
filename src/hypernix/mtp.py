@@ -326,7 +326,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         label_smoothing=args.label_smoothing,
     )
 
-    print(f"MTP Configuration:")
+    print("MTP Configuration:")
     print(f"  Future tokens: {config.num_tokens}")
     print(f"  Lambda weight: {config.lambda_weight}")
     print(f"  Sequential: {config.sequential}")

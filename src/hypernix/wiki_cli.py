@@ -14,7 +14,6 @@ Usage:
 from __future__ import annotations
 
 import ast
-import importlib
 import pkgutil
 import sys
 import textwrap
@@ -25,7 +24,6 @@ from typing import Any
 
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 

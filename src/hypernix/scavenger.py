@@ -27,9 +27,8 @@ from __future__ import annotations
 
 import os
 import shutil
-from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from rich.console import Console
@@ -106,7 +105,7 @@ class ScavengerCriteria:
         if self.max_age_days:
             last_modified = info.get("last_modified")
             if last_modified:
-                age = (datetime.now(timezone.utc) - last_modified).days
+                age = (datetime.now(UTC) - last_modified).days
                 if age > self.max_age_days:
                     return False, f"age {age}d > max {self.max_age_days}d"
 
@@ -194,7 +193,7 @@ class Scavenger:
 
                 total_bytes = 0
                 if ds_info.splits:
-                    for split_name, split_info in ds_info.splits.items():
+                    for _split_name, split_info in ds_info.splits.items():
                         if hasattr(split_info, "num_bytes"):
                             total_bytes += split_info.num_bytes
 
@@ -214,7 +213,7 @@ class Scavenger:
     ) -> list[dict[str, Any]]:
         """Search for datasets matching criteria."""
         if verbose:
-            self.console.print(f"[bold]🔍 Scavenger Hunt[/]")
+            self.console.print("[bold]🔍 Scavenger Hunt[/]")
             self.console.print(f"  Keywords: [cyan]{', '.join(criteria.keywords)}[/]" if criteria.keywords else "  Keywords: (any)")
             if criteria.max_storage_per_dataset_gb:
                 self.console.print(f"  Max storage/dataset: [cyan]{criteria.max_storage_per_dataset_gb}GB[/]")
@@ -286,7 +285,7 @@ class Scavenger:
 
         last_modified = info.get("last_modified")
         if last_modified:
-            age_days = (datetime.now(timezone.utc) - last_modified).days
+            age_days = (datetime.now(UTC) - last_modified).days
             if age_days < 30:
                 score += 10.0
             elif age_days < 90:
@@ -351,8 +350,8 @@ class Scavenger:
         """Download a dataset from HuggingFace Hub."""
         try:
             from datasets import load_dataset
-        except ImportError:
-            raise ImportError("datasets library required. Install: pip install datasets")
+        except ImportError as err:
+            raise ImportError("datasets library required. Install: pip install datasets") from err
 
         self.console.print(f"[bold]📥 Downloading {dataset_id}...[/]")
 
