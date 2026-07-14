@@ -254,7 +254,7 @@ def _open_in_browser(module_name: str | None) -> None:
     webbrowser.open(url)
 
 
-def _search_modules(keyword: str, console: Console) -> None:
+def _search_modules(keyword: str, console: Console | None) -> None:
     """Search across all modules for a keyword."""
     modules = _get_all_modules()
     matches = []
@@ -295,7 +295,8 @@ def _search_modules(keyword: str, console: Console) -> None:
     matches.sort(key=lambda x: -x[0])
 
     if not matches:
-        console.print(f"[yellow]No matches found for '{keyword}'[/]")
+        if console:
+            console.print(f"[yellow]No matches found for '{keyword}'[/]")
         return
 
     table = Table(title=f"Search Results: '{keyword}'")
@@ -306,7 +307,8 @@ def _search_modules(keyword: str, console: Console) -> None:
     for score, mod_name, locations in matches[:20]:
         table.add_row(mod_name, str(score), ", ".join(locations[:3]))
 
-    console.print(table)
+    if console:
+        console.print(table)
 
 
 def cli_main(argv: list[str] | None = None) -> int:
