@@ -410,7 +410,6 @@ Comprehensive performance analysis and training guides available in the followin
 | [**03_gpu_utilization_and_vram.pdf**](03_gpu_utilization_and_vram.pdf) | GPU utilization patterns and VRAM management best practices. |
 | [**04_architecture_and_pipeline.pdf**](04_architecture_and_pipeline.pdf) | Detailed architecture documentation and training pipeline information. |
 
-These documents provide deep-dive analysis into HyperNix training performance, resource management, and optimization techniques.
 
 ## License
 
