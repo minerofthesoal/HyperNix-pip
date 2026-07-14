@@ -118,13 +118,19 @@ class ScavengerCriteria:
         return True, ""
 
     def check_storage_budget(self, datasets: list[dict[str, Any]]) -> tuple[bool, float]:
-        """Check if selected datasets fit within storage constraints."""
+        """Check if selected datasets fit within storage constraints.
+        
+        Returns True if the total fits within max_combined_storage_gb (if set),
+        otherwise returns False. The remaining_device_storage_gb check is also
+        performed if set.
+        """
         total_gb = sum(d.get("size_gb", 0) for d in datasets)
 
         if self.max_combined_storage_gb and total_gb > self.max_combined_storage_gb:
             return False, total_gb
 
         if self.remaining_device_storage_gb:
+            import shutil
             free = shutil.disk_usage(".").free / (1024**3)
             if free - total_gb < self.remaining_device_storage_gb:
                 return False, total_gb

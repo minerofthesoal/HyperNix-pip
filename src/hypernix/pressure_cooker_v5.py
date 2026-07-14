@@ -421,6 +421,7 @@ class PressureCookerV5(OptimizerBase):
             **kwargs,
         )
 
+        self.lr = lr
         self.momentum_beta = momentum_beta
         self.slow_beta = slow_beta
         self.power = power
