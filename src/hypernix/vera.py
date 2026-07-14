@@ -92,6 +92,8 @@ class HyperNixVerifier:
 
     def verify_module(self, module_name: str) -> VerificationResult:
         """Verify an installed module by name."""
+        import importlib
+
         result = VerificationResult(name=module_name)
 
         try:

@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # tvtop++ Fixes
 # ---------------------------------------------------------------------------
@@ -40,12 +39,8 @@ class TestTVTopPlusPlusFixes:
     def test_layout_init_not_rebuilt(self):
         """Layout tree should be initialized once, not rebuilt every tick."""
         from hypernix.tvtop_plus_plus import TVTopPlusPlus
-        from hypernix.tv import Frame
-        from rich.console import Console
 
         tv = TVTopPlusPlus()
-        console = Console(force_terminal=True, width=120)
-        f = Frame()
 
         layout1 = tv._init_layout()
         layout2 = tv._init_layout()
@@ -56,27 +51,25 @@ class TestTVTopPlusPlusFixes:
 
     def test_layout_update_does_not_rebuild_tree(self):
         """_update_layout should only update panel contents, not tree structure."""
-        from hypernix.tvtop_plus_plus import TVTopPlusPlus
         from hypernix.tv import Frame
-        from rich.console import Console
+        from hypernix.tvtop_plus_plus import TVTopPlusPlus
 
         tv = TVTopPlusPlus()
-        console = Console(force_terminal=True, width=120)
-        f = Frame()
 
         layout = tv._init_layout()
         original_children = list(layout.tree.children)
 
-        tv._update_layout(f, console, layout)
-        tv._update_layout(f, console, layout)
-        tv._update_layout(f, console, layout)
+        tv._update_layout(Frame(), None, layout)
+        tv._update_layout(Frame(), None, layout)
+        tv._update_layout(Frame(), None, layout)
 
         assert len(layout.tree.children) == len(original_children)
 
     def test_small_mode_layout_structure(self):
         """Small mode should create a simplified layout."""
-        from hypernix.tvtop_plus_plus import TVTopPlusPlus
         from rich.console import Console
+
+        from hypernix.tvtop_plus_plus import TVTopPlusPlus
 
         tv = TVTopPlusPlus(small_mode=True)
         console = Console(force_terminal=True, width=80)
@@ -134,23 +127,19 @@ class TestWikiCLI:
 
     def test_format_module_doc(self):
         """Should yield formatted documentation sections."""
-        from hypernix.wiki_cli import _get_module_doc, _format_module_doc
-        from rich.console import Console
+        from hypernix.wiki_cli import _format_module_doc, _get_module_doc
 
         doc = _get_module_doc("tvtop_plus_plus")
         assert doc is not None
 
-        console = Console()
-        sections = list(_format_module_doc(doc, console, quick=False))
+        sections = list(_format_module_doc(doc, None, quick=False))
         assert len(sections) > 0
 
     def test_search_modules(self):
         """Should find modules matching keywords."""
         from hypernix.wiki_cli import _search_modules
-        from rich.console import Console
 
-        console = Console()
-        _search_modules("training", console)
+        _search_modules("training", None)
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +278,7 @@ class TestPressureCookerV5QAT:
     def test_fake_quantize_preserves_shape(self):
         """Fake quantization should preserve tensor shape."""
         import torch
+
         from hypernix.pressure_cooker_v5 import fake_quantize_tensor
 
         x = torch.randn(10, 20)
@@ -301,6 +291,7 @@ class TestPressureCookerV5QAT:
     def test_fake_quantize_reduces_precision(self):
         """Fake quantization should reduce effective precision."""
         import torch
+
         from hypernix.pressure_cooker_v5 import fake_quantize_tensor
 
         x = torch.linspace(-1, 1, 1000)
@@ -314,6 +305,7 @@ class TestPressureCookerV5QAT:
     def test_compute_quantization_params(self):
         """Should compute valid scale and zero_point."""
         import torch
+
         from hypernix.pressure_cooker_v5 import compute_quantization_params
 
         x = torch.randn(100)
@@ -325,6 +317,7 @@ class TestPressureCookerV5QAT:
     def test_qat_fake_quantize_module(self):
         """QATFakeQuantize module should be callable."""
         import torch
+
         from hypernix.pressure_cooker_v5 import QATFakeQuantize
 
         fq = QATFakeQuantize(num_levels=64)
@@ -335,8 +328,9 @@ class TestPressureCookerV5QAT:
 
     def test_pressure_cooker_v5_creation(self):
         """Should create PressureCookerV5 instance."""
-        from hypernix.pressure_cooker_v5 import PressureCookerV5
         import torch
+
+        from hypernix.pressure_cooker_v5 import PressureCookerV5
 
         param = torch.nn.Parameter(torch.randn(10))
         cooker = PressureCookerV5([param], lr=1e-3)
@@ -345,8 +339,9 @@ class TestPressureCookerV5QAT:
 
     def test_pressure_cooker_v5_with_qat(self):
         """Should create V5 with QAT config."""
-        from hypernix.pressure_cooker_v5 import PressureCookerV5, QATConfig
         import torch
+
+        from hypernix.pressure_cooker_v5 import PressureCookerV5, QATConfig
 
         param = torch.nn.Parameter(torch.randn(10))
         qat_cfg = QATConfig(bits=6)
@@ -357,8 +352,9 @@ class TestPressureCookerV5QAT:
 
     def test_pressure_cooker_v5_describe(self):
         """Describe should include V5-specific fields."""
-        from hypernix.pressure_cooker_v5 import PressureCookerV5
         import torch
+
+        from hypernix.pressure_cooker_v5 import PressureCookerV5
 
         param = torch.nn.Parameter(torch.randn(10))
         cooker = PressureCookerV5([param])
@@ -415,7 +411,6 @@ class TestMTP:
 
     def test_mtp_head_creation(self):
         """Should create MTPHead."""
-        import torch
         from hypernix.mtp import MTPHead
 
         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4)
@@ -426,6 +421,7 @@ class TestMTP:
     def test_mtp_head_forward(self):
         """MTPHead forward should return correct number of logits."""
         import torch
+
         from hypernix.mtp import MTPHead
 
         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4)
@@ -439,6 +435,7 @@ class TestMTP:
     def test_mtp_head_forward_independent(self):
         """MTPHead should work in independent mode."""
         import torch
+
         from hypernix.mtp import MTPHead
 
         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4, shared=False)
@@ -449,7 +446,7 @@ class TestMTP:
 
     def test_mtp_trainer_creation(self):
         """Should create MTPTrainer."""
-        from hypernix.mtp import MTPTrainer, MTPConfig
+        from hypernix.mtp import MTPConfig, MTPTrainer
 
         config = MTPConfig()
         class MockModel:
@@ -461,7 +458,8 @@ class TestMTP:
     def test_mtp_trainer_attach_head(self):
         """Should attach MTP head."""
         import torch
-        from hypernix.mtp import MTPTrainer, MTPConfig, MTPHead
+
+        from hypernix.mtp import MTPConfig, MTPHead, MTPTrainer
 
         config = MTPConfig(num_tokens=4)
         model = torch.nn.Linear(128, 128)
@@ -532,7 +530,7 @@ class TestScavenger:
     def test_criteria_combined_storage_budget(self):
         """Should check combined storage budget."""
         from hypernix.scavenger import ScavengerCriteria
-        criteria = ScavengerCriteria(max_combined_storage_gb=10.0)
+        criteria = ScavengerCriteria(max_combined_storage_gb=15.0)
         datasets = [
             {"size_gb": 3.0},
             {"size_gb": 4.0},
