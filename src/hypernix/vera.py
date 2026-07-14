@@ -18,16 +18,12 @@ Usage:
 from __future__ import annotations
 
 import ast
-import importlib
 import sys
-import types
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from rich.console import Console
 from rich.table import Table
-from rich.text import Text
 
 
 @dataclass
