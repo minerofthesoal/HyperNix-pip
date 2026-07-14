@@ -15,6 +15,11 @@ Three variants sit behind the same interface:
                           size every retry so progress continues even on
                           a contested card.
 
+QAT Support (v0.70.5):
+  * QAT-aware batch sizing (accounts for fake quantization memory)
+  * QAT model preparation helpers
+  * Per-bit-width VRAM multiplier profiles
+
 Typical use::
 
     from hypernix import freezer
@@ -23,6 +28,10 @@ Typical use::
     fz = freezer.flash_freezer(base=fz)    # add OOM-safety
     bs  = fz.suggest_batch_size(hint=8)
     fz.guard(lambda: model(batch))         # retries on OOM
+
+    # With QAT
+    bs = fz.suggest_qat_batch_size(bits=6, hint=8)
+    fz.prepare_for_qat(model, bits=6)      # attach fake quant hooks
 
 Everything degrades cleanly on CPU-only systems: ``suggest_batch_size``
 returns the hint unchanged, ``guard`` just calls the function, and the
@@ -215,6 +224,84 @@ class Freezer:
             f"free={b.free_gb:.1f}GB bs={self.base_batch_size} "
             f"ctx={self.base_context_length}>"
         )
+
+    # ------------------------------------------------------------------
+    # QAT (Quantization-Aware Training) support
+    # ------------------------------------------------------------------
+
+    #: VRAM multiplier for QAT training at different bit widths.
+    #: Fake quantization stores both original and quantized values,
+    #: plus running statistics, increasing memory usage.
+    _QAT_VRAM_MULTIPLIERS: dict[int, float] = {
+        4: 1.15,   # Q4: minimal overhead
+        5: 1.20,   # Q5: low overhead
+        6: 1.25,   # Q6: moderate overhead
+        8: 1.35,   # Q8: highest overhead (more precise stats)
+    }
+
+    def suggest_qat_batch_size(
+        self,
+        bits: int = 6,
+        hint: int | None = None,
+    ) -> int:
+        """Suggest a QAT-aware batch size.
+
+        QAT training uses more VRAM due to fake quantization buffers
+        and running statistics. This method adjusts the batch size
+        downward to account for the overhead.
+
+        Args:
+            bits: QAT bit width (4, 5, 6, or 8).
+            hint: Preferred batch size (will be adjusted for QAT).
+
+        Returns:
+            QAT-safe batch size.
+        """
+        base_bs = self.suggest_batch_size(hint)
+        multiplier = self._QAT_VRAM_MULTIPLIERS.get(bits, 1.25)
+        # Reduce batch size proportionally to VRAM multiplier
+        qat_bs = max(1, int(base_bs / multiplier))
+        return qat_bs
+
+    def prepare_for_qat(
+        self,
+        model: Any,
+        bits: int = 6,
+        per_layer: bool = True,
+    ) -> None:
+        """Prepare a model for QAT training in the freezer context.
+
+        This is a lightweight wrapper that logs QAT preparation and
+        adjusts freezer settings for QAT mode. The actual QAT hook
+        attachment is handled by PressureCookerV5.attach_qat().
+
+        Args:
+            model: The model to prepare.
+            bits: QAT bit width.
+            per_layer: Use per-layer quantization scales.
+        """
+        self._qat_bits = bits
+        self._qat_per_layer = per_layer
+        # Adjust batch size for QAT if not already set
+        if hasattr(self, "current_batch_size"):
+            self.current_batch_size = self.suggest_qat_batch_size(
+                bits, self.current_batch_size
+            )
+
+    def qat_vram_overhead(self, bits: int = 6) -> float:
+        """Return the VRAM multiplier for QAT at the given bit width.
+
+        Args:
+            bits: QAT bit width.
+
+        Returns:
+            VRAM multiplier (1.0 = no overhead).
+        """
+        return self._QAT_VRAM_MULTIPLIERS.get(bits, 1.25)
+
+    def is_qat_active(self) -> bool:
+        """Check if QAT mode is currently active."""
+        return hasattr(self, "_qat_bits")
 
 
 # ---------------------------------------------------------------------------

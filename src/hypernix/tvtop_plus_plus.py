@@ -6,8 +6,9 @@ spinners, process list, CPU/RAM/GPU block histories, and asymptotic loss curve e
 Run with:
     tvtop++
     tvtop++ --log train.log
-    
+
 This module uses Rich v15+ for a locked-window, flicker-free TUI experience.
+v0.70.5: Fixed layout tree rebuild bug, added small_mode, re-exported _block_history_bar.
 """
 from __future__ import annotations
 
@@ -43,6 +44,13 @@ from .tv import (
     multi_row_graph,
 )
 
+# Re-export for backwards compatibility and test imports
+__all__ = [
+    "TVTopPlusPlus",
+    "cli_main",
+    "_block_history_bar",
+]
+
 # Premium spinner characters for micro-animations
 SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -58,11 +66,15 @@ class TVTopPlusPlus:
     started_at: float = field(default_factory=time.time)
     log_tail: LogTail | None = field(default=None, init=False)
     tick: int = field(default=0, init=False)
-    
+
     # Histories
     _cpu_history: deque[float] = field(default_factory=lambda: deque(maxlen=120), init=False, repr=False)
     _ram_history: deque[float] = field(default_factory=lambda: deque(maxlen=120), init=False, repr=False)
     _gpu_util_history: deque[float] = field(default_factory=lambda: deque(maxlen=120), init=False, repr=False)
+
+    # Layout cache — built once, reused every tick (fixes border flicker)
+    _layout: Layout | None = field(default=None, init=False, repr=False)
+    _console: Console | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.log_path is not None:
@@ -98,14 +110,14 @@ class TVTopPlusPlus:
             f.throughput = f.step / f.elapsed_seconds
         if f.has_training_data and f.total_steps and f.throughput and f.throughput > 0:
             f.eta_seconds = max(0.0, (f.total_steps - f.step) / f.throughput)
-            
+
         # CPU
         cpu, ram = _safe_psutil_percent()
         if cpu is None:
             cpu = _read_proc_stat_cpu()
         per_core = _safe_psutil_per_core() or _read_proc_stat_per_core() or []
         f.cpu_per_core = list(per_core)
-        
+
         # Memory
         mem = _read_memory_breakdown() or {}
         f.memory = mem
@@ -113,7 +125,7 @@ class TVTopPlusPlus:
             ram = float(mem["percent"])
         f.cpu_percent = cpu
         f.ram_percent = ram
-        
+
         # GPU
         gpu = _query_nvidia_smi_full()
         f.gpu_mem_used_mib = gpu["mem_used_mib"]
@@ -123,7 +135,7 @@ class TVTopPlusPlus:
         f.gpu_power_w = gpu["power_w"]
         f.gpu_power_limit_w = gpu["power_limit_w"]
         f.gpu_name = gpu["name"]
-        
+
         # History buffers
         if cpu is not None:
             self._cpu_history.append(cpu)
@@ -131,7 +143,7 @@ class TVTopPlusPlus:
             self._ram_history.append(ram)
         if gpu["util_percent"] is not None:
             self._gpu_util_history.append(gpu["util_percent"])
-            
+
         f.cpu_history = list(self._cpu_history)
         f.ram_history = list(self._ram_history)
         f.gpu_util_history = list(self._gpu_util_history)
@@ -144,37 +156,57 @@ class TVTopPlusPlus:
         return layout
 
     def _init_layout(self) -> Layout:
-        """Create the static layout tree once."""
+        """Create the static layout tree once. The tree structure never
+        changes after initialisation — only panel *contents* are swapped
+        on each refresh. This eliminates the border-flicker bug caused
+        by repeatedly calling ``split_row`` / ``split_column``."""
         layout = Layout()
-        layout.split_column(
-            Layout(name="header", size=3),
-            Layout(name="body"),
-            Layout(name="footer", size=3),
-        )
-        layout["body"].split_column(
-            Layout(name="top", ratio=2),
-            Layout(name="bottom", ratio=1),
-        )
-        layout["top"].split_row(
-            Layout(name="left"),
-            Layout(name="right"),
-        )
-        layout["left"].split_column(
-            Layout(name="training", ratio=2),
-            Layout(name="process", ratio=1),
-        )
-        layout["right"].split_column(
-            Layout(name="hardware", ratio=2),
-            Layout(name="gpu", ratio=1),
-        )
-        layout["bottom"].split_row(
-            Layout(name="loss", ratio=2),
-            Layout(name="log", ratio=1),
-        )
+
+        if self.small_mode:
+            # Compact layout for small terminals
+            layout.split_column(
+                Layout(name="header", size=3),
+                Layout(name="body"),
+                Layout(name="footer", size=2),
+            )
+            layout["body"].split_column(
+                Layout(name="training", ratio=2),
+                Layout(name="hardware", ratio=1),
+                Layout(name="loss", ratio=1),
+            )
+        else:
+            layout.split_column(
+                Layout(name="header", size=3),
+                Layout(name="body"),
+                Layout(name="footer", size=3),
+            )
+            layout["body"].split_column(
+                Layout(name="top", ratio=2),
+                Layout(name="bottom", ratio=1),
+            )
+            layout["top"].split_row(
+                Layout(name="left"),
+                Layout(name="right"),
+            )
+            layout["left"].split_column(
+                Layout(name="training", ratio=2),
+                Layout(name="process", ratio=1),
+            )
+            layout["right"].split_column(
+                Layout(name="hardware", ratio=2),
+                Layout(name="gpu", ratio=1),
+            )
+            layout["bottom"].split_row(
+                Layout(name="loss", ratio=2),
+                Layout(name="log", ratio=1),
+            )
         return layout
 
     def _update_layout(self, f: Frame, console: Console, layout: Layout) -> None:
-        """Update the Rich layout for the dashboard."""
+        """Update the Rich layout for the dashboard.
+
+        Only swaps panel *contents* — the tree structure is immutable
+        after ``_init_layout`` so borders never shift or flicker."""
         self.tick += 1
 
         # Header with spinner
@@ -186,45 +218,24 @@ class TVTopPlusPlus:
             (time.strftime(" %Y-%m-%d %H:%M:%S "), "dim"),
         )
 
-        # Training panel
+        # Build all panels
         training_panel = self._make_training_panel(f, console)
-        # Hardware panel
         hardware_panel = self._make_hardware_panel(f, console)
-
-        # Process and GPU panels
         process_panel = self._make_process_panel(f)
         gpu_panel = self._make_gpu_panel(f)
-
-        # Loss curve panel
         loss_panel = self._make_loss_panel(f, console)
-
-        # Log tail panel
         log_panel = self._make_log_panel(f, console)
-        layout["top"].split_row(
-            Layout(name="left"),
-            Layout(name="right"),
-        )
-        layout["left"].split_column(
-            Layout(name="training", ratio=2),
-            Layout(name="process", ratio=1),
-        )
-        layout["right"].split_column(
-            Layout(name="hardware", ratio=2),
-            Layout(name="gpu", ratio=1),
-        )
-        layout["bottom"].split_row(
-            Layout(name="loss", ratio=2),
-            Layout(name="log", ratio=1),
-        )
 
-        # Assign panels
+        # Assign panels — tree structure is already fixed
         layout["header"].update(Panel(title_text, style="bright_blue", padding=(0, 2)))
         layout["training"].update(training_panel)
         layout["hardware"].update(hardware_panel)
-        layout["process"].update(process_panel)
-        layout["gpu"].update(gpu_panel)
         layout["loss"].update(loss_panel)
-        layout["log"].update(log_panel)
+
+        if not self.small_mode:
+            layout["process"].update(process_panel)
+            layout["gpu"].update(gpu_panel)
+            layout["log"].update(log_panel)
 
         footer_text = Text.assemble(
             (" ❖ Ctrl-C to exit · ", "dim"),
@@ -298,7 +309,7 @@ class TVTopPlusPlus:
         table.add_column("CPU%", style="yellow", width=6)
         table.add_column("MEM%", style="magenta", width=6)
         table.add_column("COMMAND", style="white", overflow="ellipsis")
-        
+
         processes = self._get_active_processes()
         if processes:
             for p in processes:
@@ -311,37 +322,37 @@ class TVTopPlusPlus:
                 )
         else:
             table.add_row("", "(no active python/training processes)", "", "", "")
-        
+
         return Panel(table, title="Process Monitor", box=ROUNDED, title_align="left", style="blue")
 
     def _make_gpu_panel(self, f: Frame) -> Panel:
         """Create the GPU Details panel."""
         content = Text()
-        
+
         if f.gpu_util_percent is None and f.gpu_mem_total_mib is None:
             content.append("(no GPU detected or nvidia-smi missing)", style="dim")
         else:
             if f.gpu_name:
                 content.append(f"{f.gpu_name}\n\n", style="bright_cyan bold")
-            
+
             # VRAM
             if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib:
                 mem_pct = 100.0 * f.gpu_mem_used_mib / f.gpu_mem_total_mib
                 bar = _bar_str(mem_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
                 content.append(f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB\n", style="yellow")
-                
+
             # Temp
             if f.gpu_temp_c is not None:
                 temp_norm = max(0.0, min(1.0, (f.gpu_temp_c - 30) / 70.0))
                 bar = _bar_str(temp_norm, 15, ascii_only=self.ascii_only, color_enabled=self.color)
                 content.append(f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C\n", style="red")
-                
+
             # Power
             if f.gpu_power_w is not None and f.gpu_power_limit_w:
                 pwr_pct = 100.0 * f.gpu_power_w / f.gpu_power_limit_w
                 bar = _bar_str(pwr_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
                 content.append(f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
-        
+
         return Panel(content, title="GPU Details", box=ROUNDED, title_align="left", style="magenta")
 
     def _make_loss_panel(self, f: Frame, console: Console | None = None) -> Panel:
@@ -411,8 +422,11 @@ class TVTopPlusPlus:
                 try:
                     cmdline = ' '.join(proc.info['cmdline'] or []) if proc.info['cmdline'] else ''
                     cmd_lower = cmdline.lower()
+                    # Look for training-related processes
                     if 'hypernix' in cmd_lower or 'python' in cmd_lower or 'train' in cmd_lower:
-                        if 'tvtop' in cmd_lower or 'psutil' in cmd_lower:
+                        # Skip tvtop/this process and system monitoring tools
+                        skip_keywords = ('tvtop', 'psutil', 'htop', 'btop', 'nvidia-smi', 'watch')
+                        if any(kw in cmd_lower for kw in skip_keywords):
                             continue
                         processes.append({
                             'pid': proc.info['pid'],
@@ -429,11 +443,13 @@ class TVTopPlusPlus:
 
     def run(self) -> None:
         """Run the tvtop++ dashboard using Rich Live."""
-        # Create the console once with no fixed width — let Rich read the terminal size
-        # dynamically on each refresh so resizing the window is correctly reflected.
-        console = Console(force_terminal=True)
+        # Create the console once with no fixed width
+        self._console = Console(force_terminal=True)
+        console = self._console
 
-        layout = self._init_layout()
+        # Build layout tree ONCE — never rebuild it (fixes border flicker)
+        self._layout = self._init_layout()
+        layout = self._layout
 
         try:
             self._update_layout(self.latest_frame(), console, layout)
@@ -458,7 +474,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     ascii_only = False
     refresh = 1.0
     small_mode = False
-    
+
     if "--no-color" in args:
         color = False
         args.remove("--no-color")
@@ -478,7 +494,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         if i + 1 < len(args):
             log = Path(args[i + 1])
             del args[i : i + 2]
-            
+
     if "--help" in args or "-h" in args:
         print(
             "usage: tvtop++ [--log path] [--no-color] [--ascii] "
@@ -492,7 +508,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             "waiting for training data.",
         )
         return 0
-        
+
     if log is None:
         try:
             from hypernix.spinner import Spinner
@@ -500,12 +516,12 @@ def cli_main(argv: list[str] | None = None) -> int:
                 log = _autodetect_log()
         except Exception:
             log = _autodetect_log()
-    
+
     if log is not None:
         print(f"[tvtop++] Tailing {log}...", file=sys.stderr)
     else:
         print("[tvtop++] No log file specified - displaying live system metrics only", file=sys.stderr)
-    
+
     TVTopPlusPlus(
         log_path=log,
         color=color,
@@ -514,9 +530,3 @@ def cli_main(argv: list[str] | None = None) -> int:
         small_mode=small_mode,
     ).run()
     return 0
-
-
-__all__ = [
-    "TVTopPlusPlus",
-    "cli_main",
-]

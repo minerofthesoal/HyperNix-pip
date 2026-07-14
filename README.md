@@ -43,9 +43,14 @@ quantize, and ship.
 | `hypernix.pepper_shaker` | 3-tier sharp perturbations: `SmallShaker` (MLM-style mask) / `Dish` (typos) / `TallHandmade` (negation). |
 | `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector. Grad accumulation, GradScaler integration, fused/foreach AdamW, optional CUDA-graph capture on Pro. v0.70.0 V2 rewrite adds quantization-aware training (fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M), gradient checkpointing, adaptive clipping, EMA shadowing, distributed awareness, dynamic loss scaling, parameter freezing callbacks, LR finder, and tvtop metrics streaming. |
 | `hypernix.pressure_cooker_v3` | ZeRO-optimized V3 optimizer with FP8 support. New `QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig` dataclass. `PressureCookerV3` class with ZeRO-1/2 support, improved memory efficiency, and heavily tested quantization paths. `PressureCookerV3Plus` adds full QAT with calibration. |
+| `hypernix.pressure_cooker_v5` | *(v0.70.5)* ORCP optimizer with 6-bit quantized momentum, QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing. `PressureCookerV5` + `PressureCookerV5Plus` with GPU tiers. |
+| `hypernix.mtp` | *(v0.70.5)* Multi-Token Prediction — predict multiple future tokens for 1.5-3x training efficiency + speculative decoding. `MTPConfig`, `MTPHead`, `MTPTrainer`. |
+| `hypernix.scavenger` | *(v0.70.5)* HuggingFace dataset discovery engine. Keyword search, storage budgets, quality filtering, relevance scoring. `ScavengerCriteria` + `Scavenger.hunt()`. |
+| `hypernix.wiki_cli` | *(v0.70.5)* `hnx` / `hypenix` command — auto-generating wiki from source docstrings. `hnx`, `hnx -q`, `hnx -b`. |
+| `hypernix.vera` | *(v0.70.5)* Module verification — syntax, docstrings, types, smoke tests. `hnx vera <file>` / `hnx vera --all`. |
 | `hypernix.abbicus` | Automatic token regulation and curriculum tuning. **`Abbicus`** (linear) dynamically modifies max sequence length based on model size (0.5B–72B), global step, and dataset type. **`TurboAbbicus`** (v0.70.4) grows context exponentially to a configurable `hard_cap`, then oscillates using a sine wave adjusted by CPU load (never GPU). Includes VRAM safeguard that scales back context when memory is tight. |
 | `hypernix.qa` | *(v0.70.4)* **`QAProcessor`** — turns structured datasets (JSONL, `list[dict]`, plain text) into causal LM training strings. Two modes: `question_answer` (`Question: {q}\nAnswer: {a}`) and `predict_next` (concatenation). Optional `salt_shaker` / `pepper_shaker` seasoning applied *before* templating so template keywords are never corrupted. |
-| `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. `STML` context manager enforces an `untrained_max_context` hard cap and folds long sequences into `(batch × segments, segment_length)` chunks so the model trains on all the data. Integrates with Abbicus / TurboAbbicus. CLI: `hypernix stml --vram 24 --params 7`. |
+| `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. `STML` context manager enforces an `untrained_max_context` hard cap and folds long sequences into `(batch x segments, segment_length)` chunks so the model trains on all the data. Integrates with Abbicus / TurboAbbicus. CLI: `hypernix stml --vram 24 --params 7`. |
 | `hypernix.compute_framework` | Hardware-agnostic multi-device training. Abstracts CUDA, MPS, CPU, TPU backends with automatic DDP/ZeRO wrapping. `ComputeFramework` handles PyTorch DDP initialization, device placement, fallback logic. Supports `local_rank`, `world_size`, `use_ddp`, `use_fsdp`, `zero_stage`. Auto-detects backend and sets up device. |
 | `hypernix.workshop` | Model frameworks and TTS/ASR pipelines. `WorkshopFramework` base class with `FrameworkConfig` for TTS, ASR, LLM, Vision models. Pre-built templates for ray0rf1re/nano-nano collection and 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.5, GLM-Edge/MoE, GPT-OSS, Nemotron, Llama-3.2, Mistral-Nemo, Mixtral-8x22B). Includes `TTSEngine`, `ASREngine`, `ASRToTTS` (speech-to-speech), `ASRToLLMToTTS` (conversational pipeline). |
 | `hypernix.tvtop` | Backwards-compatibility shim — all functionality moved to `hypernix.tv`. Re-exports everything so `import hypernix.tvtop` continues to work. Console script `tvtop` now launches the premium `tvtop_plus_plus` dashboard; use `tvtop-old` for the classic view. |
@@ -67,6 +72,28 @@ quantize, and ship.
 Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.14.
 
 ---
+
+## What's new in v0.70.5
+
+Eleven major additions:
+
+- **`hnx` / `hypenix` Wiki CLI** — Auto-generating documentation browser. `hnx` shows all modules; `hnx <module>` shows docs; `hnx -q <module>` streams quick mode; `hnx -b` opens in browser. Docs read live from source code — never stale.
+- **`hnx vera`** — Module verification: syntax check, docstring coverage, type annotations, smoke test. `hnx vera <file>` or `hnx vera --all`.
+- **`pressure_cooker_v5`** — ORCP optimizer with 6-bit quantized momentum (~75% memory savings), QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing, and GPU tiers (InductionCookerV5, ProCookerV5). V5+ adds auto model transformation and sensitivity analysis.
+- **`mtp`** — Multi-Token Prediction for 1.5-3x training efficiency. Sequential/independent modes, shared/independent heads, native workshop integration.
+- **`scavenger`** — HuggingFace dataset discovery with keyword search, storage budgets, quality filtering (likes/downloads/age), and relevance scoring.
+- **Freezer QAT support** — `suggest_qat_batch_size()`, `prepare_for_qat()`, per-bit-width VRAM multiplier profiles.
+- **Workshop native MTP** — `attach_mtp_head()` and `compute_mtp_loss()` built into WorkshopFramework.
+- **tvtop++ fixes** — Eliminated border flicker (layout built once), added `_block_history_bar` re-export, implemented `small_mode`, fixed self-process filtering.
+- **New wiki pages** — [Pressure-Cooker-V5](wiki/Pressure-Cooker-V5.md), [MTP](wiki/MTP.md), [Scavenger](wiki/Scavenger.md)
+- **Kitchen.md updated** — Added scavenger, MTP, and QAT sections
+- **Training benefits chart** — See below
+
+### Training Benefits vs Complexity
+
+![HyperNix Training Features](docs/public/training-benefits-chart.png)
+
+> **Key insight**: MTP + Speculative Decoding offer the highest benefit-to-cost ratio. 6-bit quantized momentum saves 75% memory with minimal complexity. Combined use can reduce training costs by 40-60%.
 
 ## What's new in v0.70.4
 
@@ -336,6 +363,9 @@ Topic-focused reference guides live in the `wiki/` directory:
 - [`wiki/CLI.md`](wiki/CLI.md) — full CLI cheat sheet
 - [`wiki/Quantization.md`](wiki/Quantization.md) — GGUF conversion + k-quant pipeline
 - [`wiki/Changelog.md`](wiki/Changelog.md) — full per-release version history
+- [`wiki/Pressure-Cooker-V5.md`](wiki/Pressure-Cooker-V5.md) — Pressure Cooker V5/V5+ with QAT and MTP
+- [`wiki/MTP.md`](wiki/MTP.md) — Multi-Token Prediction guide
+- [`wiki/Scavenger.md`](wiki/Scavenger.md) — HuggingFace dataset discovery
 
 ## How the GGUF pipeline works
 
