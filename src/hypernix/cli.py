@@ -72,6 +72,10 @@ _SUBCOMMANDS = {
     "prot",
     "protect",
     "net",
+    "wiki",
+    "vera",
+    "scavenger",
+    "config",
 }
 
 
@@ -115,6 +119,10 @@ def _print_usage() -> None:
         table.add_row("[green]camo[/]", "RLHF/RLAF Camouflage scaffolding module")
         table.add_row("[green]net[/]", "Distributed network operations & Tailscale integration")
         table.add_row("[green]prot[/]", "Hardware health and monitor protection module")
+        table.add_row("[green]wiki[/]", "HyperNix documentation wiki CLI")
+        table.add_row("[green]vera[/]", "Vera assistant CLI")
+        table.add_row("[green]scavenger[/]", "Scavenger tools")
+        table.add_row("[green]config[/]", "Configuration management")
         
         shortcuts = Text("Shortcuts:\n", style="bold yellow")
         shortcuts.append("  --auto-oven            download the default snapshot and run code completion\n", style="white")
@@ -154,7 +162,11 @@ def _print_usage() -> None:
             "  cctvtop                Live training dashboard TUI\n"
             "  camo                   RLHF/RLAF Camouflage scaffolding\n"
             "  net                    Distributed network & Tailscale integration\n"
-            "  prot                   Hardware health & monitor protection\n\n"
+            "  prot                   Hardware health & monitor protection\n"
+            "  wiki                   HyperNix documentation wiki CLI\n"
+            "  vera                   Vera assistant CLI\n"
+            "  scavenger              Scavenger tools\n"
+            "  config                 Configuration management\n\n"
             "Shortcuts:\n"
             "  --auto-oven            download the default snapshot and run code completion\n"
             "                         (equivalent to `hypernix oven --auto ...`).\n\n"
@@ -886,6 +898,14 @@ def main(argv: list[str] | None = None) -> int:
         return _run_protect(rest)
     if cmd == "net":
         return _run_net(rest)
+    if cmd == "wiki":
+        return _run_wiki(rest)
+    if cmd == "vera":
+        return _run_vera(rest)
+    if cmd == "scavenger":
+        return _run_scavenger(rest)
+    if cmd == "config":
+        return _run_config(rest)
     _print_usage()
     return 1
 
@@ -898,6 +918,22 @@ def _run_net(raw: list[str]) -> int:
     """`hypernix net` — Advanced tailscale & distributed network manager."""
     from .net import cli_main as net_main
     return net_main(raw)
+
+def _run_wiki(raw: list[str]) -> int:
+    from .wiki_cli import cli_main as wiki_main
+    return wiki_main(raw)
+
+def _run_vera(raw: list[str]) -> int:
+    from .vera import cli_main as vera_main
+    return vera_main(raw)
+
+def _run_scavenger(raw: list[str]) -> int:
+    from .scavenger import cli_main as scavenger_main
+    return scavenger_main(raw)
+
+def _run_config(raw: list[str]) -> int:
+    from .config import cli_main as config_main
+    return config_main(raw)
 
 def _run_fizzle(raw: list[str]) -> int:
     """`hypernix fizzle` / `fiz` — Fuzed Architecture module."""

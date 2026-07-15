@@ -107,15 +107,69 @@ CSI = "\x1b["
 CLEAR = f"{CSI}2J{CSI}H"
 HIDE_CURSOR = f"{CSI}?25l"
 SHOW_CURSOR = f"{CSI}?25h"
+SAVE_POS = f"{CSI}s"
+RESTORE_POS = f"{CSI}u"
+
+# 256-color foreground helper
+_C256_FG = "\x1b[38;5;{}m"
+_C256_BG = "\x1b[48;5;{}m"
+_RESET = "\x1b[0m"
+
+# Palette: violet → blue → cyan gradient used for the header sigil
+_SIGIL_COLORS = [129, 135, 141, 147, 153, 159, 51, 45, 39, 33, 27, 21]
+# Panel border / accent colors (256-color)
+_ACCENT_BLUE   = 33    # bright blue
+_ACCENT_CYAN   = 51    # electric cyan
+_ACCENT_VIOLET = 135   # violet
+_ACCENT_GOLD   = 220   # golden yellow for warnings
+_ACCENT_GREEN  = 82    # bright green for OK
+_ACCENT_RED    = 196   # bright red for errors
 
 
 def _color(code: int, text: str, *, on: bool = True) -> str:
     return f"{CSI}{code}m{text}{CSI}0m" if on else text
 
 
+def _c256(n: int, text: str, *, on: bool = True) -> str:
+    """Apply a 256-color foreground to text."""
+    return f"{_C256_FG.format(n)}{text}{_RESET}" if on else text
+
+
 def _bold(text: str, *, on: bool = True) -> str:
     return _color(1, text, on=on) if on else text
 
+
+def _dim(text: str, *, on: bool = True) -> str:
+    return f"{CSI}2m{text}{_RESET}" if on else text
+
+
+def _italic(text: str, *, on: bool = True) -> str:
+    return f"{CSI}3m{text}{_RESET}" if on else text
+
+
+def _render_sigil_line(line: str, colors: list[int], *, on: bool = True) -> str:
+    """Apply a rolling color gradient across the characters of a sigil line."""
+    if not on:
+        return line
+    out = []
+    ci = 0
+    for ch in line:
+        if ch != ' ':
+            out.append(f"{_C256_FG.format(colors[ci % len(colors)])}{ch}")
+            ci += 1
+        else:
+            out.append(ch)
+    return ''.join(out) + _RESET
+
+
+# HyperNix ASCII art sigil (compact, 5 lines)
+_HYPED_SIGIL = [
+    r" ██╗  ██╗██╗   ██╗██████╗ ███████╗██████╗ ",
+    r" ██║  ██║╚██╗ ██╔╝██╔══██╗██╔════╝██╔══██╗",
+    r" ███████║ ╚████╔╝ ██████╔╝█████╗  ██║  ██║",
+    r" ██╔══██║  ╚██╔╝  ██╔═══╝ ██╔══╝  ██║  ██║",
+    r" ██║  ██║   ██║   ██║     ███████╗██████╔╝",
+]
 
 def _panel(
     title: str,
@@ -124,23 +178,35 @@ def _panel(
     width: int,
     color: bool,
     ascii_only: bool,
-    title_color: int = 36,
+    title_color: int = 135,   # updated: violet 256-color
+    border_color: int = 33,   # updated: blue 256-color
 ) -> list[str]:
     if ascii_only:
         tl, tr, bl, br, h, v = "+", "+", "+", "+", "-", "|"
     else:
         tl, tr, bl, br, h, v = "╭", "╮", "╰", "╯", "─", "│"
     inner = max(1, width - 2)
-    title_render = _color(title_color, _bold(f" {title} ", on=color), on=color)
+    if color:
+        def _bc(s):
+            return f"{_C256_FG.format(border_color)}{s}{_RESET}"
+        def _tc(s):
+            return f"{_C256_FG.format(title_color)}{_C256_BG.format(234)}\x1b[1m{s}{_RESET}"
+    else:
+        def _bc(s):
+            return s
+        def _tc(s):
+            return s
+    title_render = _tc(f" {title} ")
     title_vis = len(f" {title} ")
     fill = max(0, inner - 2 - title_vis)
-    rows = [tl + h + title_render + h * fill + tr]
+    top_left  = _bc(tl + h)
+    top_right = _bc(h * fill + tr)
+    rows = [top_left + title_render + top_right]
     for ln in body:
-        # naive visible-length pad (strip ANSI)
         plain = _strip_ansi(ln)
         pad = max(0, inner - len(plain))
-        rows.append(v + ln + " " * pad + v)
-    rows.append(bl + h * inner + br)
+        rows.append(_bc(v) + ln + " " * pad + _bc(v))
+    rows.append(_bc(bl + h * inner + br))
     return rows
 
 
@@ -181,8 +247,15 @@ class Configurator:
         c = self.color and not self.ascii_only
         rows: list[str] = []
         rows.append("")
-        title_line = _bold(" hyped · pick a model ", on=c)
-        rows.append(_color(96, title_line, on=c))
+
+        # Gradient sigil header
+        if c:
+            for sigil_line in _HYPED_SIGIL:
+                rendered = _render_sigil_line(sigil_line, _SIGIL_COLORS, on=True)
+                rows.append(rendered)
+            rows.append(_dim("   chat interface  ·  v0.70.6", on=True))
+        else:
+            rows.append("  === hyped · pick a model ===")
         rows.append("")
 
         # Group models by family for visual structure.

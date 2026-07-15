@@ -42,8 +42,8 @@ from __future__ import annotations
 
 import sys
 
-# Fast-path for tvtop: skip heavy imports to boot instantly
-_is_tvtop = sys.argv and any(sys.argv[0].endswith(x) for x in ("tvtop", "tvtop++", "tvtoppp"))
+# Fast-path for tvtop and cli: skip heavy imports to boot instantly
+_is_tvtop = sys.argv and any(sys.argv[0].endswith(x) for x in ("tvtop", "tvtop++", "tvtoppp", "hnx", "hypernix", "cli", "scavenger", "vera"))
 
 if not _is_tvtop:
     from . import (

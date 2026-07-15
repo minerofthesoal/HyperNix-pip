@@ -1413,7 +1413,8 @@ def _autodetect_log(start: Path = Path(".")) -> Path | None:
     name_pref = [p for _t, p in uniq if "train" in p.name.lower()]
     if name_pref:
         return name_pref[0]
-    return uniq[0][1] if uniq else None
+    # Do not fall back to arbitrary logs (prevents tailing binary chromium logs like 000003.log)
+    return None
 
 
 # ---------------------------------------------------------------------------

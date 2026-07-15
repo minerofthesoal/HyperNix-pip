@@ -1,8 +1,8 @@
-# Pressure Cooker V5 / V5+
+# Pressure Cooker V5 / V5+ / V5S
 
 ## Overview
 
-Pressure Cooker V5 is HyperNix's flagship optimizer, combining AdamW with 6-bit quantized momentum, Quantization-Aware Training (QAT), and Multi-Token Prediction (MTP) support. V5+ extends V5 with automatic model transformation and quantization sensitivity analysis.
+Pressure Cooker V5 is HyperNix's flagship optimizer, abandoning traditional AdamW mechanics entirely in favor of an **Oscillation Resistant Cosine Power (ORCP)** architecture, combining 6-bit quantized momentum, Quantization-Aware Training (QAT), and Multi-Token Prediction (MTP) support. V5+ extends V5 with automatic model transformation and quantization sensitivity analysis. V5S adds a third dimension of cosine similarity tracking (oscillation resistant cosin 3d), pressure diffusion, and lower memory usage.
 
 ## Features
 

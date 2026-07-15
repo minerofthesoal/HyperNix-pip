@@ -15,6 +15,16 @@ next release header.
 - 📚 documentation
 - 🔧 internal / plumbing
 
+## 0.70.6
+
+✨ **Pressure Cooker v5S.** Added new oscillation resistant cosin 3d, pressure diffusion low power optimizer `PressureCookerV5S`. It targets a 2.1x speedup over AdamW while using less RAM.
+✨ **CLI Optimization.** Drastically improved CLI startup speed by deferring heavy PyTorch imports across all subcommands via an updated fast-path check.
+✨ **Automated Release Timeline.** Added a GitHub Action step to automatically generate and append a Mermaid.js horizontal release timeline to the wiki on every public release.
+✨ **New CLI Subcommands.** Added `wiki`, `vera`, `scavenger`, and `config` to the main `hnx` interface.
+🐛 **Log Tailing Fixes.** Fixed `cctvtop` and `tvtop++` auto-detecting Chromium binary logs by aggressively filtering out `.config`, `.cache`, and non-text files.
+🐛 **cctvtop VNC.** Fixed the VNC logic in `cctvtop` to correctly use the `$DISPLAY` variable and spawn `x11vnc` with `-shared`.
+📚 **Documentation Updates.** Expanded the "Learn" page on the website and added new documentation and wikis for V5S, Vera, and Scavenger.
+
 ## 0.70.5b2
 
 ✨ **Net Module.** New `hypernix.net` module for distributed network operations and Tailscale integration. Features: `config`, `auto-setup`, `m-setup`, `connect`, `status`, `m-ip`, `a-il` (auto-connect), `mutli-a-port`, `ex-port`, `s-storage` (distributed storage sharing), `onef-all`, `tail acheck` (automatic Python script checks over Tailscale SSH), and `tail stop`. Accessible via `hnx net <cmd>`. Fully implemented using `subprocess` with `tailscale` and `ssh` commands without relying on mocked stubs.

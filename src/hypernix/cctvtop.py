@@ -51,8 +51,10 @@ def ensure_vnc() -> dict[str, str]:
         res = subprocess.run(["pgrep", "-x", "x11vnc"], capture_output=True, text=True)
         if res.returncode != 0:
             # Not running, try to start it
+            import os
+            display = os.environ.get("DISPLAY", ":0")
             try:
-                subprocess.Popen(["x11vnc", "-display", ":0", "-nopw", "-bg", "-forever", "-q"],
+                subprocess.Popen(["x11vnc", "-display", display, "-nopw", "-bg", "-forever", "-shared", "-q"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 time.sleep(0.5)
             except FileNotFoundError:
