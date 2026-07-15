@@ -8,11 +8,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/hypernix.svg)](https://pypi.org/project/hypernix/)
 [![License](https://img.shields.io/pypi/l/hypernix.svg)](https://github.com/minerofthesoal/hypernix-pip/blob/main/LICENSE)
 
-**End-to-end toolkit for the HyperNix family of PyTorch language models** —
-the chat-tuned `ray0rf1re/hyper-Nix.2` (current default) and the original
-`ray0rf1re/hyper-nix.1` (still fully supported via the same `preheat()` /
-`download_model()` paths) — covering download, chat, fine-tune, evaluate,
-quantize, and ship.
+**End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
 
 
 | Subsystem | What it does |
