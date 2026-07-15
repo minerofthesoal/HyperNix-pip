@@ -1,0 +1,24 @@
+--- a/src/hypernix/bell.py
++++ b/src/hypernix/bell.py
+@@ -204,7 +204,20 @@
+             with torch.no_grad():
+                 for i in range(max_new_tokens):
+                     out = model(cur)
+-                    logits = out.logits[:, -1, :] if hasattr(out, "logits") else out[:, -1, :]
++                    # `model(cur)` can come back as: an object exposing
++                    # `.logits` (HF ModelOutput), a plain dict with a
++                    # "logits" key (some wrapped/custom ovens), or a bare
++                    # tensor. The old code only handled the first and
++                    # last case, so a dict output fell through to
++                    # `out[:, -1, :]`, which hands the slice tuple
++                    # straight to `dict.__getitem__` and raises
++                    # `KeyError: (slice(...), -1, slice(...))`.
++                    if hasattr(out, "logits"):
++                        logits = out.logits[:, -1, :]
++                    elif isinstance(out, dict):
++                        logits = out["logits"][:, -1, :]
++                    else:
++                        logits = out[:, -1, :]
+                     if self.flour is not None:
+                         logits = self.flour.process(
+                             logits, produced, tokenizer=tokenizer,
