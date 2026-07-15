@@ -1,0 +1,23 @@
+--- a/src/hypernix/timer.py
++++ b/src/hypernix/timer.py
+@@ -133,8 +133,18 @@
+         if self.next_fire is None:
+             self.start()
+             return True
+-        if time.monotonic() >= self.next_fire:
+-            self.next_fire += self.interval_seconds
++        now = time.monotonic()
++        if now >= self.next_fire:
++            # Re-anchor to *now* rather than incrementing the stale
++            # deadline. Incrementing (``next_fire += interval_seconds``)
++            # keeps a fixed cadence, but if the caller is delayed (e.g. a
++            # slow CI runner, GC pause, or a busy training loop) by more
++            # than one interval between polls, the incremented deadline
++            # can still be <= the time of the *next* poll, causing two
++            # fires back-to-back even though only one interval's worth
++            # of work should happen. Anchoring to ``now`` guarantees a
++            # full fresh interval must elapse before the next fire.
++            self.next_fire = now + self.interval_seconds
+             self.fire_count += 1
+             return True
+         return False
