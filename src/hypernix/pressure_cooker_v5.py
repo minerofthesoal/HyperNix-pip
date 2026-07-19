@@ -219,21 +219,41 @@ class QATFakeQuantize(nn.Module):
             self.running_max.mul_(momentum).add_(x_max * (1 - momentum))
         self.step_count += 1
 
+    def _quant_params_from_running_stats(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Derive (scale, zero_point) from the smoothed running min/max."""
+        x_min, x_max = self.running_min, self.running_max
+        if self.symmetric:
+            abs_max = torch.maximum(torch.abs(x_min), torch.abs(x_max))
+            scale = torch.clamp(abs_max / (self.num_levels / 2 - 1), min=1e-8)
+            zero_point = torch.zeros_like(scale)
+        else:
+            scale = torch.clamp((x_max - x_min) / (self.num_levels - 1), min=1e-8)
+            zero_point = -x_min / scale
+        return scale, zero_point
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply fake quantization with STE."""
         if self.step_count < self.observer_steps:
             self.observe(x)
+            # Derive scale/zero_point from the *smoothed* running stats
+            # (updated via EMA momentum in observe()), not the raw current
+            # batch's min/max -- otherwise the scale jitters batch-to-batch
+            # and the running buffers are collected but never actually used.
+            observed_scale, observed_zero_point = self._quant_params_from_running_stats()
+            self.scale.copy_(observed_scale.detach())
+            self.zero_point.copy_(observed_zero_point.detach())
+            if self.scale_param is not None:
+                # Seed the learnable scale from calibration each step of the
+                # observer window, instead of leaving it at its untrained
+                # init value (which would otherwise silently override the
+                # calibrated scale below for the entire observer phase).
+                with torch.no_grad():
+                    self.scale_param.copy_(observed_scale.detach())
 
         if self.scale_param is not None:
             effective_scale = torch.abs(self.scale_param)
         else:
             effective_scale = self.scale
-
-        if self.step_count <= self.observer_steps:
-            effective_scale, self.zero_point = compute_quantization_params(
-                x, self.num_levels, self.symmetric, self.per_channel
-            )
-            self.scale.copy_(effective_scale.detach())
 
         return fake_quantize_tensor(
             x, effective_scale, self.zero_point, self.num_levels, self.symmetric
@@ -283,7 +303,11 @@ class MTPHead(nn.Module):
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, vocab_size),
             )
-            self.heads = nn.ModuleList([self.projection] * num_tokens)
+            # Don't wrap the same module in a ModuleList num_tokens times --
+            # .parameters() dedupes so training is unaffected, but state_dict
+            # does NOT dedupe and would serialize num_tokens aliased copies of
+            # the same weights. forward() indexes self.projection directly.
+            self.heads = None
         else:
             self.heads = nn.ModuleList([
                 nn.Sequential(
@@ -313,10 +337,11 @@ class MTPHead(nn.Module):
     def forward(self, hidden: torch.Tensor, sequential: bool = True) -> list[torch.Tensor]:
         logits = []
         current = hidden
-        for i, head in enumerate(self.heads):
+        for i in range(self.num_tokens):
+            head = self.projection if self.shared else self.heads[i]
             logit = head(current)
             logits.append(logit)
-            if sequential and i < len(self.heads) - 1:
+            if sequential and i < self.num_tokens - 1:
                 if hasattr(self, "seq_projections") and not self.shared:
                     current = self.seq_projections[i](current)
         return logits
@@ -485,7 +510,12 @@ class PressureCookerV5(OptimizerBase):
         """Create a forward hook that fake-quantizes weights."""
         def hook(module: nn.Module, input: Any) -> None:
             if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data = fake_quant(module.weight.data)
+                # Write into the existing storage in place instead of
+                # reassigning `.data` to a brand-new tensor -- reassignment
+                # swaps out the Parameter's underlying storage object, which
+                # can desync anything else still holding a reference to the
+                # old one (DDP replicas, other views, etc.).
+                module.weight.data.copy_(fake_quant(module.weight.data))
         return hook
 
     def get_mtp_head(self, hidden_dim: int, vocab_size: int) -> MTPHead | None:
@@ -628,26 +658,49 @@ class PressureCookerV5(OptimizerBase):
     def _curvature(self, state: dict[str, Any], p: torch.Tensor, g_pred: torch.Tensor) -> torch.Tensor:
         beta = self.curvature_beta
         if state["is_matrix"]:
-            g2 = g_pred.pow(2)
-            state["row_curv"].mul_(beta).add_(g2.mean(dim=1, keepdim=True), alpha=1 - beta)
-            state["col_curv"].mul_(beta).add_(g2.mean(dim=0, keepdim=True), alpha=1 - beta)
-            row_mean = state["row_curv"].mean().clamp(min=self.eps)
-            return (state["row_curv"] * state["col_curv"] / row_mean).clamp(min=self.eps)
+            row_curv = state["row_curv"]
+            col_curv = state["col_curv"]
+            rows = p.shape[0]
+            cols = p.numel() // rows
+            # row_curv/col_curv are sized against the flattened (rows, cols)
+            # view built in _init_state. For anything with ndim > 2 (e.g. a
+            # conv weight [out_ch, in_ch, kh, kw]), reducing g_pred with
+            # dim=1/dim=0 in its *native* shape reduces over the wrong axes
+            # entirely -- reshape to the same (rows, cols) view first so the
+            # reduction lines up with how the buffers were allocated.
+            g2 = g_pred.reshape(rows, cols).pow(2)
+            row_update = g2.mean(dim=1, keepdim=True).to(row_curv.dtype)
+            col_update = g2.mean(dim=0, keepdim=True).to(col_curv.dtype)
+            row_curv.mul_(beta).add_(row_update, alpha=1 - beta)
+            col_curv.mul_(beta).add_(col_update, alpha=1 - beta)
+            # Upcast for the final combine so a compressed (fp16) buffer
+            # can't silently underflow/lose precision in the multiply.
+            row_mean = row_curv.float().mean().clamp(min=self.eps)
+            curv = (row_curv.float() * col_curv.float() / row_mean).clamp(min=self.eps)
+            return curv.reshape(p.shape)
         if state["sparse"]:
-            state["curv"].mul_(beta).add_(g_pred.pow(2).mean(), alpha=1 - beta)
-            return state["curv"].clamp(min=self.eps)
-        state["curv"].mul_(beta).add_(g_pred.pow(2), alpha=1 - beta)
-        return state["curv"].clamp(min=self.eps)
+            state["curv"].mul_(beta).add_(g_pred.pow(2).mean().to(state["curv"].dtype), alpha=1 - beta)
+            return state["curv"].float().clamp(min=self.eps)
+        state["curv"].mul_(beta).add_(g_pred.pow(2).to(state["curv"].dtype), alpha=1 - beta)
+        return state["curv"].float().clamp(min=self.eps)
 
     def _freeze_scale(self, state: dict[str, Any], g: torch.Tensor) -> torch.Tensor | float:
         below = g.abs() < self.freeze_threshold
         if state["is_matrix"]:
             age = state["row_age"]
-            row_below = below.all(dim=1, keepdim=True)
+            rows = g.shape[0]
+            cols = g.numel() // rows
+            # row_age is sized against the flattened (rows, cols) view built
+            # in _init_state (same as row_curv/col_curv) -- reducing `below`
+            # with dim=1 in g's *native* shape (e.g. a 4D conv grad) reduces
+            # over the wrong axes and produces a mask that doesn't even
+            # match row_age's shape for the boolean indexing below.
+            row_below = below.reshape(rows, cols).all(dim=1, keepdim=True)
             age[row_below] = torch.clamp(age[row_below].to(torch.int16) + 1, max=255).to(torch.uint8)
             age[~row_below] = 0
             stale = (age.to(torch.int16) - self.freeze_patience).clamp(min=0).float()
-            return self.freeze_decay ** stale
+            scale = self.freeze_decay ** stale
+            return scale.view(rows, *([1] * (g.dim() - 1)))
         age = state["age"]
         age[below] = torch.clamp(age[below].to(torch.int16) + 1, max=255).to(torch.uint8)
         age[~below] = 0
@@ -858,10 +911,19 @@ class PressureCookerV5Plus(PressureCookerV5):
 
     def _trust_ratio(self, p: torch.Tensor, update: torch.Tensor):
         if p.dim() >= 2:
-            p_norm = p.norm(2, dim=1, keepdim=True).clamp(min=self.eps)
-            u_norm = update.norm(2, dim=1, keepdim=True).clamp(min=self.eps)
+            rows = p.shape[0]
+            cols = p.numel() // rows
+            # Match the (rows, cols) flattening _curvature/_init_state use.
+            # Norming with dim=1 on p/update in their *native* shape (e.g. a
+            # 4D conv weight) reduces over the wrong axes, and even if it
+            # ran without error the (rows, 1, ...) result only broadcasts
+            # back against dim 0 by luck on a plain 2D tensor -- on higher
+            # rank tensors it aligns from the trailing dims instead and
+            # silently scales by the wrong axis (or fails to broadcast).
+            p_norm = p.reshape(rows, cols).norm(2, dim=1).clamp(min=self.eps)
+            u_norm = update.reshape(rows, cols).norm(2, dim=1).clamp(min=self.eps)
             trust = (p_norm / u_norm).clamp(self.trust_clip[0], self.trust_clip[1])
-            return trust
+            return trust.view(rows, *([1] * (p.dim() - 1)))
         return super()._trust_ratio(p, update)
 
     def _freeze_scale(self, state: dict[str, Any], g: torch.Tensor):

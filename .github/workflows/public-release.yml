@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "New version, without the leading v (e.g. 0.2.0 or 0.2.0-rc1)."
+        description: "New version, without the leading v (e.g. 0.2.0, 0.2.0-rc1, or 0.70.6-2 to rebuild/re-publish an already-released version as build 2)."
         required: true
         type: string
       dry_run:
@@ -67,9 +67,13 @@ jobs:
         run: |
           v='${{ inputs.version }}'
           # PEP 440 allows: N.N.N, N.N.NaN, N.N.NbN, N.N.NrcN, N.N.N.postN, N.N.N.devN
-          # We map 'postr' to '.post' for PEP 440 compliance during build
-          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([._-]?(rc|pre|alpha|beta|a|b|post|postr|dev)[0-9]*)?$ ]]; then
-            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2, 0.2.0postr1)"
+          # We map 'postr' to '.post' for PEP 440 compliance during build.
+          # We also accept a bare "-N" rebuild suffix (e.g. 0.70.6-2), meaning
+          # "build N of an already-released version" -- mapped to PEP 440's
+          # .postN below and published as a normal stable release, not a
+          # prerelease (see the -N branch in the classify step).
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+|([._-]?(rc|pre|alpha|beta|a|b|post|postr|dev)[0-9]*))?$ ]]; then
+            echo "::error::version '$v' is not PEP 440-ish (e.g. 0.2.0, 0.2.0-rc1, 0.2.0a2, 0.2.0postr1, 0.70.6-2)"
             exit 1
           fi
 
@@ -78,8 +82,14 @@ jobs:
         run: |
           v='${{ inputs.version }}'
           tag="v$v"
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+            # e.g. 0.70.6-2 -- a rebuild of an already-released version
+            # (PyPI post-release). Still a public, stable release -> PyPI,
+            # not TestPyPI.
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is a rebuild of an existing version (-> PyPI, as a post-release)"
           # Treat postr as a post-release (prerelease for PyPI purposes)
-          if [[ "$v" =~ (rc|pre|alpha|beta|a|b|postr)[0-9]*$ ]]; then
+          elif [[ "$v" =~ (rc|pre|alpha|beta|a|b|postr)[0-9]*$ ]]; then
             echo "prerelease=true"  >> "$GITHUB_OUTPUT"
             echo "::notice::$tag is a prerelease (-> TestPyPI)"
           else
@@ -119,6 +129,13 @@ jobs:
           v='${{ inputs.version }}'
           # Convert postr to PEP 440 compliant .post format for pyproject.toml
           pep440_v=$(echo "$v" | sed 's/postr/.post/g')
+          # Convert a bare "-N" rebuild suffix (e.g. 0.70.6-2) to PEP 440's
+          # post-release form (0.70.6.post2). PyPI requires strict PEP 440
+          # and rejects a raw hyphen-number suffix, but .postN is exactly
+          # PEP 440's own mechanism for "rebuild of an already-released
+          # version" -- which is what this input is for. The raw "-2" form
+          # is kept for the git tag and __version__ below.
+          pep440_v=$(echo "$pep440_v" | sed -E 's/-([0-9]+)$/.post\1/')
           python - <<PY
           import re
           from pathlib import Path

@@ -588,7 +588,10 @@ class PressureCookerV5S(OptimizerBase):
     def _make_qat_hook(fq: QATFakeQuantize):
         def hook(module: nn.Module, _input: Any) -> None:
             if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data = fq(module.weight.data)
+                # Write into the existing storage in place instead of
+                # reassigning `.data` to a brand-new tensor -- see the same
+                # fix in pressure_cooker_v5.PressureCookerV5._make_qat_hook.
+                module.weight.data.copy_(fq(module.weight.data))
         return hook
 
     def get_mtp_head(self, hidden_dim: int, vocab_size: int) -> MTPHead | None:
@@ -765,17 +768,31 @@ class PressureCookerV5S(OptimizerBase):
         cfg = self.cfg
         beta = cfg.curvature_beta
         if state["is_matrix"]:
-            g2 = g_pred.pow(2)
-            state["row_curv"].mul_(beta).add_(g2.mean(dim=1, keepdim=True), alpha=1.0 - beta)
-            state["col_curv"].mul_(beta).add_(g2.mean(dim=0, keepdim=True), alpha=1.0 - beta)
-            row_mean = state["row_curv"].mean().clamp(min=self.eps)
-            curv = (state["row_curv"] * state["col_curv"] / row_mean).clamp(min=self.eps)
+            row_curv = state["row_curv"]
+            col_curv = state["col_curv"]
+            rows = p.shape[0]
+            cols = p.numel() // rows
+            # row_curv/col_curv are sized against the flattened (rows, cols)
+            # view built in _init_state. For anything with ndim > 2 (e.g. a
+            # conv weight [out_ch, in_ch, kh, kw]), reducing g_pred with
+            # dim=1/dim=0 in its *native* shape reduces over the wrong axes
+            # entirely -- reshape to the same (rows, cols) view first.
+            g2 = g_pred.reshape(rows, cols).pow(2)
+            row_update = g2.mean(dim=1, keepdim=True).to(row_curv.dtype)
+            col_update = g2.mean(dim=0, keepdim=True).to(col_curv.dtype)
+            row_curv.mul_(beta).add_(row_update, alpha=1.0 - beta)
+            col_curv.mul_(beta).add_(col_update, alpha=1.0 - beta)
+            # Upcast for the final combine so Agedcookerv5s's compressed
+            # (fp16) buffers can't silently underflow/lose precision here.
+            row_mean = row_curv.float().mean().clamp(min=self.eps)
+            curv = (row_curv.float() * col_curv.float() / row_mean).clamp(min=self.eps)
+            curv = curv.reshape(p.shape)
         elif state["sparse"]:
-            state["curv"].mul_(beta).add_(g_pred.pow(2).mean(), alpha=1.0 - beta)
-            curv = state["curv"].clamp(min=self.eps)
+            state["curv"].mul_(beta).add_(g_pred.pow(2).mean().to(state["curv"].dtype), alpha=1.0 - beta)
+            curv = state["curv"].float().clamp(min=self.eps)
         else:
-            state["curv"].mul_(beta).add_(g_pred.pow(2), alpha=1.0 - beta)
-            curv = state["curv"].clamp(min=self.eps)
+            state["curv"].mul_(beta).add_(g_pred.pow(2).to(state["curv"].dtype), alpha=1.0 - beta)
+            curv = state["curv"].float().clamp(min=self.eps)
         return curv
 
     # -----------------------------------------------------------------------
@@ -802,11 +819,19 @@ class PressureCookerV5S(OptimizerBase):
         below = g.abs() < cfg.freeze_threshold
         if state["is_matrix"]:
             age = state["row_age"]
-            row_below = below.all(dim=1, keepdim=True)
+            rows = g.shape[0]
+            cols = g.numel() // rows
+            # row_age is sized against the flattened (rows, cols) view built
+            # in _init_state -- reducing `below` with dim=1 in g's *native*
+            # shape (e.g. a 4D conv grad) reduces over the wrong axes and
+            # produces a mask that doesn't match row_age's shape for the
+            # boolean indexing below. See the same fix in pressure_cooker_v5.
+            row_below = below.reshape(rows, cols).all(dim=1, keepdim=True)
             age[row_below]  = torch.clamp(age[row_below].to(torch.int16) + 1, max=255).to(torch.uint8)
             age[~row_below] = 0
             stale = (age.to(torch.int16) - cfg.freeze_patience).clamp(min=0).float()
-            return cfg.freeze_decay ** stale
+            scale = cfg.freeze_decay ** stale
+            return scale.view(rows, *([1] * (g.dim() - 1)))
         age = state["age"]
         age[below]  = torch.clamp(age[below].to(torch.int16) + 1, max=255).to(torch.uint8)
         age[~below] = 0
