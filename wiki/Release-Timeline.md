@@ -23,3 +23,18 @@ timeline
         : 749b6ff - Add specific version for rich package
 ```
 
+## Release v0.70.6-2 (2026-07-19)
+
+```mermaid
+timeline
+    title Release v0.70.6-2 Commits
+    0.70.6-2
+        : 95f7dc0 - fixes for pc v5s/v5  4d bugs and freeze bugs
+        : e53fdf5 - chore- update JSON stats (scheduled)
+        : 4300446 - chore- update JSON stats (scheduled)
+        : 5a29614 - chore- update JSON stats (scheduled)
+        : d79fc67 - chore- update JSON stats (scheduled)
+        : b956c4f - hyped fixes
+        : 628609e - Revise README description for toolkit functionality
+```
+
