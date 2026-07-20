@@ -76,6 +76,8 @@ _SUBCOMMANDS = {
     "vera",
     "scavenger",
     "config",
+    # v0.71.0
+    "gkey",
 }
 
 
@@ -123,6 +125,7 @@ def _print_usage() -> None:
         table.add_row("[green]vera[/]", "Vera assistant CLI")
         table.add_row("[green]scavenger[/]", "Scavenger tools")
         table.add_row("[green]config[/]", "Configuration management")
+        table.add_row("[green]gkey[/]", "API key & access management (Gatekeeper + Keymaster)")
         
         shortcuts = Text("Shortcuts:\n", style="bold yellow")
         shortcuts.append("  --auto-oven            download the default snapshot and run code completion\n", style="white")
@@ -166,7 +169,8 @@ def _print_usage() -> None:
             "  wiki                   HyperNix documentation wiki CLI\n"
             "  vera                   Vera assistant CLI\n"
             "  scavenger              Scavenger tools\n"
-            "  config                 Configuration management\n\n"
+            "  config                 Configuration management\n"
+            "  gkey                   API key & access management (Gatekeeper + Keymaster)\n\n"
             "Shortcuts:\n"
             "  --auto-oven            download the default snapshot and run code completion\n"
             "                         (equivalent to `hypernix oven --auto ...`).\n\n"
@@ -906,6 +910,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_scavenger(rest)
     if cmd == "config":
         return _run_config(rest)
+    if cmd == "gkey":
+        return _run_gkey(rest)
     _print_usage()
     return 1
 
@@ -934,6 +940,11 @@ def _run_scavenger(raw: list[str]) -> int:
 def _run_config(raw: list[str]) -> int:
     from .config import cli_main as config_main
     return config_main(raw)
+
+def _run_gkey(raw: list[str]) -> int:
+    """`hypernix gkey` — Gatekeeper + Keymaster unified CLI."""
+    from .gkey_cli import main as gkey_main
+    return gkey_main(raw)
 
 def _run_fizzle(raw: list[str]) -> int:
     """`hypernix fizzle` / `fiz` — Fuzed Architecture module."""

@@ -61,7 +61,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-__version__ = "0.70.6-3"
+__version__ = "0.71.0"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
 DEFAULT_MODEL = "qwen3.5-4b"  # New default model
 
@@ -214,6 +214,18 @@ __all__ = [
     "fizzle",
     "spinner",
     "hyper_log",
+    # v0.71.0
+    "gatekeeper",
+    "keymaster",
+    "gkey_cli",
+    "Gatekeeper",
+    "Keymaster",
+    "T1KeyGenerator",
+    "KeyType",
+    "KeyScope",
+    "KeyMeta",
+    "Quota",
+    "QuotaViolation",
 ]
 
 # Every public name hypernix exposes, mapped to the one submodule that
@@ -378,6 +390,18 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'verify_snapshot': ('download', 'verify_snapshot'),
     'whisk': ('whisk', None),
     'workshop': ('workshop', None),
+    # v0.71.0 — security & usage management
+    'gatekeeper': ('gatekeeper', None),
+    'keymaster': ('keymaster', None),
+    'gkey_cli': ('gkey_cli', None),
+    'Gatekeeper': ('gatekeeper', 'Gatekeeper'),
+    'Keymaster': ('keymaster', 'Keymaster'),
+    'T1KeyGenerator': ('keymaster', 'T1KeyGenerator'),
+    'KeyType': ('keymaster', 'KeyType'),
+    'KeyScope': ('keymaster', 'KeyScope'),
+    'KeyMeta': ('keymaster', 'KeyMeta'),
+    'Quota': ('gatekeeper', 'Quota'),
+    'QuotaViolation': ('gatekeeper', 'QuotaViolation'),
 }
 
 
@@ -430,6 +454,8 @@ if TYPE_CHECKING:
         flour,
         food_processor,
         freezer,
+        gatekeeper,
+        gkey_cli,
         hyped,
         hyper_log,
         industrial_range,
@@ -476,6 +502,10 @@ if TYPE_CHECKING:
         whisk,
         workshop,
     )
+    # v0.71.0
+    from . import gatekeeper, gkey_cli, keymaster
+    from .gatekeeper import Gatekeeper, Quota, QuotaViolation
+    from .keymaster import KeyMeta, KeyScope, KeyType, Keymaster, T1KeyGenerator
     from .abbicus import Abbicus, AbbicusConfig, TurboAbbicus, TurboAbbicusConfig
     from .cardboard_box import CardboardBox
     from .compute_framework import ComputeArch, ComputeFramework

@@ -45,6 +45,7 @@ src/hypernix/cli.py
 src/hypernix/coffee_maker.py
 src/hypernix/compactor.py
 src/hypernix/compute_framework.py
+src/hypernix/config.py
 src/hypernix/convert.py
 src/hypernix/cookbook.py
 src/hypernix/countertop.py
@@ -61,12 +62,15 @@ src/hypernix/fizzle.py
 src/hypernix/flour.py
 src/hypernix/food_processor.py
 src/hypernix/freezer.py
+src/hypernix/gatekeeper.py
 src/hypernix/generate.py
+src/hypernix/gkey_cli.py
 src/hypernix/hyped.py
 src/hypernix/hyper_log.py
 src/hypernix/industrial_range.py
 src/hypernix/injection.py
 src/hypernix/instant_pot.py
+src/hypernix/keymaster.py
 src/hypernix/lazy_suzan.py
 src/hypernix/lunchbox.py
 src/hypernix/mediocre_fridge.py
@@ -89,6 +93,7 @@ src/hypernix/pressure_cooker.py
 src/hypernix/pressure_cooker_v3.py
 src/hypernix/pressure_cooker_v4.py
 src/hypernix/pressure_cooker_v5.py
+src/hypernix/pressure_cooker_v5s.py
 src/hypernix/protect.py
 src/hypernix/py.typed
 src/hypernix/qa.py
@@ -168,6 +173,7 @@ tests/test_v0704_tvtop_plus_plus.py
 tests/test_v0704b11_features.py
 tests/test_v0704b12_cctvtop.py
 tests/test_v0705_all.py
+tests/test_v0710_gatekeeper_keymaster.py
 tests/test_version_launcher.py
 tests/test_webui.py
 wiki/Abbicus.md
@@ -212,6 +218,7 @@ wiki/Pressure-Cooker-V5.md
 wiki/Quantization.md
 wiki/Ranges.md
 wiki/RecipeBook.md
+wiki/Release-Timeline.md
 wiki/Roadmap.md
 wiki/STML.md
 wiki/Scavenger.md
@@ -220,6 +227,7 @@ wiki/Smoker.md
 wiki/Toaster.md
 wiki/Training.md
 wiki/Tupperware.md
+wiki/Vera.md
 wiki/Whisk.md
 wiki/Workshop.md
 wiki/macOS-legacy.md

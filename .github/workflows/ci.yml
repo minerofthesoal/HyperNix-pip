@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-22.04, macos-latest]
+        os: [ubuntu-latest, ubuntu-22.04, macos-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +61,11 @@ jobs:
           hypernix --help
           python -m hypernix --help
           hypernix doctor || true
-          tvtop --help
+
+      # cctvtop is a compiled C-extension (.so) — only available on Linux/macOS
+      - name: CLI smoke test — tvtop (Linux/macOS only)
+        if: runner.os != 'Windows'
+        run: tvtop --help
 
       - name: New module import checks (v0.70.0)
         run: |
@@ -72,6 +76,13 @@ jobs:
           python -c "from hypernix.tvtop import TVTop, Frame, LogTail, cli_main; print('tvtop OK')"
           python -c "from hypernix.ethanol import Ethanol, overclock; print('ethanol OK')"
           python -c "from hypernix.ups import UPS, ThreatStatus; print('ups OK')"
+
+      - name: New module import checks (v0.71.0)
+        run: |
+          python -c "from hypernix.keymaster import Keymaster, T1KeyGenerator, KeyType, KeyScope, KeyMeta; print('keymaster OK')"
+          python -c "from hypernix.gatekeeper import Gatekeeper, Quota, QuotaViolation; print('gatekeeper OK')"
+          python -c "from hypernix.gkey_cli import main; print('gkey_cli OK')"
+          gkey --help
 
       - name: setup.py compatibility
         run: |

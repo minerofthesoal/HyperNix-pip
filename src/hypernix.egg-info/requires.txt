@@ -4,6 +4,7 @@ safetensors>=0.4.3
 huggingface-hub>=0.24
 gguf>=0.10.0
 tqdm>=4.66
+rich==14.3.4
 sentencepiece>=0.2.1
 
 [dev]
@@ -21,6 +22,9 @@ sentencepiece>=0.1.99
 
 [llama-cpp]
 llama-cpp-python>=0.2.90
+
+[security]
+cryptography>=42
 
 [train]
 transformers>=4.44

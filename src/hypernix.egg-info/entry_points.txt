@@ -1,6 +1,7 @@
 [console_scripts]
 cctvtop = hypernix.cctvtop:cli_main
 eth = hypernix.ethanol:cli_main
+gkey = hypernix.gkey_cli:main
 hnx = hypernix.version_launcher:main
 hyped = hypernix.hyped:cli_main
 hypernix = hypernix.version_launcher:main
