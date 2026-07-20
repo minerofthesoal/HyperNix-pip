@@ -15,8 +15,11 @@ next release header.
 - 📚 documentation
 - 🔧 internal / plumbing
 
-##0.70.6.1
-🔧 **all imports are now lazy, speeding the intire package up.**
+
+
+## 0.70.6.1
+
+✨ **all imports are now lazy, speeding the intire package up.**
 
 
 
