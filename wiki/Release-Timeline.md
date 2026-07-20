@@ -53,3 +53,15 @@ timeline
         : a9cae45 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.0 (2026-07-20)
+
+```mermaid
+timeline
+    title Release v0.71.0 Commits
+    0.71.0
+        : f062336 - fixes
+        : b697846 - fixes
+        : 5706fc0 - version 0.71.0 addes t1 api keys, gatekeeper, and keymaster and more
+        : e6f964b - Change version to 0.70.6-3 and update changelog
+```
+
