@@ -111,7 +111,7 @@ def _print_usage() -> None:
         table.add_row("[green]oven[/]", "code-generation wrapper (preheat + complete/fill)")
         table.add_row("[green]chat[/]", "interactive chat REPL with any HyperNix-family model")
         table.add_row("[green]brew[/]", "custom architecture builder & model training suite (brewer)")
-        table.add_row("[green]pipeline[/]", "ASR → LLM → TTS pipeline")
+        table.add_row("[green]pipeline[/]", "ASR -> LLM -> TTS pipeline")
         table.add_row("[green]assistant[/]", "Linux local AI assistant with voice commands")
         table.add_row("[green]webui[/]", "Web dashboard with Tailscale integration")
         table.add_row("[green]cli[/]", "Interactive TUI/CLI menu for all operations")
@@ -156,7 +156,7 @@ def _print_usage() -> None:
             "  oven                   code-generation wrapper (preheat + complete/fill)\n"
             "  chat                   interactive chat REPL with any HyperNix-family model\n"
             "  brew                   custom architecture builder & training suite\n"
-            "  pipeline               ASR → LLM → TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
+            "  pipeline               ASR -> LLM -> TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
             "  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)\n"
             "  webui                  Web dashboard with Tailscale integration for remote access\n"
             "  cli                    Interactive TUI/CLI menu for all HyperNix operations\n"

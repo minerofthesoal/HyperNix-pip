@@ -252,8 +252,8 @@ class TestTimer:
         assert t.state == "work"
 
     def test_pomodoro_switches_to_rest(self) -> None:
-        t = timer.PomodoroTimer(work_seconds=0.02, rest_seconds=0.5).start()
-        time.sleep(0.03)
+        t = timer.PomodoroTimer(work_seconds=0.05, rest_seconds=0.5).start()
+        time.sleep(0.15)
         assert t.tick() == "rest"
 
     def test_factory(self) -> None:

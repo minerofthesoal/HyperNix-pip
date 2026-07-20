@@ -119,7 +119,7 @@ def test_quantize_system_search_paths_windows(monkeypatch):
 def test_quantize_system_search_paths_posix(monkeypatch):
     from hypernix import quantize
     monkeypatch.setattr(sys, "platform", "linux")
-    paths = [str(p) for p in quantize._system_search_paths()]
+    paths = [str(p).replace("\\", "/") for p in quantize._system_search_paths()]
     assert any(p == "/usr/local/bin" for p in paths)
     assert any(p == "/usr/bin" for p in paths)
 

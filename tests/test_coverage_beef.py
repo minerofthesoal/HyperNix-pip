@@ -51,7 +51,7 @@ def test_lunchbox_unicode_roundtrips(tmp_path: Path) -> None:
     box = Lunchbox()
     box.add(id="r1", prompt="日本語のテスト 🍔", response="café naïve piñata")
     p = box.pack_jsonl(tmp_path / "u.jsonl")
-    row = json.loads(p.read_text().strip())
+    row = json.loads(p.read_text(encoding="utf-8").strip())
     assert row["prompt"] == "日本語のテスト 🍔"
     assert row["response"] == "café naïve piñata"
 

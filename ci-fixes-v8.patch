@@ -1,0 +1,63 @@
+diff --git a/src/hypernix/cli.py b/src/hypernix/cli.py
+index daef0e2..40be7ea 100644
+--- a/src/hypernix/cli.py
++++ b/src/hypernix/cli.py
+@@ -111,7 +111,7 @@ def _print_usage() -> None:
+         table.add_row("[green]oven[/]", "code-generation wrapper (preheat + complete/fill)")
+         table.add_row("[green]chat[/]", "interactive chat REPL with any HyperNix-family model")
+         table.add_row("[green]brew[/]", "custom architecture builder & model training suite (brewer)")
+-        table.add_row("[green]pipeline[/]", "ASR → LLM → TTS pipeline")
++        table.add_row("[green]pipeline[/]", "ASR -> LLM -> TTS pipeline")
+         table.add_row("[green]assistant[/]", "Linux local AI assistant with voice commands")
+         table.add_row("[green]webui[/]", "Web dashboard with Tailscale integration")
+         table.add_row("[green]cli[/]", "Interactive TUI/CLI menu for all operations")
+@@ -156,7 +156,7 @@ def _print_usage() -> None:
+             "  oven                   code-generation wrapper (preheat + complete/fill)\n"
+             "  chat                   interactive chat REPL with any HyperNix-family model\n"
+             "  brew                   custom architecture builder & training suite\n"
+-            "  pipeline               ASR → LLM → TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
++            "  pipeline               ASR -> LLM -> TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
+             "  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)\n"
+             "  webui                  Web dashboard with Tailscale integration for remote access\n"
+             "  cli                    Interactive TUI/CLI menu for all HyperNix operations\n"
+diff --git a/tests/test_coverage_beef.py b/tests/test_coverage_beef.py
+index ca40803..4c9ce8d 100644
+--- a/tests/test_coverage_beef.py
++++ b/tests/test_coverage_beef.py
+@@ -51,7 +51,7 @@ def test_lunchbox_unicode_roundtrips(tmp_path: Path) -> None:
+     box = Lunchbox()
+     box.add(id="r1", prompt="日本語のテスト 🍔", response="café naïve piñata")
+     p = box.pack_jsonl(tmp_path / "u.jsonl")
+-    row = json.loads(p.read_text().strip())
++    row = json.loads(p.read_text(encoding="utf-8").strip())
+     assert row["prompt"] == "日本語のテスト 🍔"
+     assert row["response"] == "café naïve piñata"
+ 
+diff --git a/tests/test_deps_and_windows.py b/tests/test_deps_and_windows.py
+index dd239a5..31a4811 100644
+--- a/tests/test_deps_and_windows.py
++++ b/tests/test_deps_and_windows.py
+@@ -119,7 +119,7 @@ def test_quantize_system_search_paths_windows(monkeypatch):
+ def test_quantize_system_search_paths_posix(monkeypatch):
+     from hypernix import quantize
+     monkeypatch.setattr(sys, "platform", "linux")
+-    paths = [str(p) for p in quantize._system_search_paths()]
++    paths = [str(p).replace("\\", "/") for p in quantize._system_search_paths()]
+     assert any(p == "/usr/local/bin" for p in paths)
+     assert any(p == "/usr/bin" for p in paths)
+ 
+diff --git a/tests/test_v060.py b/tests/test_v060.py
+index df6a60d..817f980 100644
+--- a/tests/test_v060.py
++++ b/tests/test_v060.py
+@@ -252,8 +252,8 @@ class TestTimer:
+         assert t.state == "work"
+ 
+     def test_pomodoro_switches_to_rest(self) -> None:
+-        t = timer.PomodoroTimer(work_seconds=0.02, rest_seconds=0.5).start()
+-        time.sleep(0.03)
++        t = timer.PomodoroTimer(work_seconds=0.05, rest_seconds=0.5).start()
++        time.sleep(0.15)
+         assert t.tick() == "rest"
+ 
+     def test_factory(self) -> None:
