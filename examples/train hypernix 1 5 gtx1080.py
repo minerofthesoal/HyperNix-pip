@@ -101,21 +101,13 @@ import argparse
 import contextlib
 import io
 import shutil
-import time
 from pathlib import Path
 
 import torch
 
 from hypernix import (
     HyperNixConfig,
-    freezer,
-    init_from_scratch,
-    mediocre_fridge,
-    new_fridge,
-    old_fridge,
-    old_oven,
     # --- new in this revision (hypernix 0.70.4) ---
-    abbicus,
     apron,
     cake_pan,
     compactor,
@@ -123,7 +115,13 @@ from hypernix import (
     cutting_board,
     dishwasher,
     doctor,
+    freezer,
+    init_from_scratch,
+    mediocre_fridge,
     microwave,
+    new_fridge,
+    old_fridge,
+    old_oven,
     plasma,
     pressure_cooker,
     salt_shaker,

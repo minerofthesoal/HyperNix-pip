@@ -68,9 +68,9 @@ import threading
 import time
 import uuid
 import warnings
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +93,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 
-class KeyType(str, Enum):
+class KeyType(StrEnum):
     """Supported API key types."""
 
     DEVELOPMENT = "development"
@@ -103,7 +103,7 @@ class KeyType(str, Enum):
     ADMIN = "admin"
 
 
-class KeyScope(str, Enum):
+class KeyScope(StrEnum):
     """Permission scopes a key may be granted."""
 
     READ = "read"
@@ -290,7 +290,7 @@ class KeyMeta:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "KeyMeta":
+    def from_dict(cls, data: dict[str, Any]) -> KeyMeta:
         return cls(
             key_id=data["key_id"],
             key=data["key"],
@@ -334,7 +334,7 @@ class KeyMeta:
     def display(self) -> str:
         """Human-readable summary line."""
         exp = (
-            datetime.fromtimestamp(self.expires_at, tz=timezone.utc).strftime("%Y-%m-%d")
+            datetime.fromtimestamp(self.expires_at, tz=UTC).strftime("%Y-%m-%d")
             if self.expires_at
             else "never"
         )
@@ -692,7 +692,7 @@ class Keymaster:
 
         payload: dict[str, Any] = {
             "version": "1",
-            "exported_at": datetime.now(tz=timezone.utc).isoformat(),
+            "exported_at": datetime.now(tz=UTC).isoformat(),
             "keys": records,
         }
         if path:

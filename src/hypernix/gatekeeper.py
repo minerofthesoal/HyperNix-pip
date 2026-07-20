@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .keymaster import KeyMeta, KeyScope, Keymaster
+from .keymaster import Keymaster, KeyMeta, KeyScope
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class Quota:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Quota":
+    def from_dict(cls, d: dict[str, Any]) -> Quota:
         return cls(
             max_requests=d.get("max_requests"),
             max_tokens=d.get("max_tokens"),

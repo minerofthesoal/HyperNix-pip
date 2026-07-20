@@ -432,6 +432,7 @@ if TYPE_CHECKING:
     # costs nothing at import time — it exists purely so IDEs/type
     # checkers still see real symbols instead of "Any" for every
     # hypernix.* access. Keep this in sync with _LAZY_ATTRS above.
+    # v0.71.0
     from . import (
         abbicus,
         apron,
@@ -461,6 +462,7 @@ if TYPE_CHECKING:
         industrial_range,
         injection,
         instant_pot,
+        keymaster,
         lazy_suzan,
         lunchbox,
         mediocre_fridge,
@@ -502,10 +504,6 @@ if TYPE_CHECKING:
         whisk,
         workshop,
     )
-    # v0.71.0
-    from . import gatekeeper, gkey_cli, keymaster
-    from .gatekeeper import Gatekeeper, Quota, QuotaViolation
-    from .keymaster import KeyMeta, KeyScope, KeyType, Keymaster, T1KeyGenerator
     from .abbicus import Abbicus, AbbicusConfig, TurboAbbicus, TurboAbbicusConfig
     from .cardboard_box import CardboardBox
     from .compute_framework import ComputeArch, ComputeFramework
@@ -527,7 +525,9 @@ if TYPE_CHECKING:
         cpu_preset,
         gpu_preset,
     )
+    from .gatekeeper import Gatekeeper, Quota, QuotaViolation
     from .generate import generate_text
+    from .keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
     from .lazy_suzan import LazySusan, LazySusanConfig
     from .old_oven import (
         ARCH_PRESETS,

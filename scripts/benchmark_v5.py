@@ -1,9 +1,12 @@
 """Benchmark for Pressure Cooker v5."""
 import time
+
 import torch
 import torch.nn as nn
-from hypernix.pressure_cooker_v5 import PressureCookerV5
 from torch.optim import AdamW
+
+from hypernix.pressure_cooker_v5 import PressureCookerV5
+
 
 def run_benchmark():
     model = nn.Sequential(

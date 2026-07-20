@@ -29,7 +29,7 @@ Environment variables (set by the workflow):
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -147,7 +147,7 @@ def split_history_buckets(history, recent_days=OLD_THRESHOLD_DAYS, three_month_d
         empty = {"days": 0, "total_downloads": 0, "from": None, "to": None}
         return [], dict(empty), dict(empty)
 
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     recent_cutoff = today - timedelta(days=recent_days)
     three_month_cutoff = today - timedelta(days=three_month_days)
 
@@ -180,7 +180,7 @@ def split_history_buckets(history, recent_days=OLD_THRESHOLD_DAYS, three_month_d
 def load_existing(path):
     if os.path.exists(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as exc:  # noqa: BLE001
             print(f"warning: could not parse existing {path}, starting fresh: {exc}", file=sys.stderr)
@@ -228,7 +228,7 @@ def main():
         },
         "python_versions": python_versions,
         "operating_systems": operating_systems,
-        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "updated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
     }
 
     if MANUAL_RUN_REASON:

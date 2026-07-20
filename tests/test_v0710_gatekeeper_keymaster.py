@@ -17,12 +17,9 @@ from __future__ import annotations
 
 import json
 import time
-import tempfile
 import uuid
-from pathlib import Path
 
 import pytest
-
 
 # ===========================================================================
 # T1 Key Format
@@ -545,7 +542,7 @@ class TestGatekeeper:
 
     def _setup(self, tmp_path):
         from hypernix.gatekeeper import Gatekeeper
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km_dir = tmp_path / "km"
         gk_dir = tmp_path / "gk"
         km = Keymaster(store_dir=km_dir, auto_rotate=False)
@@ -583,7 +580,7 @@ class TestGatekeeper:
 
     def test_authenticate_expired_key(self, tmp_path):
         from hypernix.gatekeeper import Gatekeeper
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km_dir = tmp_path / "km2"
         gk_dir = tmp_path / "gk2"
         km = Keymaster(store_dir=km_dir, auto_rotate=False)
@@ -625,8 +622,8 @@ class TestGatekeeper:
         assert "token" in str(exc_info.value).lower()
 
     def test_check_quota_lifetime_request_limit(self, tmp_path):
-        from hypernix.gatekeeper import Quota, QuotaViolation
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.gatekeeper import QuotaViolation
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km_dir = tmp_path / "km3"
         gk_dir = tmp_path / "gk3"
         km = Keymaster(store_dir=km_dir, auto_rotate=False)
@@ -808,7 +805,7 @@ class TestGkeyCLI:
 
     def _run(self, *args, tmp_path=None):
         """Run gkey_cli.main with a temp store and capture return code."""
-        import os
+
         from hypernix import gkey_cli
 
         if tmp_path:
@@ -878,7 +875,7 @@ class TestGkeyCLI:
         import hypernix.keymaster as km_mod
         orig = km_mod._DEFAULT_STORE
         km_mod._DEFAULT_STORE = tmp_path / "km"
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km = Keymaster(store_dir=tmp_path / "km", auto_rotate=False)
         meta = km.create(key_type=KeyType.USER, scopes={KeyScope.READ})
         km.stop()
@@ -903,7 +900,7 @@ class TestGkeyCLI:
         import hypernix.keymaster as km_mod
         orig = km_mod._DEFAULT_STORE
         km_mod._DEFAULT_STORE = tmp_path / "km"
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km = Keymaster(store_dir=tmp_path / "km", auto_rotate=False)
         meta = km.create(key_type=KeyType.USER, scopes={KeyScope.READ})
         km.stop()
@@ -915,7 +912,7 @@ class TestGkeyCLI:
         import hypernix.keymaster as km_mod
         orig = km_mod._DEFAULT_STORE
         km_mod._DEFAULT_STORE = tmp_path / "km"
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km = Keymaster(store_dir=tmp_path / "km", auto_rotate=False)
         meta = km.create(key_type=KeyType.USER, scopes={KeyScope.READ})
         km.stop()
@@ -931,7 +928,7 @@ class TestGkeyCLI:
         import hypernix.keymaster as km_mod
         orig = km_mod._DEFAULT_STORE
         km_mod._DEFAULT_STORE = tmp_path / "km"
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km = Keymaster(store_dir=tmp_path / "km", auto_rotate=False)
         meta = km.create(key_type=KeyType.USER, scopes={KeyScope.READ})
         km.stop()
@@ -943,7 +940,7 @@ class TestGkeyCLI:
         import hypernix.keymaster as km_mod
         orig = km_mod._DEFAULT_STORE
         km_mod._DEFAULT_STORE = tmp_path / "km"
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km = Keymaster(store_dir=tmp_path / "km", auto_rotate=False)
         meta = km.create(key_type=KeyType.USER, scopes={KeyScope.READ})
         km.stop()
@@ -983,7 +980,7 @@ class TestGkeyCLI:
         import hypernix.keymaster as km_mod
         orig = km_mod._DEFAULT_STORE
         km_mod._DEFAULT_STORE = tmp_path / "km"
-        from hypernix.keymaster import KeyScope, KeyType, Keymaster
+        from hypernix.keymaster import Keymaster, KeyScope, KeyType
         km = Keymaster(store_dir=tmp_path / "km", auto_rotate=False)
         meta = km.create(key_type=KeyType.USER, scopes={KeyScope.READ})
         km.stop()
@@ -1010,10 +1007,10 @@ class TestModuleImports:
 
     def test_keymaster_all(self):
         from hypernix.keymaster import (  # noqa: F401
+            Keymaster,
             KeyMeta,
             KeyScope,
             KeyType,
-            Keymaster,
             T1KeyGenerator,
             generate_t1_key,
             validate_t1_key,

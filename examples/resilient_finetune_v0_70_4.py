@@ -26,7 +26,7 @@ Run:
 
 import argparse
 
-from hypernix import freezer, old_oven, old_fridge
+from hypernix import freezer, old_fridge, old_oven
 from hypernix.cake_pan import BakeOff
 from hypernix.whisk import EMA
 
@@ -64,7 +64,7 @@ def main():
     # 5) Train inside BakeOff so a NaN, OOM, or wall-time limit rolls back to
     #    a clean state instead of corrupting the run. The dataset path is
     #    read by the model's own .train() loop.
-    with BakeOff(oven.model, args.dataset, max_hours=args.max_hours) as run:
+    with BakeOff(oven.model, args.dataset, max_hours=args.max_hours):
         for step in range(args.steps):
             loss = oven.train_step(args.dataset, step=step)
             ema.update(oven.model)

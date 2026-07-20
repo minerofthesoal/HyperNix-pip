@@ -31,12 +31,12 @@ Run:
 
 import argparse
 
-from hypernix.pans import FryingPan, Skillet
+from hypernix import old_range
 from hypernix.blender import HighPowerBlender
+from hypernix.espresso_maker import DoubleShot
 from hypernix.microwave import defrost, zap
 from hypernix.old_oven import preheat
-from hypernix.espresso_maker import DoubleShot
-from hypernix import old_range
+from hypernix.pans import FryingPan, Skillet
 from hypernix.table import from_training_log
 
 
@@ -59,7 +59,7 @@ EVAL_PROMPTS = [
 
 
 def load_lines(path):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
 
@@ -107,7 +107,7 @@ def main():
     print("Agreement rate between rubric and judge:", results.agreement_rate())
 
     # 6) Inspect the training log for any loss spikes worth investigating.
-    with open(f"{args.out_dir}/train.log", "r", encoding="utf-8") as f:
+    with open(f"{args.out_dir}/train.log", encoding="utf-8") as f:
         log_text = f.read()
     t = from_training_log(log_text)
     print("Steps where loss exceeded 3.0:")

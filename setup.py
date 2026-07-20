@@ -6,7 +6,8 @@ older tooling and with integrators that still look for ``setup.py``
 in the project root.
 """
 import os
-from setuptools import setup, Extension
+
+from setuptools import Extension, setup
 
 # By default, do not build the C++ extension during standard wheel builds
 # to ensure we produce a universal py3-none-any.whl for PyPI.

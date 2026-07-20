@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import json
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 
 def fetch_pypi_info():
     try:
@@ -48,7 +49,7 @@ def main():
         'last_day': recent['last_day'],
         'last_week': recent['last_week'],
         'last_month': recent['last_month'],
-        'updated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        'updated_at': datetime.now(UTC).isoformat().replace('+00:00', 'Z')
     }
     
     with open('/workspace/docs/v1.json', 'w') as f:

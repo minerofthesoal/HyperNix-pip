@@ -40,10 +40,9 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Rich helpers (graceful degradation)
@@ -147,7 +146,7 @@ def _parse_scopes(raw: str):
 
 def _parse_expires(raw: str) -> float:
     try:
-        dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC)
         return dt.timestamp()
     except ValueError:
         raise SystemExit(
@@ -168,7 +167,7 @@ def _parse_tags(raw_list: list[str]) -> dict[str, str]:
 def _fmt_ts(ts: float | None) -> str:
     if ts is None:
         return "—"
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +225,7 @@ def _cmd_create(args: list[str]) -> int:
     km.stop()
 
     content_lines = [
-        f"[bold green]Key created successfully![/bold green]",
+        "[bold green]Key created successfully![/bold green]",
         "",
         f"[bold]Key ID:[/bold]     {meta.key_id}",
         f"[bold]Key:[/bold]        [yellow]{meta.key}[/yellow]",
