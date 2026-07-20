@@ -38,3 +38,18 @@ timeline
         : 628609e - Revise README description for toolkit functionality
 ```
 
+## Release v0.70.6-3 (2026-07-20)
+
+```mermaid
+timeline
+    title Release v0.70.6-3 Commits
+    0.70.6-3
+        : 4852ef6 - Rename __init.py__ to __init__.py
+        : ca0eb48 - Document changes for 0.70.6.1 that added major performance improvements
+        : f09661a - Update Changelog.md
+        : e930e29 - Rename init.py to __init__.py
+        : 1033931 - Add files via upload
+        : dfd546c - Delete src/hypernix/__init__.py
+        : a9cae45 - chore- update JSON stats (scheduled)
+```
+
