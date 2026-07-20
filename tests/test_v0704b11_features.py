@@ -13,6 +13,7 @@ not break when subsequent beta versions ship further changes.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -40,7 +41,11 @@ def _make_fake_shaker(prefix: str = "S") -> MagicMock:
 class TestVersion:
     def test_version_is_importable_from_package(self) -> None:
         from hypernix import __version__
-        assert __version__.startswith("0.70.")
+        # Resilient by design (see module docstring): verify __version__ is
+        # importable and looks like a semver string, without pinning to a
+        # specific release so this doesn't break on later version bumps.
+        assert isinstance(__version__, str)
+        assert re.match(r"^\d+\.\d+\.\d+", __version__)
 
 
 # ===========================================================================

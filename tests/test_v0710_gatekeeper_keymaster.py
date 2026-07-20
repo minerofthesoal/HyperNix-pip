@@ -553,14 +553,16 @@ class TestGatekeeper:
     def test_authenticate_valid_key(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
         found = gk.authenticate(meta.key)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert found.key_id == meta.key_id
 
     def test_authenticate_invalid_format(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
         with pytest.raises(ValueError):
             gk.authenticate("not-a-t1-key")
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
 
     def test_authenticate_unknown_key(self, tmp_path):
         from hypernix.keymaster import T1KeyGenerator
@@ -568,7 +570,8 @@ class TestGatekeeper:
         fake = T1KeyGenerator.generate()
         with pytest.raises(PermissionError):
             gk.authenticate(fake)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
 
     def test_authenticate_revoked_key(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
@@ -576,7 +579,8 @@ class TestGatekeeper:
         # Gatekeeper's keymaster no longer holds the key
         with pytest.raises(PermissionError):
             gk.authenticate(meta.key)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
 
     def test_authenticate_expired_key(self, tmp_path):
         from hypernix.gatekeeper import Gatekeeper
@@ -592,13 +596,15 @@ class TestGatekeeper:
         )
         with pytest.raises(PermissionError):
             gk.authenticate(meta.key)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
 
     def test_check_quota_no_limit(self, tmp_path):
         """check_quota should pass when no quota is set."""
         km, gk, meta = self._setup(tmp_path)
         gk.check_quota(meta.key_id, endpoint="/v1/test")
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
 
     def test_check_quota_request_limit_exceeded(self, tmp_path):
         from hypernix.gatekeeper import Quota, QuotaViolation
@@ -608,7 +614,8 @@ class TestGatekeeper:
         gk.record_usage(meta.key_id, endpoint="/v1/test")
         with pytest.raises(QuotaViolation) as exc_info:
             gk.check_quota(meta.key_id, endpoint="/v1/test")
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert "requests" in str(exc_info.value).lower()
 
     def test_check_quota_token_limit_exceeded(self, tmp_path):
@@ -618,7 +625,8 @@ class TestGatekeeper:
         gk.record_usage(meta.key_id, endpoint="/v1/test", tokens_used=90)
         with pytest.raises(QuotaViolation) as exc_info:
             gk.check_quota(meta.key_id, endpoint="/v1/test", tokens_requested=20)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert "token" in str(exc_info.value).lower()
 
     def test_check_quota_lifetime_request_limit(self, tmp_path):
@@ -637,13 +645,15 @@ class TestGatekeeper:
         km.record_usage(meta.key_id, tokens=0, requests=1)  # burn the cap
         with pytest.raises(QuotaViolation):
             gk.check_quota(meta.key_id)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
 
     def test_record_usage_updates_stats(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
         gk.record_usage(meta.key_id, endpoint="/v1/gen", model="qwen", tokens_used=50)
         stats = gk.get_stats(meta.key_id)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert stats["total_requests"] == 1
         assert stats["total_tokens"] == 50
 
@@ -652,7 +662,8 @@ class TestGatekeeper:
         for _ in range(5):
             gk.record_usage(meta.key_id, tokens_used=10)
         stats = gk.get_stats(meta.key_id)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert stats["total_requests"] == 5
         assert stats["total_tokens"] == 50
 
@@ -660,7 +671,8 @@ class TestGatekeeper:
         km, gk, meta = self._setup(tmp_path)
         gk.record_usage(meta.key_id)
         all_stats = gk.get_all_stats()
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert isinstance(all_stats, list)
         assert len(all_stats) >= 1
 
@@ -669,7 +681,8 @@ class TestGatekeeper:
         gk.record_usage(meta.key_id, endpoint="/v1/a", tokens_used=10)
         gk.record_usage(meta.key_id, endpoint="/v1/b", tokens_used=20)
         log = gk.get_usage_log(key_id=meta.key_id, limit=10)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert len(log) == 2
         endpoints = {r["endpoint"] for r in log}
         assert "/v1/a" in endpoints
@@ -678,7 +691,8 @@ class TestGatekeeper:
     def test_get_permissions_returns_scopes(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
         perms = gk.get_permissions(meta.key_id)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert "read" in perms
         assert "write" in perms
 
@@ -686,14 +700,16 @@ class TestGatekeeper:
         from hypernix.keymaster import KeyScope
         km, gk, meta = self._setup(tmp_path)
         result = gk.has_permission(meta.key_id, KeyScope.READ)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert result is True
 
     def test_has_permission_false(self, tmp_path):
         from hypernix.keymaster import KeyScope
         km, gk, meta = self._setup(tmp_path)
         result = gk.has_permission(meta.key_id, KeyScope.ADMIN)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert result is False
 
     def test_set_quota_and_retrieve(self, tmp_path):
@@ -702,7 +718,8 @@ class TestGatekeeper:
         q = Quota(max_requests=200, max_tokens=5000, window_seconds=120)
         gk.set_quota(meta.key_id, q)
         got = gk.get_quota(meta.key_id)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert got is not None
         assert got.max_requests == 200
         assert got.max_tokens == 5000
@@ -713,21 +730,24 @@ class TestGatekeeper:
         km, gk, meta = self._setup(tmp_path)
         gk.set_quota(meta.key_id, Quota(max_requests=50, window_seconds=60))
         stats = gk.get_stats(meta.key_id)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         assert stats["quota"] is not None
         assert stats["quota"]["max_requests"] == 50
 
     def test_usage_persisted_to_disk(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
         gk.record_usage(meta.key_id, tokens_used=77)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         usage_path = tmp_path / "gk" / "usage.json"
         assert usage_path.exists()
 
     def test_access_log_written(self, tmp_path):
         km, gk, meta = self._setup(tmp_path)
         gk.record_usage(meta.key_id, endpoint="/test", tokens_used=5)
-        km.stop(); gk.stop()
+        km.stop()
+        gk.stop()
         log_path = tmp_path / "gk" / "access.log"
         assert log_path.exists()
         lines = log_path.read_text().strip().splitlines()

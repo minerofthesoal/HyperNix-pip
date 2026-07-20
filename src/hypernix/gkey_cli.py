@@ -541,7 +541,8 @@ def _cmd_quota(args: list[str]) -> int:
             part = part.strip()
             if "=" not in part:
                 print(f"Invalid quota spec: {part!r}", file=sys.stderr)
-                km.stop(); gk.stop()
+                km.stop()
+                gk.stop()
                 return 1
             k, v = part.split("=", 1)
             k = k.strip().replace("-", "_")
@@ -549,7 +550,8 @@ def _cmd_quota(args: list[str]) -> int:
                 qargs[k] = float(v) if "." in v else int(v)
             except ValueError:
                 print(f"Invalid value for {k}: {v!r}", file=sys.stderr)
-                km.stop(); gk.stop()
+                km.stop()
+                gk.stop()
                 return 1
         quota = Quota(
             max_requests=qargs.get("max_requests"),
@@ -574,7 +576,8 @@ def _cmd_quota(args: list[str]) -> int:
                 f"window:       {quota.window_seconds}s",
                 title=f"Quota — {ns.key[:8]}…",
             )
-    km.stop(); gk.stop()
+    km.stop()
+    gk.stop()
     return 0
 
 
