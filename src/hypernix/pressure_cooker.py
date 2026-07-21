@@ -534,12 +534,55 @@ class UniversalCooker:
     Not an :class:`Optimizer` subclass — call
     ``UniversalCooker.select(params, **kwargs)`` (or
     :func:`universal_cooker`) to get the concrete instance.
+
+    Patch (0.71.1): the default selection now prioritizes the V5 /
+    V5S optimizer family (see :mod:`hypernix.pressure_cooker_v5` and
+    :mod:`hypernix.pressure_cooker_v5s`) over the older device tiers
+    below, since they're the actively-developed, fully custom
+    optimizers and aren't restricted to CUDA the way ``ProCooker`` /
+    ``InductionCooker`` are. Pass ``variant=`` to choose which one:
+
+    * ``"v5s"``     (default) — :class:`PressureCookerV5S`, the newest
+      and most specialised tier (3D oscillation resistance, pressure
+      diffusion, low-power mode).
+    * ``"v5"``      — :class:`PressureCookerV5` (ORCP core).
+    * ``"v5-plus"`` — :class:`PressureCookerV5Plus` (ORCP-Ultra core;
+      adds entropy scaling, resonance detection, QAT/MTP defaults).
+    * ``"legacy"``  — the pre-0.71.1 behavior: ``ProCooker`` /
+      ``InductionCooker`` on CUDA, ``ElectricCooker`` / ``StovetopCooker``
+      on CPU, gated by ``prefer_speed`` exactly as before.
+
+    Whichever V5-family variant is chosen, a CUDA device detected as
+    pre-Volta (Pascal, sm_61/6.2 — e.g. a GTX 1080) automatically gets
+    the matching ``Aged*`` tier instead (:class:`Agedcookerv5`,
+    :class:`ULTRAagedcookerv5`, or :class:`Agedcookerv5s`), which
+    enforces ``fused=False`` and other Pascal-safe defaults — the same
+    auto-detection :func:`_is_pre_volta` already did for the legacy
+    tiers, just extended to the new family.
     """
 
+    _V5_VARIANTS = ("v5", "v5-plus", "v5s")
+
     @classmethod
-    def select(cls, params, *, prefer_speed: bool = True, **kwargs: Any) -> PressureCooker:
+    def select(
+        cls, params, *, prefer_speed: bool = True, variant: str = "v5s", **kwargs: Any,
+    ) -> Optimizer:
         listed = _flatten_params(list(params))
         dev = listed[0].device if listed else torch.device("cpu")
+
+        if variant == "legacy":
+            return cls._select_legacy(listed, dev, prefer_speed=prefer_speed, **kwargs)
+        if variant not in cls._V5_VARIANTS:
+            raise ValueError(
+                f"unknown variant {variant!r}; expected one of "
+                f"{(*cls._V5_VARIANTS, 'legacy')}",
+            )
+        return cls._select_v5_family(listed, dev, variant=variant, **kwargs)
+
+    @staticmethod
+    def _select_legacy(listed, dev, *, prefer_speed: bool, **kwargs: Any) -> Optimizer:
+        """Pre-0.71.1 selection, kept for anyone who explicitly opts out
+        of the V5 / V5S family via ``variant='legacy'``."""
         if dev.type == "cuda":
             # Patch (0.51.1): Pascal (sm_61, e.g. GTX 1080) does not
             # support fused AdamW or CUDA graphs.  Force the safer
@@ -552,6 +595,23 @@ class UniversalCooker:
                 return InductionCooker(listed, **kwargs)
             return ProCooker(listed, **kwargs) if prefer_speed else InductionCooker(listed, **kwargs)
         return ElectricCooker(listed, **kwargs) if prefer_speed else StovetopCooker(listed, **kwargs)
+
+    @staticmethod
+    def _select_v5_family(listed, dev, *, variant: str, **kwargs: Any) -> Optimizer:
+        from .pressure_cooker_v5 import (
+            Agedcookerv5,
+            PressureCookerV5,
+            PressureCookerV5Plus,
+            ULTRAagedcookerv5,
+        )
+        from .pressure_cooker_v5s import Agedcookerv5s, PressureCookerV5S
+
+        is_pascal = _is_pre_volta(dev)
+        if variant == "v5":
+            return Agedcookerv5(listed, **kwargs) if is_pascal else PressureCookerV5(listed, **kwargs)
+        if variant == "v5-plus":
+            return ULTRAagedcookerv5(listed, **kwargs) if is_pascal else PressureCookerV5Plus(listed, **kwargs)
+        return Agedcookerv5s(listed, **kwargs) if is_pascal else PressureCookerV5S(listed, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +664,13 @@ def pro_cooker(params, **kw: Any) -> ProCooker:
 
 
 def universal_cooker(
-    params, *, prefer_speed: bool = True, **kw: Any,
-) -> PressureCooker:
-    """Return the best-fit cooker for the detected parameter device."""
-    return UniversalCooker.select(params, prefer_speed=prefer_speed, **kw)
+    params, *, prefer_speed: bool = True, variant: str = "v5s", **kw: Any,
+) -> Optimizer:
+    """Return the best-fit cooker for the detected parameter device.
+
+    Patch (0.71.1): defaults to the V5S optimizer tier (see
+    :class:`UniversalCooker` for the full ``variant=`` options,
+    including ``"legacy"`` to restore the pre-0.71.1 device-tier
+    selection).
+    """
+    return UniversalCooker.select(params, prefer_speed=prefer_speed, variant=variant, **kw)

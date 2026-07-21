@@ -17,6 +17,48 @@ next release header.
 
 
 
+## 0.71.1
+
+✨ **`hnx map`** — a new steampunk schematic TUI. Dials represent parameter
+counts (per-layer, scaled by a configurable `acc` value), pipes represent
+layer connections, animated steam represents live data flow, and steam
+engines represent prompt/dataset input. A dedicated throttle dial sweeps
+only while a training run is actually active (via `checkpoints/train.log`
+telemetry). Detail level (`poly`: 16/32/64/128) scales dial resolution,
+pipe-joint richness, and steam-animation frame count. Reads architecture
+from a single `.safetensors` file, a full model folder (auto-discovering
+sharded weights, or falling back to an analytical estimate from
+`config.json` if no weights are present yet), or runs with just live
+`train.log` telemetry and no architecture breakdown. Move the mouse into
+the bottom-right corner for a legend (falls back to `?` on terminals
+without mouse-motion reporting). Configured via `hnx map config poly|acc|
+main use-gpu|main tps|main file model <1|2|3> [-f|-F PATH]`; see
+`hnx map --help`.
+
+✨ **`UniversalCooker` / `universal_cooker()` now default to the V5S
+optimizer tier** instead of the legacy CPU/CUDA device tiers. Pass
+`variant="v5"` / `"v5-plus"` / `"v5s"` (default) / `"legacy"` to choose;
+a CUDA device detected as pre-Volta (Pascal, sm_61/6.2) still
+auto-selects the matching `Aged*` tier (`Agedcookerv5`,
+`ULTRAagedcookerv5`, `Agedcookerv5s`) exactly as the old device-tier
+logic did for `InductionCooker`. `variant="legacy"` restores the
+pre-0.71.1 selection behavior unchanged.
+
+🐛 **Fixed corrupted borders in `tvtop++` and `cctvtop`.** The Hardware
+Vitals / GPU Details panels' bar gauges and history graphs embedded raw
+ANSI escape codes directly into Rich `Text` objects; Rich has no way to
+know those bytes aren't visible characters, so its cell-width
+measurement came out wrong and the panel's right-hand border got drawn
+in the wrong column (stray "│" characters floating outside the box).
+Fixed by routing that content through `Text.from_ansi` instead, which
+parses the escape codes into proper zero-width style spans.
+
+🔧 Internal: `pressure_cooker.py`'s `UniversalCooker` gained a
+`_select_legacy` / `_select_v5_family` split; existing tests that
+exercised the old default now pass `variant="legacy"` explicitly.
+
+
+
 ## 0.70.6-3
 
 ✨ **all imports are now lazy, speeding the intire package up.**

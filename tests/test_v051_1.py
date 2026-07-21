@@ -202,16 +202,16 @@ class TestUniversalCookerPascalAware:
         # is unavailable must not raise.
         assert _is_pre_volta(torch.device("cuda")) in (True, False)
 
-    def test_select_on_cpu_picks_a_cpu_tier(self) -> None:
+    def test_select_on_cpu_picks_a_cpu_tier_under_legacy_variant(self) -> None:
         params = [torch.nn.Parameter(torch.randn(4, 4))]
-        cooker = UniversalCooker.select(params, prefer_speed=True)
+        cooker = UniversalCooker.select(params, prefer_speed=True, variant="legacy")
         # Should be one of the CPU tiers.
         from hypernix.pressure_cooker import ElectricCooker, StovetopCooker
         assert isinstance(cooker, (ElectricCooker, StovetopCooker))
 
-    def test_select_pascal_path_forces_fused_off(self, monkeypatch) -> None:
+    def test_select_pascal_path_forces_fused_off_under_legacy_variant(self, monkeypatch) -> None:
         """Simulate a Pascal CUDA device by stubbing _is_pre_volta and
-        verifying the selector forces fused=False."""
+        verifying the legacy selector forces fused=False."""
         from hypernix import pressure_cooker as pc
 
         monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
@@ -231,7 +231,83 @@ class TestUniversalCookerPascalAware:
                 self_inner._captured_kwargs = kwargs
 
         monkeypatch.setattr(pc, "InductionCooker", _SpyInduction)
-        UniversalCooker.select.__func__(UniversalCooker, [_Param()], prefer_speed=True)
+        UniversalCooker.select.__func__(UniversalCooker, [_Param()], prefer_speed=True, variant="legacy")
         assert captured.get("fused") is False
         # Foreach is whatever _HAS_FOREACH evaluates to on this torch.
         assert "foreach" in captured
+
+
+class TestUniversalCookerV5Family:
+    """Patch (0.71.1): UniversalCooker now defaults to the V5 / V5S
+    optimizer family instead of the legacy device tiers; Pascal is
+    still auto-detected and routed to the matching Aged* tier."""
+
+    def test_default_variant_on_cpu_is_v5s(self) -> None:
+        from hypernix.pressure_cooker_v5s import PressureCookerV5S
+
+        params = [torch.nn.Parameter(torch.randn(4, 4))]
+        cooker = UniversalCooker.select(params)
+        assert isinstance(cooker, PressureCookerV5S)
+
+    def test_variant_v5_selects_pressure_cooker_v5(self) -> None:
+        from hypernix.pressure_cooker_v5 import PressureCookerV5
+
+        params = [torch.nn.Parameter(torch.randn(4, 4))]
+        cooker = UniversalCooker.select(params, variant="v5")
+        assert isinstance(cooker, PressureCookerV5)
+
+    def test_variant_v5_plus_selects_pressure_cooker_v5_plus(self) -> None:
+        from hypernix.pressure_cooker_v5 import PressureCookerV5Plus
+
+        params = [torch.nn.Parameter(torch.randn(4, 4))]
+        cooker = UniversalCooker.select(params, variant="v5-plus")
+        assert isinstance(cooker, PressureCookerV5Plus)
+
+    def test_unknown_variant_raises(self) -> None:
+        params = [torch.nn.Parameter(torch.randn(2, 2))]
+        with pytest.raises(ValueError, match="unknown variant"):
+            UniversalCooker.select(params, variant="bogus")
+
+    def test_pascal_device_selects_aged_v5s(self, monkeypatch) -> None:
+        from hypernix import pressure_cooker as pc
+        from hypernix.pressure_cooker_v5s import Agedcookerv5s
+
+        monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
+        params = [torch.nn.Parameter(torch.randn(4, 4))]
+        with pytest.warns(UserWarning, match="Pascal"):
+            cooker = UniversalCooker.select(params, variant="v5s")
+        assert isinstance(cooker, Agedcookerv5s)
+
+    def test_pascal_device_selects_aged_v5(self, monkeypatch) -> None:
+        from hypernix import pressure_cooker as pc
+        from hypernix.pressure_cooker_v5 import Agedcookerv5
+
+        monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
+        params = [torch.nn.Parameter(torch.randn(4, 4))]
+        with pytest.warns(UserWarning, match="Pascal"):
+            cooker = UniversalCooker.select(params, variant="v5")
+        assert isinstance(cooker, Agedcookerv5)
+
+    def test_pascal_device_selects_ultra_aged_v5_plus(self, monkeypatch) -> None:
+        from hypernix import pressure_cooker as pc
+        from hypernix.pressure_cooker_v5 import ULTRAagedcookerv5
+
+        monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
+        params = [torch.nn.Parameter(torch.randn(4, 4))]
+        with pytest.warns(UserWarning, match="Pascal"):
+            cooker = UniversalCooker.select(params, variant="v5-plus")
+        assert isinstance(cooker, ULTRAagedcookerv5)
+
+    def test_universal_cooker_function_defaults_to_v5s(self) -> None:
+        from hypernix.pressure_cooker import universal_cooker
+        from hypernix.pressure_cooker_v5s import PressureCookerV5S
+
+        params = [torch.nn.Parameter(torch.randn(3, 3))]
+        assert isinstance(universal_cooker(params), PressureCookerV5S)
+
+    def test_universal_cooker_function_legacy_opt_out_still_works(self) -> None:
+        from hypernix.pressure_cooker import ElectricCooker, StovetopCooker, universal_cooker
+
+        params = [torch.nn.Parameter(torch.randn(3, 3))]
+        cooker = universal_cooker(params, variant="legacy")
+        assert isinstance(cooker, (ElectricCooker, StovetopCooker))

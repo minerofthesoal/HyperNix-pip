@@ -1,0 +1,2577 @@
+diff --git a/.gitignore b/.gitignore
+index 2053e95..5b6d46d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1 +1,10 @@
+-Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`src/hypernix/wiki_cli.py`), which should not be added to .gitignore. There are no build artifacts, dependencies, temporary files, or other items that need to be ignored in the provided change list.
+\ No newline at end of file
++__pycache__/
++*.py[cod]
++*.egg-info/
++.pytest_cache/
++.ruff_cache/
++*.so
++build/
++dist/
++.env
++.venv/
+diff --git a/pyproject.toml b/pyproject.toml
+index a1bc49f..b346111 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "hypernix"
+-version = "0.71.0"
++version = "0.71.1"
+ description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
+ readme = { file = "README.md", content-type = "text/markdown" }
+ license = { text = "Apache-2.0" }
+@@ -92,6 +92,8 @@ eth = "hypernix.ethanol:cli_main"
+ hyped = "hypernix.hyped:cli_main"
+ # v0.71.0: unified Gatekeeper + Keymaster CLI.
+ gkey = "hypernix.gkey_cli:main"
++# v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).
++hnx-map = "hypernix.map:cli_main"
+ 
+ [project.urls]
+ Homepage = "https://minerofthesoal.github.io/HyperNix-pip/"
+diff --git a/setup.cfg b/setup.cfg
+index 9128f1c..48aa81a 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -3,7 +3,7 @@
+ 
+ [metadata]
+ name = hypernix
+-version = 0.71.0
++version = 0.71.1
+ description = Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M).
+ long_description = file: README.md
+ long_description_content_type = text/markdown
+diff --git a/src/hypernix/__init__.py b/src/hypernix/__init__.py
+index ca8ed8d..420bf8a 100644
+--- a/src/hypernix/__init__.py
++++ b/src/hypernix/__init__.py
+@@ -61,7 +61,7 @@ from __future__ import annotations
+ import importlib
+ from typing import TYPE_CHECKING, Any
+ 
+-__version__ = "0.71.0"
++__version__ = "0.71.1"
+ DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
+ DEFAULT_MODEL = "qwen3.5-4b"  # New default model
+ 
+diff --git a/src/hypernix/cli.py b/src/hypernix/cli.py
+index 40be7ea..a5cf3a6 100644
+--- a/src/hypernix/cli.py
++++ b/src/hypernix/cli.py
+@@ -78,6 +78,8 @@ _SUBCOMMANDS = {
+     "config",
+     # v0.71.0
+     "gkey",
++    # v0.71.1
++    "map",
+ }
+ 
+ 
+@@ -126,6 +128,7 @@ def _print_usage() -> None:
+         table.add_row("[green]scavenger[/]", "Scavenger tools")
+         table.add_row("[green]config[/]", "Configuration management")
+         table.add_row("[green]gkey[/]", "API key & access management (Gatekeeper + Keymaster)")
++        table.add_row("[green]map[/]", "Steampunk schematic TUI: dials/pipes/steam for model + training state")
+         
+         shortcuts = Text("Shortcuts:\n", style="bold yellow")
+         shortcuts.append("  --auto-oven            download the default snapshot and run code completion\n", style="white")
+@@ -170,7 +173,8 @@ def _print_usage() -> None:
+             "  vera                   Vera assistant CLI\n"
+             "  scavenger              Scavenger tools\n"
+             "  config                 Configuration management\n"
+-            "  gkey                   API key & access management (Gatekeeper + Keymaster)\n\n"
++            "  gkey                   API key & access management (Gatekeeper + Keymaster)\n"
++            "  map                    Steampunk schematic TUI: dials/pipes/steam for model + training state\n\n"
+             "Shortcuts:\n"
+             "  --auto-oven            download the default snapshot and run code completion\n"
+             "                         (equivalent to `hypernix oven --auto ...`).\n\n"
+@@ -912,6 +916,8 @@ def main(argv: list[str] | None = None) -> int:
+         return _run_config(rest)
+     if cmd == "gkey":
+         return _run_gkey(rest)
++    if cmd == "map":
++        return _run_map(rest)
+     _print_usage()
+     return 1
+ 
+@@ -941,6 +947,11 @@ def _run_config(raw: list[str]) -> int:
+     from .config import cli_main as config_main
+     return config_main(raw)
+ 
++def _run_map(raw: list[str]) -> int:
++    """`hypernix map` — steampunk schematic TUI (dials/pipes/steam)."""
++    from .map import cli_main as map_main
++    return map_main(raw)
++
+ def _run_gkey(raw: list[str]) -> int:
+     """`hypernix gkey` — Gatekeeper + Keymaster unified CLI."""
+     from .gkey_cli import main as gkey_main
+diff --git a/src/hypernix/map.py b/src/hypernix/map.py
+new file mode 100644
+index 0000000..2844923
+--- /dev/null
++++ b/src/hypernix/map.py
+@@ -0,0 +1,1093 @@
++"""hypernix.map — a steampunk schematic TUI for the model you're training.
++
++``hnx map`` draws your model as a little machine: parameter counts become
++analog **dials**, layer connections become **pipes**, live token/activation
++flow becomes animated **steam**, and the prompt/dataset inputs feeding the
++network become **steam engines**. A dedicated throttle dial in the corner
++visibly ticks over while training is actually running, so a glance across
++the room tells you the loop is alive.
++
++Config
++------
++Settings persist to ``~/.hypernix/map_config.json`` and are managed with
++``hnx map config``::
++
++    hnx map config poly <16|32|64|128>       schematic detail level —
++                                              higher poly means finer dial
++                                              needles, richer pipe joints,
++                                              and more animated steam frames.
++    hnx map config acc <N|Nk|Nm|Nb|Nt>       parameters represented by one
++                                              full dial sweep, e.g. "1m" =
++                                              a dial reads 0..1,000,000 params.
++    hnx map config main use-gpu <true|false> show a GPU boiler-pressure
++                                              readout (nvidia-smi).
++    hnx map config main tps <1-30>           refresh rate, ticks per second.
++    hnx map config main file model <1|2|3>   what the map reads from:
++                                                1 = a single safetensors file
++                                                    (needs -f "<path>")
++                                                2 = ./checkpoints/train.log
++                                                    (no path needed)
++                                                3 = a full model folder
++                                                    (needs -F "<path>")
++
++Run
++---
++``hnx map`` launches the live TUI using the current stored config. Move
++the mouse into the bottom-right corner to reveal the legend (falls back to
++pressing ``?`` on terminals without mouse-motion reporting). Press ``q`` or
++Ctrl-C to exit.
++"""
++from __future__ import annotations
++
++import json
++import re
++import sys
++import threading
++import time
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Any
++
++# ---------------------------------------------------------------------------
++# Config subsystem — mirrors hypernix.config's load/save shape, but map.py
++# owns its own file since its keys (poly/acc/tps/...) are a distinct domain.
++# ---------------------------------------------------------------------------
++
++_MAP_CONFIG_DIR = Path.home() / ".hypernix"
++_MAP_CONFIG_FILE = _MAP_CONFIG_DIR / "map_config.json"
++
++POLY_LEVELS: tuple[int, ...] = (16, 32, 64, 128)
++FILE_MODES: tuple[int, ...] = (1, 2, 3)
++_DEFAULT_TRAIN_LOG = Path("checkpoints") / "train.log"
++
++_MAP_DEFAULTS: dict[str, Any] = {
++    "poly": 32,
++    "acc": "1m",
++    "use_gpu": True,
++    "tps": 8,
++    "file_mode": 2,        # 1=safetensors file, 2=train.log, 3=model folder
++    "file_path": None,     # required for modes 1 (-f) and 3 (-F)
++}
++
++
++class MapConfigError(ValueError):
++    """Raised for invalid ``hnx map config`` input; message is user-facing."""
++
++
++def _load_map_config() -> dict[str, Any]:
++    if not _MAP_CONFIG_FILE.exists():
++        return dict(_MAP_DEFAULTS)
++    try:
++        with open(_MAP_CONFIG_FILE, encoding="utf-8") as fh:
++            data = json.load(fh)
++        cfg = dict(_MAP_DEFAULTS)
++        cfg.update(data)
++        return cfg
++    except (json.JSONDecodeError, OSError) as exc:
++        print(f"[map] Warning: could not read {_MAP_CONFIG_FILE}: {exc}", file=sys.stderr)
++        return dict(_MAP_DEFAULTS)
++
++
++def _save_map_config(cfg: dict[str, Any]) -> None:
++    _MAP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
++    with open(_MAP_CONFIG_FILE, "w", encoding="utf-8") as fh:
++        json.dump(cfg, fh, indent=2, ensure_ascii=False)
++
++
++def get_map_config() -> dict[str, Any]:
++    """Public API: the current persisted map config (with defaults filled in)."""
++    return _load_map_config()
++
++
++# ---------------------------------------------------------------------------
++# acc — "N params per one full dial sweep", accepts 1 / 1k / 1m / 1b / 1t.
++# ---------------------------------------------------------------------------
++
++_ACC_RE = re.compile(r"^\s*([0-9]*\.?[0-9]+)\s*([kmbt]?)\s*$", re.IGNORECASE)
++_ACC_SUFFIX = {"": 1.0, "k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
++
++
++def parse_acc(value: str) -> float:
++    """Parse an ``acc`` string like ``"1"``/``"1k"``/``"2.5m"``/``"1t"``
++    into the raw parameter count it represents. Raises :class:`MapConfigError`
++    on anything that doesn't look like ``<number><k|m|b|t>``."""
++    m = _ACC_RE.match(value)
++    if not m:
++        raise MapConfigError(
++            f"invalid acc value {value!r} — expected a number optionally "
++            "followed by k/m/b/t, e.g. '1', '1k', '2.5m', '1t'"
++        )
++    number, suffix = m.group(1), m.group(2).lower()
++    result = float(number) * _ACC_SUFFIX[suffix]
++    if result <= 0:
++        raise MapConfigError(f"acc must be a positive value, got {value!r}")
++    return result
++
++
++def set_poly(value: str | int) -> int:
++    try:
++        poly = int(value)
++    except (TypeError, ValueError) as exc:
++        raise MapConfigError(f"poly must be an integer, got {value!r}") from exc
++    if poly not in POLY_LEVELS:
++        raise MapConfigError(
++            f"poly must be one of {POLY_LEVELS}, got {poly}"
++        )
++    cfg = _load_map_config()
++    cfg["poly"] = poly
++    _save_map_config(cfg)
++    return poly
++
++
++def set_acc(value: str) -> str:
++    parse_acc(value)  # validate; raises MapConfigError on bad input
++    cfg = _load_map_config()
++    cfg["acc"] = value
++    _save_map_config(cfg)
++    return value
++
++
++def _parse_bool(value: str | bool) -> bool:
++    if isinstance(value, bool):
++        return value
++    lowered = str(value).strip().lower()
++    if lowered in ("true", "1", "yes", "on"):
++        return True
++    if lowered in ("false", "0", "no", "off"):
++        return False
++    raise MapConfigError(f"expected true/false, got {value!r}")
++
++
++def set_use_gpu(value: str | bool) -> bool:
++    parsed = _parse_bool(value)
++    cfg = _load_map_config()
++    cfg["use_gpu"] = parsed
++    _save_map_config(cfg)
++    return parsed
++
++
++def set_tps(value: str | int) -> int:
++    try:
++        tps = int(value)
++    except (TypeError, ValueError) as exc:
++        raise MapConfigError(f"tps must be an integer, got {value!r}") from exc
++    if not (1 <= tps <= 30):
++        raise MapConfigError(f"tps must be between 1 and 30, got {tps}")
++    cfg = _load_map_config()
++    cfg["tps"] = tps
++    _save_map_config(cfg)
++    return tps
++
++
++def set_file_mode(mode: str | int, path: str | None = None, *, flag: str | None = None) -> dict[str, Any]:
++    try:
++        mode_i = int(mode)
++    except (TypeError, ValueError) as exc:
++        raise MapConfigError(f"model must be 1, 2, or 3, got {mode!r}") from exc
++    if mode_i not in FILE_MODES:
++        raise MapConfigError(f"model must be 1, 2, or 3, got {mode_i}")
++    if mode_i == 1:
++        if not path:
++            raise MapConfigError('model 1 (safetensors file) requires -f "<path>"')
++        if flag == "-F":
++            raise MapConfigError("model 1 (safetensors file) takes -f, not -F")
++    if mode_i == 3:
++        if not path:
++            raise MapConfigError('model 3 (full model folder) requires -F "<path>"')
++        if flag == "-f":
++            raise MapConfigError("model 3 (full model folder) takes -F, not -f")
++    if mode_i == 2 and path:
++        raise MapConfigError(
++            "model 2 (train.log) doesn't take a path — it always reads "
++            f"./{_DEFAULT_TRAIN_LOG}"
++        )
++    cfg = _load_map_config()
++    cfg["file_mode"] = mode_i
++    cfg["file_path"] = path
++    _save_map_config(cfg)
++    return {"file_mode": mode_i, "file_path": path}
++
++
++# ---------------------------------------------------------------------------
++# Data model — turn a safetensors file (or a folder full of them) into a
++# list of "nodes" (one per transformer layer, plus embed/norm/head) with
++# parameter counts, which the schematic renders as a chain of dials.
++# ---------------------------------------------------------------------------
++
++# Matches the common "...layers.N...", "...h.N...", "...blocks.N..." naming
++# schemes used across HF model families (llama/qwen/gpt-neox/gpt2/mpt/...).
++_LAYER_RE = re.compile(r"\.(?:h|layer|layers|block|blocks)\.(\d+)\.")
++
++
++def _bucket_for_tensor(name: str) -> tuple[str, str]:
++    """Return ``(bucket_key, bucket_label)`` for a tensor name.
++
++    Per-layer tensors bucket by their numeric layer index; everything
++    else buckets into a small set of named pseudo-nodes. Keys are
++    prefixed with a category rank (0=embed, 1=layer, 5=other, 8=norm,
++    9=head) so a plain lexical sort of the keys reproduces the natural
++    front-to-back flow of the model (embeddings, then layers in order,
++    then the final norm and head) instead of e.g. "8:norm" sorting
++    before "layer:..." just because '8' < 'l' in ASCII.
++    """
++    m = _LAYER_RE.search(name)
++    if m:
++        idx = int(m.group(1))
++        return (f"1:{idx:06d}", f"L{idx}")
++    lname = name.lower()
++    if "embed" in lname:
++        return ("0:0", "Embed")
++    if "lm_head" in lname:
++        return ("9:0", "LMHead")
++    if "norm" in lname:
++        return ("8:0", "Norm")
++    return ("5:0", "Other")
++
++
++@dataclass
++class LayerNode:
++    key: str
++    label: str
++    param_count: int = 0
++    tensor_count: int = 0
++
++
++@dataclass
++class ModelSnapshot:
++    source: str
++    layers: list[LayerNode] = field(default_factory=list)
++    total_params: int = 0
++    dtype: str | None = None
++    error: str | None = None
++
++    @property
++    def ok(self) -> bool:
++        return self.error is None
++
++
++def _numel(shape: list[int] | tuple[int, ...]) -> int:
++    n = 1
++    for d in shape:
++        n *= int(d)
++    return n
++
++
++def _snapshot_from_tensor_iter(
++    source: str, tensor_shapes: dict[str, tuple[list[int], str]],
++) -> ModelSnapshot:
++    """Build a :class:`ModelSnapshot` from ``{name: (shape, dtype)}``."""
++    buckets: dict[str, LayerNode] = {}
++    dtype: str | None = None
++    total = 0
++    for name, (shape, dt) in tensor_shapes.items():
++        key, label = _bucket_for_tensor(name)
++        node = buckets.setdefault(key, LayerNode(key=key, label=label))
++        n = _numel(shape)
++        node.param_count += n
++        node.tensor_count += 1
++        total += n
++        dtype = dtype or dt
++    layers = [buckets[k] for k in sorted(buckets)]
++    return ModelSnapshot(source=source, layers=layers, total_params=total, dtype=dtype)
++
++
++def _snapshot_from_safetensors_file(path: Path) -> ModelSnapshot:
++    try:
++        from safetensors import safe_open
++    except ImportError:
++        return ModelSnapshot(source=str(path), error="safetensors is not installed")
++    if not path.exists():
++        return ModelSnapshot(source=str(path), error=f"file not found: {path}")
++    try:
++        shapes: dict[str, tuple[list[int], str]] = {}
++        with safe_open(str(path), framework="pt") as fh:
++            for key in fh.keys():  # noqa: SIM118 - safetensors has no __iter__
++                sl = fh.get_slice(key)
++                shapes[key] = (list(sl.get_shape()), str(sl.get_dtype()))
++        return _snapshot_from_tensor_iter(str(path), shapes)
++    except Exception as exc:  # noqa: BLE001
++        return ModelSnapshot(source=str(path), error=f"failed to read {path}: {exc}")
++
++
++def _snapshot_from_folder(path: Path) -> ModelSnapshot:
++    if not path.exists() or not path.is_dir():
++        return ModelSnapshot(source=str(path), error=f"folder not found: {path}")
++
++    # Prefer real weight files (single or sharded) -- exact param counts.
++    single = path / "model.safetensors"
++    shards = sorted(path.glob("*.safetensors"))
++    files: list[Path] = []
++    if single.exists():
++        files = [single]
++    elif shards:
++        files = shards
++
++    if files:
++        try:
++            from safetensors import safe_open
++        except ImportError:
++            return ModelSnapshot(source=str(path), error="safetensors is not installed")
++        shapes: dict[str, tuple[list[int], str]] = {}
++        try:
++            for f in files:
++                with safe_open(str(f), framework="pt") as fh:
++                    for key in fh.keys():  # noqa: SIM118
++                        sl = fh.get_slice(key)
++                        shapes[key] = (list(sl.get_shape()), str(sl.get_dtype()))
++            return _snapshot_from_tensor_iter(str(path), shapes)
++        except Exception as exc:  # noqa: BLE001
++            return ModelSnapshot(source=str(path), error=f"failed to read weights in {path}: {exc}")
++
++    # No weight files -- fall back to an analytical estimate from config.json
++    # so folders that only hold a config (e.g. a fresh `hnx train init`
++    # scratch dir) still render something.
++    cfg_path = path / "config.json"
++    if not cfg_path.exists():
++        return ModelSnapshot(
++            source=str(path),
++            error=f"no *.safetensors or config.json found in {path}",
++        )
++    try:
++        with open(cfg_path, encoding="utf-8") as fh:
++            hf_cfg = json.load(fh)
++    except (json.JSONDecodeError, OSError) as exc:
++        return ModelSnapshot(source=str(path), error=f"could not read config.json: {exc}")
++
++    return _estimate_snapshot_from_hf_config(str(path), hf_cfg)
++
++
++def _estimate_snapshot_from_hf_config(source: str, hf_cfg: dict[str, Any]) -> ModelSnapshot:
++    """Standard dense-transformer parameter-count formula, used only when
++    no real weight file is available to inspect directly."""
++    try:
++        vocab = int(hf_cfg.get("vocab_size", 0))
++        hidden = int(hf_cfg.get("hidden_size", 0))
++        inter = int(hf_cfg.get("intermediate_size", hidden * 4))
++        n_layers = int(hf_cfg.get("num_hidden_layers", 0))
++        tie_embeds = bool(hf_cfg.get("tie_word_embeddings", False))
++    except (TypeError, ValueError) as exc:
++        return ModelSnapshot(source=source, error=f"unrecognised config.json shape: {exc}")
++    if hidden <= 0 or n_layers <= 0 or vocab <= 0:
++        return ModelSnapshot(
++            source=source,
++            error="config.json is missing vocab_size/hidden_size/num_hidden_layers",
++        )
++
++    layers: list[LayerNode] = []
++    embed_params = vocab * hidden
++    layers.append(LayerNode(key="0:0", label="Embed", param_count=embed_params, tensor_count=1))
++
++    # Attention (q/k/v/o, each hidden*hidden) + MLP (gate/up/down, each
++    # hidden*inter) + two RMSNorms (negligible, ~2*hidden) per layer.
++    per_layer = 4 * hidden * hidden + 3 * hidden * inter + 2 * hidden
++    for i in range(n_layers):
++        layers.append(LayerNode(key=f"1:{i:06d}", label=f"L{i}", param_count=per_layer, tensor_count=9))
++
++    layers.append(LayerNode(key="8:0", label="Norm", param_count=hidden, tensor_count=1))
++    if not tie_embeds:
++        layers.append(LayerNode(key="9:0", label="LMHead", param_count=vocab * hidden, tensor_count=1))
++
++    total = sum(n.param_count for n in layers)
++    snap = ModelSnapshot(source=source, layers=layers, total_params=total, dtype="estimated")
++    return snap
++
++
++def build_snapshot(cfg: dict[str, Any] | None = None) -> ModelSnapshot:
++    """Dispatch on ``cfg['file_mode']`` to build the current
++    :class:`ModelSnapshot` the schematic should render."""
++    cfg = cfg if cfg is not None else _load_map_config()
++    mode = cfg.get("file_mode", 2)
++    if mode == 1:
++        path = cfg.get("file_path")
++        if not path:
++            return ModelSnapshot(source="(none)", error="no safetensors path configured — set one with -f")
++        return _snapshot_from_safetensors_file(Path(path))
++    if mode == 3:
++        path = cfg.get("file_path")
++        if not path:
++            return ModelSnapshot(source="(none)", error="no model folder configured — set one with -F")
++        return _snapshot_from_folder(Path(path))
++    # mode == 2: train.log has no architecture info by itself -- the map
++    # still needs *some* nodes to draw pipes between, so this mode is
++    # normally paired with whatever the last-known snapshot was. Callers
++    # that only have a train.log pass one in via a cached snapshot instead
++    # of calling build_snapshot() fresh each tick; see HyperMap.
++    return ModelSnapshot(source=str(_DEFAULT_TRAIN_LOG), error=None)
++
++
++# ---------------------------------------------------------------------------
++# Poly-tiered glyph sets — "poly" scales dial/pipe/steam/engine detail.
++# ---------------------------------------------------------------------------
++
++@dataclass(frozen=True)
++class PolyGlyphs:
++    pipe_h: str
++    pipe_v: str
++    tl: str
++    tr: str
++    bl: str
++    br: str
++    joint: str
++    steam_frames: tuple[str, ...]
++    track_width: int
++    rim_l: str
++    rim_r: str
++    engine: tuple[str, ...]
++
++
++_POLY_GLYPHS: dict[int, PolyGlyphs] = {
++    16: PolyGlyphs(
++        pipe_h="-", pipe_v="|", tl="+", tr="+", bl="+", br="+", joint="+",
++        steam_frames=(".", "o"),
++        track_width=5, rim_l="[", rim_r="]",
++        engine=(" ___ ", "|SsS|", "|___|"),
++    ),
++    32: PolyGlyphs(
++        pipe_h="\u2500", pipe_v="\u2502", tl="\u256d", tr="\u256e", bl="\u2570", br="\u256f", joint="\u253c",
++        steam_frames=("\u02d9", "\u00b0", "o"),
++        track_width=9, rim_l="(", rim_r=")",
++        engine=(" \u256d\u2500\u2500\u256e ", "\u2500\u2524ss\u251c\u2500", " \u2570\u2500\u2500\u256f "),
++    ),
++    64: PolyGlyphs(
++        pipe_h="\u2501", pipe_v="\u2503", tl="\u250f", tr="\u2513", bl="\u2517", br="\u251b", joint="\u254b",
++        steam_frames=("\u02d9", "\u00b0", "o", "O"),
++        track_width=13, rim_l="\u27e8", rim_r="\u27e9",
++        engine=(" \u250f\u2501\u2501\u2513 ", "\u2501\u252b\u25c9\u25c9\u2523\u2501", " \u2517\u2501\u2501\u251b "),
++    ),
++    128: PolyGlyphs(
++        pipe_h="\u2550", pipe_v="\u2551", tl="\u2554", tr="\u2557", bl="\u255a", br="\u255d", joint="\u256c",
++        steam_frames=("\u02d9", "\u00b7", "\u00b0", "o", "O", "0", "Q", "@"),
++        track_width=21, rim_l="\u300a", rim_r="\u300b",
++        engine=(" \u2554\u2550\u2550\u2557 ", "\u2550\u2563\u25c8\u25c8\u2560\u2550", " \u255a\u2550\u2550\u255d "),
++    ),
++}
++
++
++def glyphs_for_poly(poly: int) -> PolyGlyphs:
++    return _POLY_GLYPHS.get(poly, _POLY_GLYPHS[32])
++
++
++# ---------------------------------------------------------------------------
++# Dial / pipe / steam / engine rendering
++# ---------------------------------------------------------------------------
++
++def dial_frac(param_count: int, acc_value: float) -> float:
++    """0..1 needle position for a dial whose full sweep represents
++    ``acc_value`` parameters, given a node holding ``param_count``."""
++    if acc_value <= 0:
++        return 0.0
++    return max(0.0, min(1.0, param_count / acc_value))
++
++
++def render_dial(label: str, frac: float, glyphs: PolyGlyphs) -> list[str]:
++    """Render a labeled dial as ``[label row, needle-track row]``."""
++    width = max(1, glyphs.track_width)
++    pos = int(round(max(0.0, min(1.0, frac)) * (width - 1)))
++    track = list(glyphs.pipe_h * width)
++    track[pos] = "\u25cf"  # ●
++    track_str = glyphs.rim_l + "".join(track) + glyphs.rim_r
++    label_str = f"{label:^{len(track_str)}}"[: len(track_str)]
++    return [label_str, track_str]
++
++
++def throttle_frac(tick: int, active: bool, poly: int) -> float:
++    """Triangle-wave sweep 0->1->0 while ``active``; parked at 0 when idle.
++
++    The sweep period scales with ``poly`` so a higher detail level gives a
++    slower, smoother-looking needle motion rather than a jerkier one.
++    """
++    if not active:
++        return 0.0
++    period = max(4, poly)
++    pos = tick % period
++    half = period / 2.0
++    return pos / half if pos <= half else (period - pos) / half
++
++
++def render_pipe_segment(glyphs: PolyGlyphs, length: int, tick: int, *, active: bool) -> str:
++    """A horizontal pipe run with a traveling steam puff when ``active``."""
++    if length <= 0:
++        return ""
++    base = glyphs.pipe_h * length
++    if not active:
++        return base
++    frame = glyphs.steam_frames[tick % len(glyphs.steam_frames)]
++    puff_pos = tick % length
++    chars = list(base)
++    chars[puff_pos] = frame
++    return "".join(chars)
++
++
++def render_engine(glyphs: PolyGlyphs, label: str, tick: int, *, active: bool) -> list[str]:
++    """A small boiler icon with rising steam above its chimney."""
++    width = len(glyphs.engine[0])
++    puff = glyphs.steam_frames[tick % len(glyphs.steam_frames)] if active else " "
++    top = f"{puff:^{width}}"
++    bottom = f"{label:^{width}}"
++    return [top, *glyphs.engine, bottom]
++
++
++# ---------------------------------------------------------------------------
++# Canvas — a small 2D character grid so widgets (dials, pipes, engines, the
++# legend overlay) can be stamped at exact positions instead of being glued
++# together with string concatenation.
++# ---------------------------------------------------------------------------
++
++class Canvas:
++    def __init__(self, width: int, height: int, fill: str = " ") -> None:
++        self.width = max(1, width)
++        self.height = max(1, height)
++        self.rows: list[list[str]] = [[fill] * self.width for _ in range(self.height)]
++
++    def stamp(self, x: int, y: int, text: str) -> None:
++        if y < 0 or y >= self.height:
++            return
++        row = self.rows[y]
++        for i, ch in enumerate(text):
++            cx = x + i
++            if 0 <= cx < self.width:
++                row[cx] = ch
++
++    def stamp_lines(self, x: int, y: int, lines: list[str]) -> None:
++        for i, line in enumerate(lines):
++            self.stamp(x, y + i, line)
++
++    def render(self) -> str:
++        return "\n".join("".join(row) for row in self.rows)
++
++
++def _layout_positions(n_items: int, cols_per_row: int) -> list[tuple[int, int]]:
++    """Return ``(col, row)`` for each of ``n_items`` in boustrophedon
++    (snake) reading order: row 0 goes left-to-right, row 1 goes
++    right-to-left, row 2 left-to-right again, and so on. This keeps the
++    connecting pipe between the last dial of one row and the first dial
++    of the next a short straight drop in the same column, instead of a
++    long diagonal run across the whole width.
++    """
++    cols_per_row = max(1, cols_per_row)
++    positions: list[tuple[int, int]] = []
++    for i in range(n_items):
++        row = i // cols_per_row
++        offset = i % cols_per_row
++        col = offset if row % 2 == 0 else (cols_per_row - 1 - offset)
++        positions.append((col, row))
++    return positions
++
++
++# ---------------------------------------------------------------------------
++# HyperMap — top-level state + frame rendering.
++#
++# Architecture (dial layout) comes from ``file_mode``; live training
++# telemetry (is a run active? how fast?) always comes from
++# ``checkpoints/train.log`` regardless of mode, since the two questions
++# ("what does the model look like" vs "is it training right now") are
++# independent -- you might point the map at a snapshot .safetensors file
++# while a completely separate training loop is what's actually running.
++# ---------------------------------------------------------------------------
++
++class HyperMap:
++    def __init__(
++        self,
++        cfg: dict[str, Any] | None = None,
++        *,
++        width: int | None = None,
++        height: int | None = None,
++    ) -> None:
++        from .tv import LogTail as _LogTail
++
++        self.cfg = cfg if cfg is not None else _load_map_config()
++        self.poly = int(self.cfg.get("poly", 32))
++        if self.poly not in POLY_LEVELS:
++            self.poly = 32
++        self.glyphs = glyphs_for_poly(self.poly)
++        self.acc_label = str(self.cfg.get("acc", "1m"))
++        try:
++            self.acc_value = parse_acc(self.acc_label)
++        except MapConfigError:
++            self.acc_value = parse_acc("1m")
++        self.use_gpu = bool(self.cfg.get("use_gpu", True))
++        self.tps = int(self.cfg.get("tps", 8))
++        self._console_width = width
++        self._console_height = height
++
++        self.tick = 0
++        self.legend_visible = False
++        self.mouse_pos: tuple[int, int] | None = None
++        self.snapshot: ModelSnapshot = build_snapshot(self.cfg)
++        self.log = _LogTail(path=Path(_DEFAULT_TRAIN_LOG))
++
++    # -- polling -----------------------------------------------------
++
++    def poll(self) -> None:
++        self.log.poll()
++        self.tick += 1
++
++    @property
++    def is_active(self) -> bool:
++        return bool(self.log.has_training_data)
++
++    def gpu_reading(self) -> dict[str, Any] | None:
++        if not self.use_gpu:
++            return None
++        from .tv import _query_nvidia_smi_full
++        return _query_nvidia_smi_full()
++
++    # -- layout --------------------------------------------------------
++
++    def _term_size(self) -> tuple[int, int]:
++        if self._console_width and self._console_height:
++            return self._console_width, self._console_height
++        import shutil
++        size = shutil.get_terminal_size((100, 30))
++        return size.columns, size.lines
++
++    def _nodes(self) -> list[LayerNode]:
++        if self.snapshot.layers:
++            return self.snapshot.layers
++        # No architecture data (file mode 2, or a mode 1/3 read error) --
++        # still show one placeholder node so the pipeline isn't empty,
++        # driven by step count against the same acc scale.
++        return [LayerNode(key="train", label="TRAIN", param_count=self.log.step or 0, tensor_count=0)]
++
++    def render(self) -> str:
++        width, height = self._term_size()
++        height = max(16, height - 1)
++        canvas = Canvas(width, height)
++        g = self.glyphs
++        active = self.is_active
++        tick = self.tick
++
++        # -- title bar ---------------------------------------------
++        title = (
++            f" \u25c6 HYPERNIX MAP \u25c6  {self.snapshot.source}  "
++            f"poly={self.poly} acc={self.acc_label} tps={self.tps} "
++        )
++        canvas.stamp(0, 0, title[:width])
++        canvas.stamp(0, 1, g.pipe_h * min(width, len(title)))
++
++        # -- steam engines (prompt + dataset input) ------------------
++        engine_prompt = render_engine(g, "PROMPT", tick, active=active)
++        engine_data = render_engine(g, "DATA", tick, active=active)
++        engine_w = len(g.engine[0])
++        engine_y = 3
++        canvas.stamp_lines(1, engine_y, engine_prompt)
++        canvas.stamp_lines(1, engine_y + len(engine_prompt) + 1, engine_data)
++
++        pipe_start_x = 1 + engine_w + 2
++        trunk_y = engine_y + (len(engine_prompt) + 1 + len(engine_data)) // 2
++
++        # -- dial chain (parameter nodes) -----------------------------
++        nodes = self._nodes()
++        dial_cell_w = g.track_width + 2  # + rim chars
++        col_gap = 3
++        cell_w = dial_cell_w + col_gap
++        dial_area_x = pipe_start_x + col_gap
++        available = max(cell_w, width - dial_area_x - 2)
++        cols = max(1, available // cell_w)
++        positions = _layout_positions(len(nodes), cols)
++        dial_area_y = trunk_y + 2
++        row_h = 3
++
++        # Trunk pipe from the engines into the first dial.
++        canvas.stamp(pipe_start_x, trunk_y, render_pipe_segment(g, col_gap, tick, active=active))
++        if positions:
++            first_row_y = dial_area_y + positions[0][1] * row_h + 1
++            for y in range(min(trunk_y, first_row_y), max(trunk_y, first_row_y) + 1):
++                canvas.stamp(pipe_start_x + col_gap - 1, y, g.pipe_v)
++
++        for idx, (node, (col, row)) in enumerate(zip(nodes, positions, strict=False)):
++            x = dial_area_x + col * cell_w
++            y = dial_area_y + row * row_h
++            frac = dial_frac(node.param_count, self.acc_value)
++            canvas.stamp_lines(x, y, render_dial(node.label, frac, g))
++
++            if idx + 1 >= len(nodes):
++                continue
++            ncol, nrow = positions[idx + 1]
++            ny = dial_area_y + nrow * row_h
++            if nrow == row:
++                # horizontal connector to the next dial on the same row
++                left_col, right_col = (col, ncol) if col < ncol else (ncol, col)
++                gap_x = dial_area_x + left_col * cell_w + dial_cell_w
++                canvas.stamp(gap_x, y + 1, render_pipe_segment(g, col_gap, tick, active=active))
++            else:
++                # vertical connector down to the next row (snake wrap) --
++                # boustrophedon layout keeps col == ncol here.
++                wrap_x = dial_area_x + col * cell_w + dial_cell_w // 2
++                for wy in range(y + 2, ny + 1):
++                    canvas.stamp(wrap_x, wy, g.pipe_v)
++
++        # -- side panel: throttle dial + totals + GPU pressure --------
++        panel_x = width - max(24, g.track_width + 6)
++        panel_y = 3
++        if panel_x > dial_area_x + cell_w:  # only draw if it won't overlap the pipeline
++            t_frac = throttle_frac(tick, active, self.poly)
++            canvas.stamp_lines(panel_x, panel_y, render_dial("THROTTLE", t_frac, g))
++
++            total = self.snapshot.total_params
++            total_label = _fmt_count(total) if total else "?"
++            canvas.stamp(panel_x, panel_y + 3, f"\u03a3 params {total_label}")
++            status = "RUNNING" if active else "idle"
++            canvas.stamp(panel_x, panel_y + 4, f"status: {status}")
++
++            gpu = self.gpu_reading()
++            if gpu is not None:
++                util = gpu.get("util_percent")
++                gfrac = (util or 0.0) / 100.0
++                canvas.stamp_lines(panel_x, panel_y + 6, render_dial("GPU PRESSURE", gfrac, g))
++                if gpu.get("temp_c") is not None:
++                    canvas.stamp(panel_x, panel_y + 9, f"{gpu['temp_c']:.0f}\u00b0C")
++
++        # -- status line -----------------------------------------------
++        status_line = (
++            f" tick {tick}  \u00b7  mode {self.cfg.get('file_mode')}  \u00b7  "
++            f"q quit  \u00b7  ? legend "
++        )
++        canvas.stamp(0, height - 1, status_line[:width])
++
++        # -- legend overlay (bottom-right corner) ----------------------
++        if self.legend_visible:
++            _stamp_legend(canvas, g)
++
++        return canvas.render()
++
++    # -- run loop --------------------------------------------------------
++
++    def run(self) -> None:
++        reader = _MouseReader()
++        reader.start()
++        try:
++            interval = 1.0 / max(1, self.tps)
++            while True:
++                self.poll()
++                if reader.mouse_pos is not None:
++                    width, height = self._term_size()
++                    self.legend_visible = _is_bottom_right(reader.mouse_pos, width, height)
++                if reader.legend_toggle_requested:
++                    self.legend_visible = not self.legend_visible
++                    reader.legend_toggle_requested = False
++                if reader.quit_requested:
++                    break
++                sys.stdout.write("\x1b[2J\x1b[H")
++                sys.stdout.write(self.render())
++                sys.stdout.flush()
++                time.sleep(interval)
++        except KeyboardInterrupt:
++            pass
++        finally:
++            reader.stop()
++
++
++def _fmt_count(n: int) -> str:
++    if n >= 1e12:
++        return f"{n / 1e12:.2f}T"
++    if n >= 1e9:
++        return f"{n / 1e9:.2f}B"
++    if n >= 1e6:
++        return f"{n / 1e6:.2f}M"
++    if n >= 1e3:
++        return f"{n / 1e3:.2f}K"
++    return str(n)
++
++
++_LEGEND_LINES: tuple[str, ...] = (
++    "\u2500\u2500 legend \u2500\u2500",
++    "\u25cf dial  = param count / acc",
++    "\u2500\u2500 pipe  = layer link",
++    "\u02d9\u00b0oO   = steam (active)",
++    "\u2632\u2632  engine = prompt/data in",
++    "q quit  ? toggle legend",
++)
++
++
++def _stamp_legend(canvas: Canvas, glyphs: PolyGlyphs) -> None:
++    body_w = max(len(f" {line}") for line in _LEGEND_LINES)
++    box_w = body_w + 2
++    box_h = len(_LEGEND_LINES) + 2
++    x = max(0, canvas.width - box_w)
++    y = max(0, canvas.height - box_h)
++    canvas.stamp(x, y, glyphs.tl + glyphs.pipe_h * (box_w - 2) + glyphs.tr)
++    for i, line in enumerate(_LEGEND_LINES):
++        canvas.stamp(x, y + 1 + i, glyphs.pipe_v + f" {line}".ljust(body_w) + glyphs.pipe_v)
++    canvas.stamp(x, y + box_h - 1, glyphs.bl + glyphs.pipe_h * (box_w - 2) + glyphs.br)
++
++
++def _is_bottom_right(pos: tuple[int, int], width: int, height: int, margin: int = 12) -> bool:
++    x, y = pos
++    return x >= width - margin and y >= height - margin
++
++
++# ---------------------------------------------------------------------------
++# Mouse hover reveal — "move to the bottom-right corner for the legend".
++#
++# Uses raw xterm SGR mouse-motion reporting, which needs cbreak mode on a
++# real TTY (POSIX only via termios/tty). Parsing is a pure function so it's
++# testable without a live terminal; the reader thread itself degrades to a
++# no-op (``available = False``) on anything else, e.g. Windows, a pipe, or
++# a CI sandbox -- the ``?`` key still toggles the legend either way.
++# ---------------------------------------------------------------------------
++
++_SGR_MOUSE_RE = re.compile(r"\x1b\[<\d+;(\d+);(\d+)[Mm]")
++
++
++def _parse_sgr_mouse(buf: str) -> tuple[int, int] | None:
++    """Return the last complete ``(col, row)`` SGR mouse report in ``buf``,
++    or ``None`` if it doesn't contain one yet. 1-indexed, as xterm reports."""
++    matches = list(_SGR_MOUSE_RE.finditer(buf))
++    if not matches:
++        return None
++    last = matches[-1]
++    return (int(last.group(1)), int(last.group(2)))
++
++
++class _MouseReader:
++    """Background reader for mouse-motion + key events during ``hnx map``.
++
++    ``mouse_pos`` / ``legend_toggle_requested`` / ``quit_requested`` are
++    read by the render loop each tick; this class only ever writes them.
++    """
++
++    def __init__(self) -> None:
++        self.mouse_pos: tuple[int, int] | None = None
++        self.legend_toggle_requested = False
++        self.quit_requested = False
++        self._thread: threading.Thread | None = None
++        self._stop = threading.Event()
++        self._old_settings: Any = None
++        self.available = self._detect_available()
++
++    @staticmethod
++    def _detect_available() -> bool:
++        try:
++            import termios  # noqa: F401
++            import tty  # noqa: F401
++        except ImportError:
++            return False
++        try:
++            return sys.stdin.isatty()
++        except Exception:  # noqa: BLE001
++            return False
++
++    def start(self) -> None:
++        if not self.available:
++            return
++        import termios
++        import tty
++        fd = sys.stdin.fileno()
++        try:
++            self._old_settings = termios.tcgetattr(fd)
++            tty.setcbreak(fd)
++            sys.stdout.write("\x1b[?1003h\x1b[?1006h")
++            sys.stdout.flush()
++        except Exception:  # noqa: BLE001
++            self.available = False
++            return
++        self._thread = threading.Thread(target=self._read_loop, daemon=True)
++        self._thread.start()
++
++    def stop(self) -> None:
++        self._stop.set()
++        if not self.available:
++            return
++        try:
++            sys.stdout.write("\x1b[?1003l\x1b[?1006l")
++            sys.stdout.flush()
++        except Exception:  # noqa: BLE001
++            pass
++        if self._old_settings is not None:
++            import termios
++            try:
++                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._old_settings)
++            except Exception:  # noqa: BLE001
++                pass
++
++    def _read_loop(self) -> None:
++        buf = ""
++        while not self._stop.is_set():
++            try:
++                ch = sys.stdin.read(1)
++            except Exception:  # noqa: BLE001
++                return
++            if not ch:
++                continue
++            if ch in ("q", "Q"):
++                self.quit_requested = True
++                continue
++            if ch == "?":
++                self.legend_toggle_requested = True
++                continue
++            buf += ch
++            if len(buf) > 32:
++                buf = buf[-32:]
++            pos = _parse_sgr_mouse(buf)
++            if pos is not None:
++                self.mouse_pos = pos
++                buf = ""
++
++
++# ---------------------------------------------------------------------------
++# CLI
++# ---------------------------------------------------------------------------
++
++_USAGE = """\
++Usage: hnx map [config <key> ...]
++
++Draws your model as a schematic: dials for parameter counts, pipes for
++layer connections, steam for live data flow, steam engines for prompt /
++dataset input. Run with no arguments to launch the live TUI.
++
++Config subcommands:
++  poly <16|32|64|128>              schematic detail level.
++  acc <N|Nk|Nm|Nb|Nt>               params represented by one full dial,
++                                    e.g. "1m" -> a dial reads 0..1,000,000.
++  main use-gpu <true|false>        show a GPU pressure readout.
++  main tps <1-30>                  refresh rate, ticks per second.
++  main file model <1|2|3> [-f PATH] [-F PATH]
++                                    1 = safetensors file  (needs -f PATH)
++                                    2 = ./checkpoints/train.log (no path)
++                                    3 = full model folder (needs -F PATH)
++
++Examples:
++  hnx map config poly 64
++  hnx map config acc 10m
++  hnx map config main use-gpu false
++  hnx map config main tps 12
++  hnx map config main file model 1 -f ./model.safetensors
++  hnx map config main file model 3 -F ./my-model-dir
++  hnx map
++"""
++
++
++def _cli_config_main_file(rest: list[str]) -> int:
++    if not rest or rest[0] != "model":
++        print('[map] usage: hnx map config main file model <1|2|3> [-f PATH] [-F PATH]', file=sys.stderr)
++        return 1
++    rest = rest[1:]
++    if not rest:
++        print('[map] usage: hnx map config main file model <1|2|3> [-f PATH] [-F PATH]', file=sys.stderr)
++        return 1
++    mode = rest[0]
++    path: str | None = None
++    flag: str | None = None
++    remaining = rest[1:]
++    i = 0
++    while i < len(remaining):
++        tok = remaining[i]
++        if tok in ("-f", "-F"):
++            if i + 1 >= len(remaining):
++                print(f"[map] {tok} requires a path argument", file=sys.stderr)
++                return 1
++            path = remaining[i + 1]
++            flag = tok
++            i += 2
++        else:
++            print(f"[map] unexpected argument: {tok!r}", file=sys.stderr)
++            return 1
++    try:
++        result = set_file_mode(mode, path, flag=flag)
++    except MapConfigError as exc:
++        print(f"[map] {exc}", file=sys.stderr)
++        return 1
++    print(f"[map] file_mode = {result['file_mode']}, file_path = {result['file_path']}")
++    return 0
++
++
++def _cli_config_main(rest: list[str]) -> int:
++    if not rest:
++        print("[map] usage: hnx map config main <use-gpu|tps|file> ...", file=sys.stderr)
++        return 1
++    sub, *tail = rest
++    try:
++        if sub == "use-gpu":
++            if not tail:
++                raise MapConfigError("usage: hnx map config main use-gpu <true|false>")
++            val = set_use_gpu(tail[0])
++            print(f"[map] use_gpu = {val}")
++            return 0
++        if sub == "tps":
++            if not tail:
++                raise MapConfigError("usage: hnx map config main tps <1-30>")
++            val = set_tps(tail[0])
++            print(f"[map] tps = {val}")
++            return 0
++    except MapConfigError as exc:
++        print(f"[map] {exc}", file=sys.stderr)
++        return 1
++    if sub == "file":
++        return _cli_config_main_file(tail)
++    print(f"[map] unknown 'main' key: {sub!r} (expected 'use-gpu', 'tps', or 'file')", file=sys.stderr)
++    return 1
++
++
++def _cli_config(rest: list[str]) -> int:
++    if not rest or rest[0] in ("-h", "--help", "help"):
++        print(_USAGE)
++        return 0
++    key, *tail = rest
++    try:
++        if key == "poly":
++            if not tail:
++                raise MapConfigError("usage: hnx map config poly <16|32|64|128>")
++            val = set_poly(tail[0])
++            print(f"[map] poly = {val}")
++            return 0
++        if key == "acc":
++            if not tail:
++                raise MapConfigError("usage: hnx map config acc <N|Nk|Nm|Nb|Nt>")
++            val = set_acc(tail[0])
++            print(f"[map] acc = {val}")
++            return 0
++    except MapConfigError as exc:
++        print(f"[map] {exc}", file=sys.stderr)
++        return 1
++    if key == "main":
++        return _cli_config_main(tail)
++    print(f"[map] unknown config key: {key!r} (expected 'poly', 'acc', or 'main')", file=sys.stderr)
++    return 1
++
++
++def cli_main(argv: list[str] | None = None) -> int:
++    """Entry point for ``hnx map`` / ``hypernix map``."""
++    args = list(argv if argv is not None else sys.argv[1:])
++    if args and args[0] in ("-h", "--help", "help"):
++        print(_USAGE)
++        return 0
++    if args and args[0] == "config":
++        return _cli_config(args[1:])
++    if args:
++        print(f"[map] Unknown argument: {args[0]!r}", file=sys.stderr)
++        print(_USAGE, file=sys.stderr)
++        return 1
++
++    app = HyperMap(_load_map_config())
++    try:
++        app.run()
++    finally:
++        sys.stdout.write("\x1b[2J\x1b[H")
++        sys.stdout.flush()
++    return 0
++
++
++__all__ = [
++    "Canvas",
++    "HyperMap",
++    "LayerNode",
++    "MapConfigError",
++    "ModelSnapshot",
++    "PolyGlyphs",
++    "build_snapshot",
++    "cli_main",
++    "dial_frac",
++    "get_map_config",
++    "glyphs_for_poly",
++    "parse_acc",
++    "render_dial",
++    "render_engine",
++    "render_pipe_segment",
++    "set_acc",
++    "set_file_mode",
++    "set_poly",
++    "set_tps",
++    "set_use_gpu",
++    "throttle_frac",
++]
+diff --git a/src/hypernix/pressure_cooker.py b/src/hypernix/pressure_cooker.py
+index 9ffbdfc..d2243d1 100644
+--- a/src/hypernix/pressure_cooker.py
++++ b/src/hypernix/pressure_cooker.py
+@@ -534,12 +534,55 @@ class UniversalCooker:
+     Not an :class:`Optimizer` subclass — call
+     ``UniversalCooker.select(params, **kwargs)`` (or
+     :func:`universal_cooker`) to get the concrete instance.
++
++    Patch (0.71.1): the default selection now prioritizes the V5 /
++    V5S optimizer family (see :mod:`hypernix.pressure_cooker_v5` and
++    :mod:`hypernix.pressure_cooker_v5s`) over the older device tiers
++    below, since they're the actively-developed, fully custom
++    optimizers and aren't restricted to CUDA the way ``ProCooker`` /
++    ``InductionCooker`` are. Pass ``variant=`` to choose which one:
++
++    * ``"v5s"``     (default) — :class:`PressureCookerV5S`, the newest
++      and most specialised tier (3D oscillation resistance, pressure
++      diffusion, low-power mode).
++    * ``"v5"``      — :class:`PressureCookerV5` (ORCP core).
++    * ``"v5-plus"`` — :class:`PressureCookerV5Plus` (ORCP-Ultra core;
++      adds entropy scaling, resonance detection, QAT/MTP defaults).
++    * ``"legacy"``  — the pre-0.71.1 behavior: ``ProCooker`` /
++      ``InductionCooker`` on CUDA, ``ElectricCooker`` / ``StovetopCooker``
++      on CPU, gated by ``prefer_speed`` exactly as before.
++
++    Whichever V5-family variant is chosen, a CUDA device detected as
++    pre-Volta (Pascal, sm_61/6.2 — e.g. a GTX 1080) automatically gets
++    the matching ``Aged*`` tier instead (:class:`Agedcookerv5`,
++    :class:`ULTRAagedcookerv5`, or :class:`Agedcookerv5s`), which
++    enforces ``fused=False`` and other Pascal-safe defaults — the same
++    auto-detection :func:`_is_pre_volta` already did for the legacy
++    tiers, just extended to the new family.
+     """
+ 
++    _V5_VARIANTS = ("v5", "v5-plus", "v5s")
++
+     @classmethod
+-    def select(cls, params, *, prefer_speed: bool = True, **kwargs: Any) -> PressureCooker:
++    def select(
++        cls, params, *, prefer_speed: bool = True, variant: str = "v5s", **kwargs: Any,
++    ) -> Optimizer:
+         listed = _flatten_params(list(params))
+         dev = listed[0].device if listed else torch.device("cpu")
++
++        if variant == "legacy":
++            return cls._select_legacy(listed, dev, prefer_speed=prefer_speed, **kwargs)
++        if variant not in cls._V5_VARIANTS:
++            raise ValueError(
++                f"unknown variant {variant!r}; expected one of "
++                f"{(*cls._V5_VARIANTS, 'legacy')}",
++            )
++        return cls._select_v5_family(listed, dev, variant=variant, **kwargs)
++
++    @staticmethod
++    def _select_legacy(listed, dev, *, prefer_speed: bool, **kwargs: Any) -> Optimizer:
++        """Pre-0.71.1 selection, kept for anyone who explicitly opts out
++        of the V5 / V5S family via ``variant='legacy'``."""
+         if dev.type == "cuda":
+             # Patch (0.51.1): Pascal (sm_61, e.g. GTX 1080) does not
+             # support fused AdamW or CUDA graphs.  Force the safer
+@@ -553,6 +596,23 @@ class UniversalCooker:
+             return ProCooker(listed, **kwargs) if prefer_speed else InductionCooker(listed, **kwargs)
+         return ElectricCooker(listed, **kwargs) if prefer_speed else StovetopCooker(listed, **kwargs)
+ 
++    @staticmethod
++    def _select_v5_family(listed, dev, *, variant: str, **kwargs: Any) -> Optimizer:
++        from .pressure_cooker_v5 import (
++            Agedcookerv5,
++            PressureCookerV5,
++            PressureCookerV5Plus,
++            ULTRAagedcookerv5,
++        )
++        from .pressure_cooker_v5s import Agedcookerv5s, PressureCookerV5S
++
++        is_pascal = _is_pre_volta(dev)
++        if variant == "v5":
++            return Agedcookerv5(listed, **kwargs) if is_pascal else PressureCookerV5(listed, **kwargs)
++        if variant == "v5-plus":
++            return ULTRAagedcookerv5(listed, **kwargs) if is_pascal else PressureCookerV5Plus(listed, **kwargs)
++        return Agedcookerv5s(listed, **kwargs) if is_pascal else PressureCookerV5S(listed, **kwargs)
++
+ 
+ # ---------------------------------------------------------------------------
+ # Registry + factory helpers
+@@ -604,7 +664,13 @@ def pro_cooker(params, **kw: Any) -> ProCooker:
+ 
+ 
+ def universal_cooker(
+-    params, *, prefer_speed: bool = True, **kw: Any,
+-) -> PressureCooker:
+-    """Return the best-fit cooker for the detected parameter device."""
+-    return UniversalCooker.select(params, prefer_speed=prefer_speed, **kw)
++    params, *, prefer_speed: bool = True, variant: str = "v5s", **kw: Any,
++) -> Optimizer:
++    """Return the best-fit cooker for the detected parameter device.
++
++    Patch (0.71.1): defaults to the V5S optimizer tier (see
++    :class:`UniversalCooker` for the full ``variant=`` options,
++    including ``"legacy"`` to restore the pre-0.71.1 device-tier
++    selection).
++    """
++    return UniversalCooker.select(params, prefer_speed=prefer_speed, variant=variant, **kw)
+diff --git a/src/hypernix/tvtop_plus_plus.py b/src/hypernix/tvtop_plus_plus.py
+index cef35d6..2f5e0d5 100644
+--- a/src/hypernix/tvtop_plus_plus.py
++++ b/src/hypernix/tvtop_plus_plus.py
+@@ -55,6 +55,40 @@ __all__ = [
+ SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+ 
+ 
++def _append_ansi(content: Text, s: str, *, style: str | None = None) -> None:
++    """Append a string that may contain raw ANSI SGR codes to ``content``.
++
++    ``tv._bar_str`` / ``_gauge_line`` / ``_block_history_bar`` embed
++    literal ``\\x1b[...m`` escape sequences when called with
++    ``color_enabled=True`` (they were written for the plain-ANSI
++    ``tvtop`` renderer, which measures visible width with its own
++    ``_strip_ansi`` helper). Rich's ``Text`` has no idea those bytes
++    are escape codes -- appending them via a plain f-string leaves the
++    raw control characters sitting in ``Text.plain``, so Rich's cell
++    width for that line comes out wrong. Since panel borders are
++    positioned from that same width calculation, the result is a
++    right-hand border drawn in the wrong place (stray "│" characters
++    floating outside the box, sometimes duplicated across several rows).
++
++    ``Text.from_ansi`` parses the escape codes into proper zero-width
++    style spans instead of literal characters, so the width Rich sees
++    always matches what actually reaches the screen.
++
++    ``Text.from_ansi`` treats its input as a sequence of lines and does
++    *not* preserve a trailing ``"\\n"`` the way plain string
++    concatenation does -- it silently drops it. Since every call site
++    here builds a multi-row panel by appending one ``"...\\n"``-terminated
++    string per row, that would glue consecutive rows onto a single
++    line. Trailing newlines never contain escape codes, so they're
++    split off and re-appended as plain text after conversion.
++    """
++    trimmed = s.rstrip("\n")
++    trailing = s[len(trimmed):]
++    content.append(Text.from_ansi(trimmed, style=style or ""))
++    if trailing:
++        content.append(trailing, style=style)
++
++
+ @dataclass
+ class TVTopPlusPlus:
+     log_path: Path | str | None = None
+@@ -256,7 +290,7 @@ class TVTopPlusPlus:
+             if f.total_steps:
+                 prog_text += f"/{f.total_steps}"
+             pbar = _bar_str(f.progress, 20, ascii_only=self.ascii_only, color_enabled=self.color)
+-            content.append(f"{prog_text:<16} {pbar} {pct:>5.1f}%\n\n", style="cyan")
++            _append_ansi(content, f"{prog_text:<16} {pbar} {pct:>5.1f}%\n\n", style="cyan")
+ 
+             # Metrics
+             loss_val = f"{f.loss:.4f}" if f.loss is not None else "—"
+@@ -284,20 +318,20 @@ class TVTopPlusPlus:
+         hist_width = max(20, min(40, (console.width // 4) - 14 if console else 30))
+ 
+         # Gauges — CPU=green, RAM=magenta, GPU=red (matching original tvtop)
+-        content.append(_gauge_line("CPU", f.cpu_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="green")
+-        content.append(_gauge_line("RAM", f.ram_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="magenta")
+-        content.append(_gauge_line("GPU", f.gpu_util_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n\n", style="red")
++        _append_ansi(content, _gauge_line("CPU", f.cpu_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="green")
++        _append_ansi(content, _gauge_line("RAM", f.ram_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="magenta")
++        _append_ansi(content, _gauge_line("GPU", f.gpu_util_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n\n", style="red")
+ 
+         # Block history
+         if f.cpu_history:
+             cpu_hist = _block_history_bar(f.cpu_history, hist_width, self.color)
+-            content.append(f"CPU History [{cpu_hist}]\n", style="green")
++            _append_ansi(content, f"CPU History [{cpu_hist}]\n", style="green")
+         if f.ram_history:
+             ram_hist = _block_history_bar(f.ram_history, hist_width, self.color)
+-            content.append(f"RAM History [{ram_hist}]\n", style="magenta")
++            _append_ansi(content, f"RAM History [{ram_hist}]\n", style="magenta")
+         if f.gpu_util_history:
+             gpu_hist = _block_history_bar(f.gpu_util_history, hist_width, self.color)
+-            content.append(f"GPU History [{gpu_hist}]", style="red")
++            _append_ansi(content, f"GPU History [{gpu_hist}]", style="red")
+ 
+         return Panel(content, title="Hardware Vitals", box=ROUNDED, title_align="left", style="green")
+ 
+@@ -339,19 +373,19 @@ class TVTopPlusPlus:
+             if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib:
+                 mem_pct = 100.0 * f.gpu_mem_used_mib / f.gpu_mem_total_mib
+                 bar = _bar_str(mem_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
+-                content.append(f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB\n", style="yellow")
++                _append_ansi(content, f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB\n", style="yellow")
+ 
+             # Temp
+             if f.gpu_temp_c is not None:
+                 temp_norm = max(0.0, min(1.0, (f.gpu_temp_c - 30) / 70.0))
+                 bar = _bar_str(temp_norm, 15, ascii_only=self.ascii_only, color_enabled=self.color)
+-                content.append(f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C\n", style="red")
++                _append_ansi(content, f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C\n", style="red")
+ 
+             # Power
+             if f.gpu_power_w is not None and f.gpu_power_limit_w:
+                 pwr_pct = 100.0 * f.gpu_power_w / f.gpu_power_limit_w
+                 bar = _bar_str(pwr_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
+-                content.append(f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
++                _append_ansi(content, f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
+ 
+         return Panel(content, title="GPU Details", box=ROUNDED, title_align="left", style="magenta")
+ 
+diff --git a/tests/test_map.py b/tests/test_map.py
+new file mode 100644
+index 0000000..ece6c29
+--- /dev/null
++++ b/tests/test_map.py
+@@ -0,0 +1,739 @@
++"""Tests for ``hnx map`` (hypernix.map) — the steampunk schematic TUI.
++
++Covers:
++  - Config subsystem (poly/acc/use-gpu/tps/file-mode persistence + validation)
++  - acc string parsing (1 / 1k / 1m / 1b / 1t / decimals / garbage)
++  - Data model: tensor-name -> layer bucketing, safetensors file/folder
++    scanning (exact counts), and the config.json analytical fallback
++  - Rendering primitives: poly-tiered glyphs, dial math, throttle sweep,
++    pipe/steam animation, engine icons, the Canvas grid, snake layout
++  - Mouse SGR parsing + bottom-right hover detection + no-tty fallback
++  - HyperMap end-to-end rendering (consistent row widths, all poly tiers,
++    0/1/many layers, legend overlay alignment)
++  - CLI argument parsing for every ``hnx map config ...`` subcommand
++"""
++from __future__ import annotations
++
++import json
++
++import pytest
++
++import hypernix.map as hmap
++
++
++@pytest.fixture(autouse=True)
++def _isolated_map_config(tmp_path, monkeypatch):
++    """Every test gets its own map_config.json so nothing touches the
++    real ``~/.hypernix`` directory or leaks state between tests."""
++    monkeypatch.setattr(hmap, "_MAP_CONFIG_DIR", tmp_path)
++    monkeypatch.setattr(hmap, "_MAP_CONFIG_FILE", tmp_path / "map_config.json")
++    yield
++
++
++# ---------------------------------------------------------------------------
++# Config subsystem
++# ---------------------------------------------------------------------------
++
++class TestConfigDefaults:
++    def test_defaults_when_no_file_exists(self):
++        cfg = hmap.get_map_config()
++        assert cfg["poly"] == 32
++        assert cfg["acc"] == "1m"
++        assert cfg["use_gpu"] is True
++        assert cfg["tps"] == 8
++        assert cfg["file_mode"] == 2
++        assert cfg["file_path"] is None
++
++    def test_round_trip_persists_to_disk(self):
++        hmap.set_poly(64)
++        cfg = hmap.get_map_config()
++        assert cfg["poly"] == 64
++        assert hmap._MAP_CONFIG_FILE.exists()
++
++    def test_corrupt_config_file_falls_back_to_defaults(self, capsys):
++        hmap._MAP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
++        hmap._MAP_CONFIG_FILE.write_text("{not valid json", encoding="utf-8")
++        cfg = hmap._load_map_config()
++        assert cfg["poly"] == 32
++        assert "Warning" in capsys.readouterr().err
++
++
++class TestSetPoly:
++    @pytest.mark.parametrize("value", [16, 32, 64, 128, "16", "128"])
++    def test_valid_values(self, value):
++        result = hmap.set_poly(value)
++        assert result == int(value)
++        assert hmap.get_map_config()["poly"] == int(value)
++
++    @pytest.mark.parametrize("value", [8, 17, 256, 0, -1])
++    def test_rejects_values_outside_the_four_levels(self, value):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_poly(value)
++
++    def test_rejects_non_integer(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_poly("fast")
++
++
++class TestParseAcc:
++    @pytest.mark.parametrize(
++        "value,expected",
++        [
++            ("1", 1.0),
++            ("1k", 1e3),
++            ("1K", 1e3),
++            ("1m", 1e6),
++            ("1b", 1e9),
++            ("1t", 1e12),
++            ("2.5m", 2.5e6),
++            ("0.5k", 500.0),
++            ("10", 10.0),
++        ],
++    )
++    def test_valid_strings(self, value, expected):
++        assert hmap.parse_acc(value) == pytest.approx(expected)
++
++    @pytest.mark.parametrize("value", ["", "abc", "1x", "-1", "1kk", "m1"])
++    def test_invalid_strings_raise(self, value):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.parse_acc(value)
++
++    def test_zero_is_rejected(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.parse_acc("0")
++
++    def test_set_acc_persists_valid_value(self):
++        hmap.set_acc("10m")
++        assert hmap.get_map_config()["acc"] == "10m"
++
++    def test_set_acc_rejects_invalid_without_persisting(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_acc("bogus")
++        assert hmap.get_map_config()["acc"] == "1m"  # unchanged
++
++
++class TestSetUseGpu:
++    @pytest.mark.parametrize("value", ["true", "True", "1", "yes", "on", True])
++    def test_truthy(self, value):
++        assert hmap.set_use_gpu(value) is True
++
++    @pytest.mark.parametrize("value", ["false", "False", "0", "no", "off", False])
++    def test_falsy(self, value):
++        assert hmap.set_use_gpu(value) is False
++
++    def test_invalid_raises(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_use_gpu("maybe")
++
++
++class TestSetTps:
++    @pytest.mark.parametrize("value", [1, 8, 30, "15"])
++    def test_valid_range(self, value):
++        assert hmap.set_tps(value) == int(value)
++
++    @pytest.mark.parametrize("value", [0, 31, -5, 100])
++    def test_out_of_range_raises(self, value):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_tps(value)
++
++    def test_non_integer_raises(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_tps("fast")
++
++
++class TestSetFileMode:
++    def test_mode_1_requires_path(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode(1, None)
++
++    def test_mode_1_with_f_flag_succeeds(self):
++        result = hmap.set_file_mode(1, "/tmp/model.safetensors", flag="-f")
++        assert result == {"file_mode": 1, "file_path": "/tmp/model.safetensors"}
++        assert hmap.get_map_config()["file_mode"] == 1
++
++    def test_mode_1_rejects_capital_f_flag(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode(1, "/tmp/model.safetensors", flag="-F")
++
++    def test_mode_3_requires_path(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode(3, None)
++
++    def test_mode_3_with_capital_f_flag_succeeds(self):
++        result = hmap.set_file_mode(3, "/tmp/mydir", flag="-F")
++        assert result == {"file_mode": 3, "file_path": "/tmp/mydir"}
++
++    def test_mode_3_rejects_lowercase_f_flag(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode(3, "/tmp/mydir", flag="-f")
++
++    def test_mode_2_rejects_a_path(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode(2, "/tmp/mydir")
++
++    def test_mode_2_with_no_path_succeeds(self):
++        result = hmap.set_file_mode(2, None)
++        assert result == {"file_mode": 2, "file_path": None}
++
++    def test_invalid_mode_number_raises(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode(4)
++
++    def test_non_integer_mode_raises(self):
++        with pytest.raises(hmap.MapConfigError):
++            hmap.set_file_mode("model")
++
++
++# ---------------------------------------------------------------------------
++# Data model
++# ---------------------------------------------------------------------------
++
++class TestBucketForTensor:
++    @pytest.mark.parametrize(
++        "name,expected_label",
++        [
++            ("model.layers.0.self_attn.q_proj.weight", "L0"),
++            ("model.layers.12.mlp.gate_proj.weight", "L12"),
++            ("transformer.h.3.attn.c_attn.weight", "L3"),
++            ("model.blocks.5.mlp.weight", "L5"),
++            ("model.embed_tokens.weight", "Embed"),
++            ("lm_head.weight", "LMHead"),
++            ("model.norm.weight", "Norm"),
++            ("something_unrecognised", "Other"),
++        ],
++    )
++    def test_bucket_labels(self, name, expected_label):
++        _, label = hmap._bucket_for_tensor(name)
++        assert label == expected_label
++
++    def test_layer_indices_sort_numerically_not_lexically(self):
++        keys = [hmap._bucket_for_tensor(f"model.layers.{i}.weight")[0] for i in (2, 10, 1)]
++        assert sorted(keys) == [
++            hmap._bucket_for_tensor("model.layers.1.weight")[0],
++            hmap._bucket_for_tensor("model.layers.2.weight")[0],
++            hmap._bucket_for_tensor("model.layers.10.weight")[0],
++        ]
++
++
++class TestSnapshotFromTensorIter:
++    def test_sums_param_counts_and_tensor_counts_per_bucket(self):
++        shapes = {
++            "model.layers.0.self_attn.q_proj.weight": ([4, 4], "F32"),
++            "model.layers.0.mlp.gate_proj.weight": ([8, 4], "F32"),
++            "model.layers.1.self_attn.q_proj.weight": ([4, 4], "F32"),
++            "model.embed_tokens.weight": ([10, 4], "F32"),
++        }
++        snap = hmap._snapshot_from_tensor_iter("test", shapes)
++        by_label = {n.label: n for n in snap.layers}
++        assert by_label["L0"].param_count == 16 + 32
++        assert by_label["L0"].tensor_count == 2
++        assert by_label["L1"].param_count == 16
++        assert by_label["Embed"].param_count == 40
++        assert snap.total_params == 16 + 32 + 16 + 40
++        assert snap.ok
++
++    def test_layers_are_returned_sorted(self):
++        shapes = {
++            "model.layers.5.weight": ([2], "F32"),
++            "model.layers.1.weight": ([2], "F32"),
++            "model.embed_tokens.weight": ([2], "F32"),
++            "lm_head.weight": ([2], "F32"),
++        }
++        snap = hmap._snapshot_from_tensor_iter("test", shapes)
++        labels = [n.label for n in snap.layers]
++        # Natural front-to-back model flow: embeddings, then layers in
++        # numeric order, then the head -- not a plain lexical sort of
++        # "layer:" vs "head" style keys, which would misorder these.
++        assert labels == ["Embed", "L1", "L5", "LMHead"]
++
++
++@pytest.fixture
++def synthetic_safetensors_file(tmp_path):
++    torch = pytest.importorskip("torch")
++    from safetensors.torch import save_file
++
++    state = {
++        "model.embed_tokens.weight": torch.zeros(100, 16),
++        "model.layers.0.self_attn.q_proj.weight": torch.zeros(16, 16),
++        "model.layers.0.mlp.gate_proj.weight": torch.zeros(32, 16),
++        "model.layers.1.self_attn.q_proj.weight": torch.zeros(16, 16),
++        "model.norm.weight": torch.zeros(16),
++        "lm_head.weight": torch.zeros(100, 16),
++    }
++    path = tmp_path / "model.safetensors"
++    save_file(state, str(path))
++    return path
++
++
++class TestSnapshotFromSafetensorsFile:
++    def test_reads_exact_shapes_without_loading_tensor_data(self, synthetic_safetensors_file):
++        snap = hmap._snapshot_from_safetensors_file(synthetic_safetensors_file)
++        assert snap.ok
++        assert snap.total_params == 100 * 16 + 16 * 16 + 32 * 16 + 16 * 16 + 16 + 100 * 16
++        assert snap.dtype == "F32"
++        labels = {n.label for n in snap.layers}
++        assert labels == {"Embed", "L0", "L1", "Norm", "LMHead"}
++
++    def test_missing_file_reports_error_not_exception(self, tmp_path):
++        snap = hmap._snapshot_from_safetensors_file(tmp_path / "nope.safetensors")
++        assert not snap.ok
++        assert "not found" in snap.error
++
++
++class TestSnapshotFromFolder:
++    def test_single_safetensors_file_in_folder(self, tmp_path, synthetic_safetensors_file):
++        snap = hmap._snapshot_from_folder(tmp_path)
++        assert snap.ok
++        assert snap.total_params > 0
++
++    def test_sharded_safetensors_files(self, tmp_path):
++        torch = pytest.importorskip("torch")
++        from safetensors.torch import save_file
++
++        save_file({"model.layers.0.weight": torch.zeros(4, 4)}, str(tmp_path / "model-00001-of-00002.safetensors"))
++        save_file({"model.layers.1.weight": torch.zeros(4, 4)}, str(tmp_path / "model-00002-of-00002.safetensors"))
++        snap = hmap._snapshot_from_folder(tmp_path)
++        assert snap.ok
++        assert snap.total_params == 32
++        assert len(snap.layers) == 2
++
++    def test_config_json_analytical_fallback_when_no_weights(self, tmp_path):
++        cfg = {
++            "vocab_size": 1000, "hidden_size": 64, "intermediate_size": 128,
++            "num_hidden_layers": 3, "tie_word_embeddings": False,
++        }
++        (tmp_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
++        snap = hmap._snapshot_from_folder(tmp_path)
++        assert snap.ok
++        assert snap.dtype == "estimated"
++        # embed + 3 layers + norm + head (untied embeddings => head is kept)
++        assert len(snap.layers) == 6
++        assert [n.label for n in snap.layers] == ["Embed", "L0", "L1", "L2", "Norm", "LMHead"]
++
++    def test_config_json_with_tied_embeddings_omits_lm_head(self, tmp_path):
++        cfg = {
++            "vocab_size": 1000, "hidden_size": 64, "intermediate_size": 128,
++            "num_hidden_layers": 2, "tie_word_embeddings": True,
++        }
++        (tmp_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
++        snap = hmap._snapshot_from_folder(tmp_path)
++        assert "LMHead" not in {n.label for n in snap.layers}
++
++    def test_missing_config_fields_reports_error(self, tmp_path):
++        (tmp_path / "config.json").write_text(json.dumps({"hidden_size": 64}), encoding="utf-8")
++        snap = hmap._snapshot_from_folder(tmp_path)
++        assert not snap.ok
++
++    def test_no_config_and_no_weights_reports_error(self, tmp_path):
++        snap = hmap._snapshot_from_folder(tmp_path)
++        assert not snap.ok
++
++    def test_nonexistent_folder_reports_error(self, tmp_path):
++        snap = hmap._snapshot_from_folder(tmp_path / "does-not-exist")
++        assert not snap.ok
++
++
++class TestBuildSnapshot:
++    def test_mode_1_without_path_errors_gracefully(self):
++        snap = hmap.build_snapshot({"file_mode": 1, "file_path": None})
++        assert not snap.ok
++
++    def test_mode_3_without_path_errors_gracefully(self):
++        snap = hmap.build_snapshot({"file_mode": 3, "file_path": None})
++        assert not snap.ok
++
++    def test_mode_2_has_no_architecture_but_no_error(self):
++        snap = hmap.build_snapshot({"file_mode": 2, "file_path": None})
++        assert snap.ok
++        assert snap.layers == []
++
++    def test_mode_1_dispatches_to_safetensors_scanner(self, synthetic_safetensors_file):
++        snap = hmap.build_snapshot({"file_mode": 1, "file_path": str(synthetic_safetensors_file)})
++        assert snap.ok
++        assert snap.total_params > 0
++
++
++# ---------------------------------------------------------------------------
++# Rendering primitives
++# ---------------------------------------------------------------------------
++
++class TestGlyphsForPoly:
++    @pytest.mark.parametrize("poly", [16, 32, 64, 128])
++    def test_every_poly_level_has_glyphs(self, poly):
++        g = hmap.glyphs_for_poly(poly)
++        assert isinstance(g, hmap.PolyGlyphs)
++        assert g.track_width > 0
++        assert len(g.steam_frames) >= 2
++        assert len(g.engine) >= 1
++
++    def test_higher_poly_gives_more_steam_frames_and_wider_track(self):
++        levels = [hmap.glyphs_for_poly(p) for p in hmap.POLY_LEVELS]
++        widths = [g.track_width for g in levels]
++        frames = [len(g.steam_frames) for g in levels]
++        assert widths == sorted(widths)
++        assert frames == sorted(frames)
++
++    def test_unknown_poly_falls_back_to_32(self):
++        assert hmap.glyphs_for_poly(999) is hmap.glyphs_for_poly(32)
++
++
++class TestDialFrac:
++    def test_half_full(self):
++        assert hmap.dial_frac(500, 1000) == pytest.approx(0.5)
++
++    def test_clamped_to_one_when_exceeding_acc(self):
++        assert hmap.dial_frac(5000, 1000) == 1.0
++
++    def test_zero_when_empty(self):
++        assert hmap.dial_frac(0, 1000) == 0.0
++
++    def test_zero_acc_does_not_divide_by_zero(self):
++        assert hmap.dial_frac(500, 0) == 0.0
++
++
++class TestRenderDial:
++    def test_returns_two_lines(self):
++        g = hmap.glyphs_for_poly(32)
++        lines = hmap.render_dial("L0", 0.5, g)
++        assert len(lines) == 2
++
++    def test_needle_at_zero_sits_at_left_rim(self):
++        g = hmap.glyphs_for_poly(32)
++        _, track = hmap.render_dial("X", 0.0, g)
++        inner = track[1:-1]  # strip rim_l/rim_r
++        assert inner[0] == "\u25cf"
++        assert set(inner[1:]) == {g.pipe_h}
++
++    def test_needle_at_one_sits_at_right_rim(self):
++        g = hmap.glyphs_for_poly(32)
++        _, track = hmap.render_dial("X", 1.0, g)
++        inner = track[1:-1]
++        assert inner[-1] == "\u25cf"
++
++    def test_track_lines_are_equal_length(self):
++        g = hmap.glyphs_for_poly(64)
++        label, track = hmap.render_dial("VeryLongLabelName", 0.3, g)
++        assert len(label) == len(track)
++
++
++class TestThrottleFrac:
++    def test_idle_is_always_zero(self):
++        for tick in range(10):
++            assert hmap.throttle_frac(tick, False, 32) == 0.0
++
++    def test_active_sweeps_up_and_back_down(self):
++        values = [hmap.throttle_frac(t, True, 8) for t in range(9)]
++        assert values[0] == 0.0
++        assert values[4] == 1.0  # peak at half the period
++        assert values[8] == 0.0  # back to zero after a full period
++        assert values == [0.0, 0.25, 0.5, 0.75, 1.0, 0.75, 0.5, 0.25, 0.0]
++
++    def test_bounded_between_zero_and_one(self):
++        for tick in range(50):
++            v = hmap.throttle_frac(tick, True, 32)
++            assert 0.0 <= v <= 1.0
++
++
++class TestRenderPipeSegment:
++    def test_inactive_is_plain_pipe_chars(self):
++        g = hmap.glyphs_for_poly(32)
++        seg = hmap.render_pipe_segment(g, 10, 3, active=False)
++        assert seg == g.pipe_h * 10
++
++    def test_active_embeds_a_steam_frame(self):
++        g = hmap.glyphs_for_poly(32)
++        seg = hmap.render_pipe_segment(g, 10, 3, active=True)
++        assert len(seg) == 10
++        assert seg != g.pipe_h * 10
++        assert any(ch in g.steam_frames for ch in seg)
++
++    def test_zero_length_is_empty_string(self):
++        g = hmap.glyphs_for_poly(32)
++        assert hmap.render_pipe_segment(g, 0, 0, active=True) == ""
++
++
++class TestRenderEngine:
++    def test_row_count_matches_engine_art_plus_label_and_puff(self):
++        g = hmap.glyphs_for_poly(32)
++        rows = hmap.render_engine(g, "PROMPT", 1, active=True)
++        assert len(rows) == len(g.engine) + 2
++
++    def test_idle_shows_no_puff(self):
++        g = hmap.glyphs_for_poly(32)
++        rows = hmap.render_engine(g, "DATA", 1, active=False)
++        assert rows[0].strip() == ""
++
++
++class TestCanvas:
++    def test_stamp_and_render(self):
++        c = hmap.Canvas(10, 3)
++        c.stamp(2, 1, "hi")
++        rendered = c.render()
++        lines = rendered.splitlines()
++        assert lines[1][2:4] == "hi"
++
++    def test_stamp_out_of_bounds_does_not_raise(self):
++        c = hmap.Canvas(5, 5)
++        c.stamp(-3, -3, "oops")
++        c.stamp(100, 100, "oops")
++        c.stamp(3, 100, "oops")
++        assert len(c.render().splitlines()) == 5
++
++    def test_stamp_lines_places_each_row(self):
++        c = hmap.Canvas(10, 4)
++        c.stamp_lines(0, 1, ["ab", "cd"])
++        lines = c.render().splitlines()
++        assert lines[1].startswith("ab")
++        assert lines[2].startswith("cd")
++
++    def test_every_row_is_exactly_width_chars(self):
++        c = hmap.Canvas(15, 4)
++        c.stamp(0, 0, "hello")
++        for line in c.render().splitlines():
++            assert len(line) == 15
++
++
++class TestLayoutPositions:
++    def test_single_row_left_to_right(self):
++        assert hmap._layout_positions(3, 5) == [(0, 0), (1, 0), (2, 0)]
++
++    def test_wraps_boustrophedon_snake(self):
++        # 4 items, 2 per row -> row0 L-to-R, row1 R-to-L
++        assert hmap._layout_positions(4, 2) == [(0, 0), (1, 0), (1, 1), (0, 1)]
++
++    def test_empty_input(self):
++        assert hmap._layout_positions(0, 5) == []
++
++    def test_every_position_is_unique(self):
++        positions = hmap._layout_positions(23, 4)
++        assert len(set(positions)) == len(positions)
++
++
++class TestFmtCount:
++    @pytest.mark.parametrize(
++        "n,expected_suffix",
++        [(500, ""), (1_500, "K"), (2_500_000, "M"), (3_000_000_000, "B"), (4_000_000_000_000, "T")],
++    )
++    def test_thresholds_pick_the_right_suffix(self, n, expected_suffix):
++        result = hmap._fmt_count(n)
++        if expected_suffix:
++            assert result.endswith(expected_suffix)
++        else:
++            assert result == str(n)
++
++
++# ---------------------------------------------------------------------------
++# Mouse hover
++# ---------------------------------------------------------------------------
++
++class TestParseSgrMouse:
++    def test_parses_a_simple_report(self):
++        assert hmap._parse_sgr_mouse("\x1b[<0;45;12M") == (45, 12)
++
++    def test_takes_the_last_report_when_several_are_buffered(self):
++        assert hmap._parse_sgr_mouse("\x1b[<0;1;1M\x1b[<0;99;29M") == (99, 29)
++
++    def test_release_event_lowercase_m_also_parses(self):
++        assert hmap._parse_sgr_mouse("\x1b[<0;10;20m") == (10, 20)
++
++    def test_no_sequence_returns_none(self):
++        assert hmap._parse_sgr_mouse("just some text") is None
++
++    def test_empty_string_returns_none(self):
++        assert hmap._parse_sgr_mouse("") is None
++
++    def test_partial_sequence_returns_none(self):
++        assert hmap._parse_sgr_mouse("\x1b[<0;45;") is None
++
++
++class TestIsBottomRight:
++    def test_inside_the_corner_margin(self):
++        assert hmap._is_bottom_right((95, 28), 100, 30, margin=12) is True
++
++    def test_outside_the_corner_margin(self):
++        assert hmap._is_bottom_right((5, 28), 100, 30, margin=12) is False
++        assert hmap._is_bottom_right((95, 5), 100, 30, margin=12) is False
++
++    def test_top_left_corner_is_never_bottom_right(self):
++        assert hmap._is_bottom_right((0, 0), 100, 30) is False
++
++
++class TestMouseReader:
++    def test_unavailable_on_a_non_tty(self):
++        reader = hmap._MouseReader()
++        # The test runner's stdin is never a live interactive TTY.
++        assert reader.available is False
++
++    def test_start_and_stop_are_safe_no_ops_when_unavailable(self):
++        reader = hmap._MouseReader()
++        reader.start()
++        reader.stop()  # must not raise even though start() did nothing
++
++
++# ---------------------------------------------------------------------------
++# HyperMap end-to-end rendering
++# ---------------------------------------------------------------------------
++
++class TestHyperMapRendering:
++    def _app(self, **cfg_overrides):
++        cfg = dict(hmap._MAP_DEFAULTS)
++        cfg.update(cfg_overrides)
++        return hmap.HyperMap(cfg, width=90, height=30)
++
++    def test_falls_back_to_a_train_placeholder_when_no_architecture(self):
++        app = self._app(file_mode=2)
++        nodes = app._nodes()
++        assert len(nodes) == 1
++        assert nodes[0].label == "TRAIN"
++
++    def test_invalid_persisted_acc_falls_back_gracefully(self):
++        app = self._app(acc="not-a-number")
++        assert app.acc_value == hmap.parse_acc("1m")
++
++    def test_invalid_persisted_poly_falls_back_to_32(self):
++        app = self._app(poly=999)
++        assert app.poly == 32
++
++    @pytest.mark.parametrize("poly", [16, 32, 64, 128])
++    def test_every_row_is_the_same_width_at_every_poly_level(self, poly):
++        app = self._app(poly=poly, file_mode=2)
++        app.snapshot = hmap.ModelSnapshot(
++            source="synthetic",
++            layers=[hmap.LayerNode(key=f"l{i}", label=f"L{i}", param_count=i * 1000) for i in range(9)],
++            total_params=sum(i * 1000 for i in range(9)),
++        )
++        frame = app.render()
++        widths = {len(line) for line in frame.splitlines()}
++        assert widths == {90}
++
++    @pytest.mark.parametrize("n_layers", [0, 1, 6, 25])
++    def test_renders_without_crashing_for_various_layer_counts(self, n_layers):
++        app = self._app(file_mode=2)
++        app.snapshot = hmap.ModelSnapshot(
++            source="synthetic",
++            layers=[hmap.LayerNode(key=f"l{i}", label=f"L{i}", param_count=i + 1) for i in range(n_layers)],
++            total_params=sum(range(1, n_layers + 1)),
++        )
++        frame = app.render()
++        assert frame  # non-empty, no exception
++
++    def test_narrow_terminal_does_not_crash(self):
++        app = hmap.HyperMap(dict(hmap._MAP_DEFAULTS), width=25, height=15)
++        app.render()
++
++    def test_legend_overlay_every_row_still_matches_canvas_width(self):
++        app = self._app(file_mode=2)
++        app.legend_visible = True
++        frame = app.render()
++        widths = {len(line) for line in frame.splitlines()}
++        assert widths == {90}
++
++    def test_legend_box_lines_are_all_the_same_length(self):
++        canvas = hmap.Canvas(90, 30)
++        hmap._stamp_legend(canvas, hmap.glyphs_for_poly(32))
++        rendered_lines = canvas.render().splitlines()
++        # every line of the canvas is still uniform width (composited, not glued)
++        assert {len(line) for line in rendered_lines} == {90}
++
++    def test_is_active_reflects_log_training_data(self):
++        app = self._app(file_mode=2)
++        assert app.is_active is False
++        app.log.has_training_data = True
++        assert app.is_active is True
++
++    def test_gpu_reading_is_none_when_use_gpu_false(self):
++        app = self._app(use_gpu=False)
++        assert app.gpu_reading() is None
++
++    def test_gpu_reading_calls_nvidia_probe_when_use_gpu_true(self, monkeypatch):
++        app = self._app(use_gpu=True)
++        called = {}
++
++        def _fake_probe():
++            called["yes"] = True
++            return {"util_percent": 42.0, "temp_c": 60.0}
++
++        import hypernix.tv as tv
++        monkeypatch.setattr(tv, "_query_nvidia_smi_full", _fake_probe)
++        reading = app.gpu_reading()
++        assert called.get("yes") is True
++        assert reading["util_percent"] == 42.0
++
++    def test_tick_advances_and_steam_position_changes(self):
++        app = self._app(file_mode=2)
++        app.log.has_training_data = True
++        frame1 = app.render()
++        app.tick = 1
++        frame2 = app.render()
++        # Different ticks should (almost always) animate the pipe/steam
++        # differently somewhere in the frame.
++        assert frame1 != frame2
++
++
++# ---------------------------------------------------------------------------
++# CLI
++# ---------------------------------------------------------------------------
++
++class TestCliMain:
++    def test_help_returns_zero(self, capsys):
++        assert hmap.cli_main(["--help"]) == 0
++        assert "hnx map" in capsys.readouterr().out
++
++    def test_unknown_argument_returns_nonzero(self, capsys):
++        assert hmap.cli_main(["bogus"]) != 0
++        assert "Unknown argument" in capsys.readouterr().err
++
++    def test_config_poly_round_trip(self):
++        assert hmap.cli_main(["config", "poly", "64"]) == 0
++        assert hmap.get_map_config()["poly"] == 64
++
++    def test_config_poly_invalid_returns_nonzero(self, capsys):
++        assert hmap.cli_main(["config", "poly", "7"]) != 0
++        assert "poly" in capsys.readouterr().err
++
++    def test_config_acc_round_trip(self):
++        assert hmap.cli_main(["config", "acc", "5m"]) == 0
++        assert hmap.get_map_config()["acc"] == "5m"
++
++    def test_config_main_use_gpu_round_trip(self):
++        assert hmap.cli_main(["config", "main", "use-gpu", "false"]) == 0
++        assert hmap.get_map_config()["use_gpu"] is False
++
++    def test_config_main_tps_round_trip(self):
++        assert hmap.cli_main(["config", "main", "tps", "20"]) == 0
++        assert hmap.get_map_config()["tps"] == 20
++
++    def test_config_main_tps_out_of_range_returns_nonzero(self, capsys):
++        assert hmap.cli_main(["config", "main", "tps", "999"]) != 0
++
++    def test_config_main_file_model_1_requires_f_flag(self, capsys):
++        assert hmap.cli_main(["config", "main", "file", "model", "1"]) != 0
++        assert "-f" in capsys.readouterr().err
++
++    def test_config_main_file_model_1_with_f_flag_succeeds(self, tmp_path):
++        target = tmp_path / "m.safetensors"
++        assert hmap.cli_main(["config", "main", "file", "model", "1", "-f", str(target)]) == 0
++        cfg = hmap.get_map_config()
++        assert cfg["file_mode"] == 1
++        assert cfg["file_path"] == str(target)
++
++    def test_config_main_file_model_3_with_capital_f_flag_succeeds(self, tmp_path):
++        assert hmap.cli_main(["config", "main", "file", "model", "3", "-F", str(tmp_path)]) == 0
++        assert hmap.get_map_config()["file_mode"] == 3
++
++    def test_config_main_file_model_2_rejects_path(self, capsys):
++        assert hmap.cli_main(["config", "main", "file", "model", "2", "-f", "/tmp/x"]) != 0
++
++    def test_config_main_file_missing_model_keyword(self, capsys):
++        assert hmap.cli_main(["config", "main", "file", "1"]) != 0
++
++    def test_config_unknown_key_returns_nonzero(self, capsys):
++        assert hmap.cli_main(["config", "bogus"]) != 0
++        assert "unknown config key" in capsys.readouterr().err
++
++    def test_config_main_unknown_subkey_returns_nonzero(self, capsys):
++        assert hmap.cli_main(["config", "main", "bogus"]) != 0
++
++    def test_config_with_no_args_prints_usage(self, capsys):
++        assert hmap.cli_main(["config"]) == 0
++        assert "hnx map" in capsys.readouterr().out
+diff --git a/tests/test_pressure_cooker_v048.py b/tests/test_pressure_cooker_v048.py
+index 1804d16..ec9bae4 100644
+--- a/tests/test_pressure_cooker_v048.py
++++ b/tests/test_pressure_cooker_v048.py
+@@ -122,14 +122,14 @@ def test_pro_cooker_replay_without_warmup_raises() -> None:
+ def test_universal_cooker_picks_electric_on_cpu() -> None:
+     from hypernix.pressure_cooker import ElectricCooker, universal_cooker
+ 
+-    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=True)
++    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=True, variant="legacy")
+     assert isinstance(opt, ElectricCooker)
+ 
+ 
+ def test_universal_cooker_prefer_safety_picks_stovetop_on_cpu() -> None:
+     from hypernix.pressure_cooker import StovetopCooker, universal_cooker
+ 
+-    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=False)
++    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=False, variant="legacy")
+     assert isinstance(opt, StovetopCooker)
+ 
+ 
+diff --git a/tests/test_v051_1.py b/tests/test_v051_1.py
+index d8a2d0f..c18eedf 100644
+--- a/tests/test_v051_1.py
++++ b/tests/test_v051_1.py
+@@ -202,16 +202,16 @@ class TestUniversalCookerPascalAware:
+         # is unavailable must not raise.
+         assert _is_pre_volta(torch.device("cuda")) in (True, False)
+ 
+-    def test_select_on_cpu_picks_a_cpu_tier(self) -> None:
++    def test_select_on_cpu_picks_a_cpu_tier_under_legacy_variant(self) -> None:
+         params = [torch.nn.Parameter(torch.randn(4, 4))]
+-        cooker = UniversalCooker.select(params, prefer_speed=True)
++        cooker = UniversalCooker.select(params, prefer_speed=True, variant="legacy")
+         # Should be one of the CPU tiers.
+         from hypernix.pressure_cooker import ElectricCooker, StovetopCooker
+         assert isinstance(cooker, (ElectricCooker, StovetopCooker))
+ 
+-    def test_select_pascal_path_forces_fused_off(self, monkeypatch) -> None:
++    def test_select_pascal_path_forces_fused_off_under_legacy_variant(self, monkeypatch) -> None:
+         """Simulate a Pascal CUDA device by stubbing _is_pre_volta and
+-        verifying the selector forces fused=False."""
++        verifying the legacy selector forces fused=False."""
+         from hypernix import pressure_cooker as pc
+ 
+         monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
+@@ -231,7 +231,83 @@ class TestUniversalCookerPascalAware:
+                 self_inner._captured_kwargs = kwargs
+ 
+         monkeypatch.setattr(pc, "InductionCooker", _SpyInduction)
+-        UniversalCooker.select.__func__(UniversalCooker, [_Param()], prefer_speed=True)
++        UniversalCooker.select.__func__(UniversalCooker, [_Param()], prefer_speed=True, variant="legacy")
+         assert captured.get("fused") is False
+         # Foreach is whatever _HAS_FOREACH evaluates to on this torch.
+         assert "foreach" in captured
++
++
++class TestUniversalCookerV5Family:
++    """Patch (0.71.1): UniversalCooker now defaults to the V5 / V5S
++    optimizer family instead of the legacy device tiers; Pascal is
++    still auto-detected and routed to the matching Aged* tier."""
++
++    def test_default_variant_on_cpu_is_v5s(self) -> None:
++        from hypernix.pressure_cooker_v5s import PressureCookerV5S
++
++        params = [torch.nn.Parameter(torch.randn(4, 4))]
++        cooker = UniversalCooker.select(params)
++        assert isinstance(cooker, PressureCookerV5S)
++
++    def test_variant_v5_selects_pressure_cooker_v5(self) -> None:
++        from hypernix.pressure_cooker_v5 import PressureCookerV5
++
++        params = [torch.nn.Parameter(torch.randn(4, 4))]
++        cooker = UniversalCooker.select(params, variant="v5")
++        assert isinstance(cooker, PressureCookerV5)
++
++    def test_variant_v5_plus_selects_pressure_cooker_v5_plus(self) -> None:
++        from hypernix.pressure_cooker_v5 import PressureCookerV5Plus
++
++        params = [torch.nn.Parameter(torch.randn(4, 4))]
++        cooker = UniversalCooker.select(params, variant="v5-plus")
++        assert isinstance(cooker, PressureCookerV5Plus)
++
++    def test_unknown_variant_raises(self) -> None:
++        params = [torch.nn.Parameter(torch.randn(2, 2))]
++        with pytest.raises(ValueError, match="unknown variant"):
++            UniversalCooker.select(params, variant="bogus")
++
++    def test_pascal_device_selects_aged_v5s(self, monkeypatch) -> None:
++        from hypernix import pressure_cooker as pc
++        from hypernix.pressure_cooker_v5s import Agedcookerv5s
++
++        monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
++        params = [torch.nn.Parameter(torch.randn(4, 4))]
++        with pytest.warns(UserWarning, match="Pascal"):
++            cooker = UniversalCooker.select(params, variant="v5s")
++        assert isinstance(cooker, Agedcookerv5s)
++
++    def test_pascal_device_selects_aged_v5(self, monkeypatch) -> None:
++        from hypernix import pressure_cooker as pc
++        from hypernix.pressure_cooker_v5 import Agedcookerv5
++
++        monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
++        params = [torch.nn.Parameter(torch.randn(4, 4))]
++        with pytest.warns(UserWarning, match="Pascal"):
++            cooker = UniversalCooker.select(params, variant="v5")
++        assert isinstance(cooker, Agedcookerv5)
++
++    def test_pascal_device_selects_ultra_aged_v5_plus(self, monkeypatch) -> None:
++        from hypernix import pressure_cooker as pc
++        from hypernix.pressure_cooker_v5 import ULTRAagedcookerv5
++
++        monkeypatch.setattr(pc, "_is_pre_volta", lambda _dev: True)
++        params = [torch.nn.Parameter(torch.randn(4, 4))]
++        with pytest.warns(UserWarning, match="Pascal"):
++            cooker = UniversalCooker.select(params, variant="v5-plus")
++        assert isinstance(cooker, ULTRAagedcookerv5)
++
++    def test_universal_cooker_function_defaults_to_v5s(self) -> None:
++        from hypernix.pressure_cooker import universal_cooker
++        from hypernix.pressure_cooker_v5s import PressureCookerV5S
++
++        params = [torch.nn.Parameter(torch.randn(3, 3))]
++        assert isinstance(universal_cooker(params), PressureCookerV5S)
++
++    def test_universal_cooker_function_legacy_opt_out_still_works(self) -> None:
++        from hypernix.pressure_cooker import ElectricCooker, StovetopCooker, universal_cooker
++
++        params = [torch.nn.Parameter(torch.randn(3, 3))]
++        cooker = universal_cooker(params, variant="legacy")
++        assert isinstance(cooker, (ElectricCooker, StovetopCooker))
+diff --git a/tests/test_v0711_border_fix.py b/tests/test_v0711_border_fix.py
+new file mode 100644
+index 0000000..8e4f20c
+--- /dev/null
++++ b/tests/test_v0711_border_fix.py
+@@ -0,0 +1,188 @@
++"""Regression tests for the v0.71.1 tvtop++ / cctvtop border-corruption fix.
++
++Bug: ``tv._bar_str`` / ``_gauge_line`` / ``_block_history_bar`` embed raw
++ANSI SGR escape sequences (e.g. ``\\x1b[32m#\\x1b[0m``) directly into the
++strings they return when called with ``color_enabled=True``. That's fine
++for the plain-ANSI ``tvtop`` renderer, which measures visible width with
++its own ``_strip_ansi``/``_visible_len`` helpers.
++
++``tvtop_plus_plus.py`` (Rich-based ``tvtop++``, and ``cctvtop.py`` which
++subclasses it) used to splice that same ANSI-laden output straight into a
++``rich.text.Text`` via a plain f-string, e.g.::
++
++    content.append(f"CPU History [{cpu_hist}]\\n", style="green")
++
++Rich's ``Text`` has no idea those bytes are escape codes -- it treats them
++as literal characters, so ``Text.cell_len`` (which drives where Rich draws
++a Panel's right-hand border) comes out far larger than what's actually
++visible on screen once the terminal interprets the embedded codes. The
++observable symptom (confirmed against a live screenshot) is stray "│"
++box-drawing characters and even literal escape-sequence text floating
++outside the Hardware Vitals / GPU Details panels, with the right border
++drawn in the wrong column.
++
++The fix routes any string that may contain embedded ANSI through
++``Text.from_ansi`` (via the new ``_append_ansi`` helper) so Rich parses
++the escape codes into proper zero-width style spans instead of literal
++characters.
++"""
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++from rich.text import Text
++
++from hypernix.cctvtop import CCTVTop
++from hypernix.tv import _bar_str, _block_history_bar, _gauge_line
++from hypernix.tvtop_plus_plus import Frame, TVTopPlusPlus, _append_ansi
++
++
++def _make_frame(**overrides) -> Frame:
++    defaults = dict(
++        has_training_data=True,
++        step=50,
++        total_steps=100,
++        loss=1.2345,
++        lr=3e-4,
++        throughput=12.5,
++        elapsed_seconds=30.0,
++        cpu_percent=42.0,
++        ram_percent=55.0,
++        gpu_util_percent=88.0,
++        gpu_mem_used_mib=2286,
++        gpu_mem_total_mib=8192,
++        gpu_temp_c=72.0,
++        gpu_power_w=140.0,
++        gpu_power_limit_w=180.0,
++        gpu_name="NVIDIA GeForce GTX 1080",
++        cpu_history=[10.0, 20.0, 90.0, 55.0],
++        ram_history=[30.0, 40.0, 95.0, 60.0],
++        gpu_util_history=[5.0, 88.0, 91.0, 60.0],
++    )
++    defaults.update(overrides)
++    return Frame(**defaults)
++
++
++# ---------------------------------------------------------------------------
++# The raw ANSI-embedding helpers themselves are untouched (they're shared
++# with the plain-ANSI `tvtop` renderer, which handles them correctly) --
++# just confirm they really do still embed raw escapes when color_enabled,
++# so the tests below are exercising the actual reported failure mode.
++# ---------------------------------------------------------------------------
++
++def test_ansi_bar_helpers_still_embed_raw_escapes_when_colored() -> None:
++    assert "\x1b[" in _bar_str(0.5, 10, ascii_only=False, color_enabled=True)
++    assert "\x1b[" in _gauge_line("CPU", 50.0, 10, ascii_only=False, color_enabled=True)
++    assert "\x1b[" in _block_history_bar([10.0, 90.0], 4, True)
++
++
++# ---------------------------------------------------------------------------
++# _append_ansi — the fix itself
++# ---------------------------------------------------------------------------
++
++class TestAppendAnsiHelper:
++    def test_strips_raw_escape_bytes_from_the_rendered_text(self) -> None:
++        content = Text()
++        bar = _bar_str(0.5, 10, ascii_only=False, color_enabled=True)
++        _append_ansi(content, f"VRAM  {bar} 2286/8192 MiB\n", style="yellow")
++        # No literal ESC byte should survive into the Text's plain content --
++        # that's exactly what corrupted Rich's cell-width measurement.
++        assert "\x1b" not in content.plain
++
++    def test_cell_len_matches_visible_width_not_the_raw_byte_count(self) -> None:
++        content = Text()
++        bar = _bar_str(1.0, 20, ascii_only=False, color_enabled=True)
++        raw = f"CPU History [{bar}]"
++        _append_ansi(content, raw)
++        # The naive f-string-embed approach would have made Text see this
++        # as far longer than 20 block characters + "CPU History []".
++        assert content.cell_len == len("CPU History [" + ("█" * 20) + "]")
++
++    def test_color_spans_are_still_applied(self) -> None:
++        """The whole point of embedding ANSI was per-cell color ramps
++        (green/yellow/red) -- from_ansi must preserve those as real spans,
++        not just discard the color information."""
++        content = Text()
++        hist = _block_history_bar([10.0, 90.0], 2, True)  # one green, one red cell
++        _append_ansi(content, hist)
++        assert len(content.spans) >= 2
++
++    def test_plain_text_with_no_ansi_is_unaffected(self) -> None:
++        content = Text()
++        _append_ansi(content, "Loss       1.2345\n", style="yellow")
++        assert content.plain == "Loss       1.2345\n"
++
++
++# ---------------------------------------------------------------------------
++# Panel-level regression tests -- build the real panels tvtop++ renders
++# and confirm none of them leak raw ANSI bytes into their Text content.
++# These would have failed before the fix (asserting equality with the
++# corrupted, much-longer cell_len that caused the border to shift).
++# ---------------------------------------------------------------------------
++
++class TestPanelsDoNotLeakAnsiBytes:
++    def _tvt(self, tmp_path: Path) -> TVTopPlusPlus:
++        log_file = tmp_path / "train.log"
++        log_file.write_text("loss=0.5 step=50/100\n", encoding="utf-8")
++        return TVTopPlusPlus(log_path=log_file, color=True)
++
++    def test_training_panel_progress_bar_is_clean(self, tmp_path: Path) -> None:
++        tvt = self._tvt(tmp_path)
++        frame = _make_frame()
++        panel = tvt._make_training_panel(frame)
++        assert "\x1b" not in panel.renderable.plain
++
++    def test_hardware_panel_gauges_and_history_are_clean(self, tmp_path: Path) -> None:
++        tvt = self._tvt(tmp_path)
++        frame = _make_frame()
++        panel = tvt._make_hardware_panel(frame, console=None)
++        assert "\x1b" not in panel.renderable.plain
++        # The history bars should still be present and readable.
++        assert "CPU History [" in panel.renderable.plain
++        assert "RAM History [" in panel.renderable.plain
++        assert "GPU History [" in panel.renderable.plain
++
++    def test_gpu_panel_vram_temp_power_bars_are_clean(self, tmp_path: Path) -> None:
++        tvt = self._tvt(tmp_path)
++        frame = _make_frame()
++        panel = tvt._make_gpu_panel(frame)
++        assert "\x1b" not in panel.renderable.plain
++        assert "VRAM" in panel.renderable.plain
++        assert "Temp" in panel.renderable.plain
++        assert "Power" in panel.renderable.plain
++
++    @pytest.mark.parametrize("color", [True, False])
++    def test_no_panel_content_cell_len_exceeds_its_plain_length(
++        self, tmp_path: Path, color: bool,
++    ) -> None:
++        """A corrupted Text (raw ESC bytes counted as cells) always reports
++        cell_len >= len(plain) with room to spare for the escape bytes;
++        a clean Text reports cell_len == number of actually-rendered cells,
++        which for our ASCII/box-drawing content is <= len(plain)."""
++        tvt = TVTopPlusPlus(log_path=tmp_path / "does-not-exist.log", color=color)
++        frame = _make_frame()
++        for panel in (
++            tvt._make_training_panel(frame),
++            tvt._make_hardware_panel(frame, console=None),
++            tvt._make_gpu_panel(frame),
++        ):
++            text = panel.renderable
++            assert "\x1b" not in text.plain
++            assert text.cell_len <= len(text.plain)
++
++
++# ---------------------------------------------------------------------------
++# cctvtop inherits _make_training_panel / _make_hardware_panel / _make_gpu_panel
++# unchanged, so the same corruption applied there too -- confirm the fix
++# carries through the subclass.
++# ---------------------------------------------------------------------------
++
++class TestCCTVTopInheritsTheFix:
++    def test_cctvtop_hardware_panel_is_clean(self, tmp_path: Path) -> None:
++        log_file = tmp_path / "train.log"
++        log_file.write_text("loss=0.5 step=1/10\n", encoding="utf-8")
++        app = CCTVTop(log_path=log_file, color=True)
++        frame = _make_frame()
++        panel = app._make_hardware_panel(frame, console=None)
++        assert "\x1b" not in panel.renderable.plain
+diff --git a/wiki/Changelog.md b/wiki/Changelog.md
+index 56cd61a..8215075 100644
+--- a/wiki/Changelog.md
++++ b/wiki/Changelog.md
+@@ -17,6 +17,48 @@ next release header.
+ 
+ 
+ 
++## 0.71.1
++
++✨ **`hnx map`** — a new steampunk schematic TUI. Dials represent parameter
++counts (per-layer, scaled by a configurable `acc` value), pipes represent
++layer connections, animated steam represents live data flow, and steam
++engines represent prompt/dataset input. A dedicated throttle dial sweeps
++only while a training run is actually active (via `checkpoints/train.log`
++telemetry). Detail level (`poly`: 16/32/64/128) scales dial resolution,
++pipe-joint richness, and steam-animation frame count. Reads architecture
++from a single `.safetensors` file, a full model folder (auto-discovering
++sharded weights, or falling back to an analytical estimate from
++`config.json` if no weights are present yet), or runs with just live
++`train.log` telemetry and no architecture breakdown. Move the mouse into
++the bottom-right corner for a legend (falls back to `?` on terminals
++without mouse-motion reporting). Configured via `hnx map config poly|acc|
++main use-gpu|main tps|main file model <1|2|3> [-f|-F PATH]`; see
++`hnx map --help`.
++
++✨ **`UniversalCooker` / `universal_cooker()` now default to the V5S
++optimizer tier** instead of the legacy CPU/CUDA device tiers. Pass
++`variant="v5"` / `"v5-plus"` / `"v5s"` (default) / `"legacy"` to choose;
++a CUDA device detected as pre-Volta (Pascal, sm_61/6.2) still
++auto-selects the matching `Aged*` tier (`Agedcookerv5`,
++`ULTRAagedcookerv5`, `Agedcookerv5s`) exactly as the old device-tier
++logic did for `InductionCooker`. `variant="legacy"` restores the
++pre-0.71.1 selection behavior unchanged.
++
++🐛 **Fixed corrupted borders in `tvtop++` and `cctvtop`.** The Hardware
++Vitals / GPU Details panels' bar gauges and history graphs embedded raw
++ANSI escape codes directly into Rich `Text` objects; Rich has no way to
++know those bytes aren't visible characters, so its cell-width
++measurement came out wrong and the panel's right-hand border got drawn
++in the wrong column (stray "│" characters floating outside the box).
++Fixed by routing that content through `Text.from_ansi` instead, which
++parses the escape codes into proper zero-width style spans.
++
++🔧 Internal: `pressure_cooker.py`'s `UniversalCooker` gained a
++`_select_legacy` / `_select_v5_family` split; existing tests that
++exercised the old default now pass `variant="legacy"` explicitly.
++
++
++
+ ## 0.70.6-3
+ 
+ ✨ **all imports are now lazy, speeding the intire package up.**
+diff --git a/wiki/Optimizers.md b/wiki/Optimizers.md
+index f334591..47599c1 100644
+--- a/wiki/Optimizers.md
++++ b/wiki/Optimizers.md
+@@ -76,6 +76,26 @@ from hypernix.pressure_cooker import universal_cooker
+ opt = universal_cooker(model.parameters(), prefer_speed=True)
+ ```
+ 
++**Patch (0.71.1):** the default now prioritizes the V5 / V5S optimizer
++family ([Pressure-Cooker-V5](Pressure-Cooker-V5.md) — fully custom
++optimizers, not restricted to CUDA) instead of the legacy device tiers
++below. Pass `variant=` to choose:
++
++| `variant=` | Returns |
++|---|---|
++| `"v5s"` (default) | `PressureCookerV5S` — newest/most specialised tier (3D oscillation resistance, pressure diffusion, low-power mode). |
++| `"v5"` | `PressureCookerV5` (ORCP core). |
++| `"v5-plus"` | `PressureCookerV5Plus` (ORCP-Ultra core; entropy scaling, resonance detection, QAT/MTP defaults). |
++| `"legacy"` | The pre-0.71.1 behavior described below (`ProCooker`/`InductionCooker`/`ElectricCooker`/`StovetopCooker`). |
++
++Whichever V5-family variant is picked, a CUDA device detected as
++pre-Volta (Pascal, sm_61/6.2 — e.g. GTX 1080) automatically gets the
++matching `Aged*` tier instead (`Agedcookerv5`, `ULTRAagedcookerv5`, or
++`Agedcookerv5s`), which enforces `fused=False` and other Pascal-safe
++defaults.
++
++#### `variant="legacy"`
++
+ Picks the tier matching the first parameter's device: `ElectricCooker`/
+ `StovetopCooker` on CPU (by `prefer_speed`), `ProCooker`/`InductionCooker`
+ on CUDA (by `prefer_speed`) — **except** on pre-Volta CUDA devices

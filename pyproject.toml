@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.71.0"
+version = "0.71.1"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "Apache-2.0" }
@@ -92,6 +92,8 @@ eth = "hypernix.ethanol:cli_main"
 hyped = "hypernix.hyped:cli_main"
 # v0.71.0: unified Gatekeeper + Keymaster CLI.
 gkey = "hypernix.gkey_cli:main"
+# v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).
+hnx-map = "hypernix.map:cli_main"
 
 [project.urls]
 Homepage = "https://minerofthesoal.github.io/HyperNix-pip/"

@@ -78,6 +78,8 @@ _SUBCOMMANDS = {
     "config",
     # v0.71.0
     "gkey",
+    # v0.71.1
+    "map",
 }
 
 
@@ -126,6 +128,7 @@ def _print_usage() -> None:
         table.add_row("[green]scavenger[/]", "Scavenger tools")
         table.add_row("[green]config[/]", "Configuration management")
         table.add_row("[green]gkey[/]", "API key & access management (Gatekeeper + Keymaster)")
+        table.add_row("[green]map[/]", "Steampunk schematic TUI: dials/pipes/steam for model + training state")
         
         shortcuts = Text("Shortcuts:\n", style="bold yellow")
         shortcuts.append("  --auto-oven            download the default snapshot and run code completion\n", style="white")
@@ -170,7 +173,8 @@ def _print_usage() -> None:
             "  vera                   Vera assistant CLI\n"
             "  scavenger              Scavenger tools\n"
             "  config                 Configuration management\n"
-            "  gkey                   API key & access management (Gatekeeper + Keymaster)\n\n"
+            "  gkey                   API key & access management (Gatekeeper + Keymaster)\n"
+            "  map                    Steampunk schematic TUI: dials/pipes/steam for model + training state\n\n"
             "Shortcuts:\n"
             "  --auto-oven            download the default snapshot and run code completion\n"
             "                         (equivalent to `hypernix oven --auto ...`).\n\n"
@@ -912,6 +916,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_config(rest)
     if cmd == "gkey":
         return _run_gkey(rest)
+    if cmd == "map":
+        return _run_map(rest)
     _print_usage()
     return 1
 
@@ -940,6 +946,11 @@ def _run_scavenger(raw: list[str]) -> int:
 def _run_config(raw: list[str]) -> int:
     from .config import cli_main as config_main
     return config_main(raw)
+
+def _run_map(raw: list[str]) -> int:
+    """`hypernix map` — steampunk schematic TUI (dials/pipes/steam)."""
+    from .map import cli_main as map_main
+    return map_main(raw)
 
 def _run_gkey(raw: list[str]) -> int:
     """`hypernix gkey` — Gatekeeper + Keymaster unified CLI."""

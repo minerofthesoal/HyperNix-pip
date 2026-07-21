@@ -76,6 +76,26 @@ from hypernix.pressure_cooker import universal_cooker
 opt = universal_cooker(model.parameters(), prefer_speed=True)
 ```
 
+**Patch (0.71.1):** the default now prioritizes the V5 / V5S optimizer
+family ([Pressure-Cooker-V5](Pressure-Cooker-V5.md) — fully custom
+optimizers, not restricted to CUDA) instead of the legacy device tiers
+below. Pass `variant=` to choose:
+
+| `variant=` | Returns |
+|---|---|
+| `"v5s"` (default) | `PressureCookerV5S` — newest/most specialised tier (3D oscillation resistance, pressure diffusion, low-power mode). |
+| `"v5"` | `PressureCookerV5` (ORCP core). |
+| `"v5-plus"` | `PressureCookerV5Plus` (ORCP-Ultra core; entropy scaling, resonance detection, QAT/MTP defaults). |
+| `"legacy"` | The pre-0.71.1 behavior described below (`ProCooker`/`InductionCooker`/`ElectricCooker`/`StovetopCooker`). |
+
+Whichever V5-family variant is picked, a CUDA device detected as
+pre-Volta (Pascal, sm_61/6.2 — e.g. GTX 1080) automatically gets the
+matching `Aged*` tier instead (`Agedcookerv5`, `ULTRAagedcookerv5`, or
+`Agedcookerv5s`), which enforces `fused=False` and other Pascal-safe
+defaults.
+
+#### `variant="legacy"`
+
 Picks the tier matching the first parameter's device: `ElectricCooker`/
 `StovetopCooker` on CPU (by `prefer_speed`), `ProCooker`/`InductionCooker`
 on CUDA (by `prefer_speed`) — **except** on pre-Volta CUDA devices

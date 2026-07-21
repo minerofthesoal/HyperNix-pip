@@ -1,1 +1,10 @@
-Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`src/hypernix/wiki_cli.py`), which should not be added to .gitignore. There are no build artifacts, dependencies, temporary files, or other items that need to be ignored in the provided change list.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+*.so
+build/
+dist/
+.env
+.venv/

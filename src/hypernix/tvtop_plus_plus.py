@@ -55,6 +55,40 @@ __all__ = [
 SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
+def _append_ansi(content: Text, s: str, *, style: str | None = None) -> None:
+    """Append a string that may contain raw ANSI SGR codes to ``content``.
+
+    ``tv._bar_str`` / ``_gauge_line`` / ``_block_history_bar`` embed
+    literal ``\\x1b[...m`` escape sequences when called with
+    ``color_enabled=True`` (they were written for the plain-ANSI
+    ``tvtop`` renderer, which measures visible width with its own
+    ``_strip_ansi`` helper). Rich's ``Text`` has no idea those bytes
+    are escape codes -- appending them via a plain f-string leaves the
+    raw control characters sitting in ``Text.plain``, so Rich's cell
+    width for that line comes out wrong. Since panel borders are
+    positioned from that same width calculation, the result is a
+    right-hand border drawn in the wrong place (stray "│" characters
+    floating outside the box, sometimes duplicated across several rows).
+
+    ``Text.from_ansi`` parses the escape codes into proper zero-width
+    style spans instead of literal characters, so the width Rich sees
+    always matches what actually reaches the screen.
+
+    ``Text.from_ansi`` treats its input as a sequence of lines and does
+    *not* preserve a trailing ``"\\n"`` the way plain string
+    concatenation does -- it silently drops it. Since every call site
+    here builds a multi-row panel by appending one ``"...\\n"``-terminated
+    string per row, that would glue consecutive rows onto a single
+    line. Trailing newlines never contain escape codes, so they're
+    split off and re-appended as plain text after conversion.
+    """
+    trimmed = s.rstrip("\n")
+    trailing = s[len(trimmed):]
+    content.append(Text.from_ansi(trimmed, style=style or ""))
+    if trailing:
+        content.append(trailing, style=style)
+
+
 @dataclass
 class TVTopPlusPlus:
     log_path: Path | str | None = None
@@ -256,7 +290,7 @@ class TVTopPlusPlus:
             if f.total_steps:
                 prog_text += f"/{f.total_steps}"
             pbar = _bar_str(f.progress, 20, ascii_only=self.ascii_only, color_enabled=self.color)
-            content.append(f"{prog_text:<16} {pbar} {pct:>5.1f}%\n\n", style="cyan")
+            _append_ansi(content, f"{prog_text:<16} {pbar} {pct:>5.1f}%\n\n", style="cyan")
 
             # Metrics
             loss_val = f"{f.loss:.4f}" if f.loss is not None else "—"
@@ -284,20 +318,20 @@ class TVTopPlusPlus:
         hist_width = max(20, min(40, (console.width // 4) - 14 if console else 30))
 
         # Gauges — CPU=green, RAM=magenta, GPU=red (matching original tvtop)
-        content.append(_gauge_line("CPU", f.cpu_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="green")
-        content.append(_gauge_line("RAM", f.ram_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="magenta")
-        content.append(_gauge_line("GPU", f.gpu_util_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n\n", style="red")
+        _append_ansi(content, _gauge_line("CPU", f.cpu_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="green")
+        _append_ansi(content, _gauge_line("RAM", f.ram_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n", style="magenta")
+        _append_ansi(content, _gauge_line("GPU", f.gpu_util_percent, 20, ascii_only=self.ascii_only, color_enabled=self.color) + "\n\n", style="red")
 
         # Block history
         if f.cpu_history:
             cpu_hist = _block_history_bar(f.cpu_history, hist_width, self.color)
-            content.append(f"CPU History [{cpu_hist}]\n", style="green")
+            _append_ansi(content, f"CPU History [{cpu_hist}]\n", style="green")
         if f.ram_history:
             ram_hist = _block_history_bar(f.ram_history, hist_width, self.color)
-            content.append(f"RAM History [{ram_hist}]\n", style="magenta")
+            _append_ansi(content, f"RAM History [{ram_hist}]\n", style="magenta")
         if f.gpu_util_history:
             gpu_hist = _block_history_bar(f.gpu_util_history, hist_width, self.color)
-            content.append(f"GPU History [{gpu_hist}]", style="red")
+            _append_ansi(content, f"GPU History [{gpu_hist}]", style="red")
 
         return Panel(content, title="Hardware Vitals", box=ROUNDED, title_align="left", style="green")
 
@@ -339,19 +373,19 @@ class TVTopPlusPlus:
             if f.gpu_mem_used_mib is not None and f.gpu_mem_total_mib:
                 mem_pct = 100.0 * f.gpu_mem_used_mib / f.gpu_mem_total_mib
                 bar = _bar_str(mem_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
-                content.append(f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB\n", style="yellow")
+                _append_ansi(content, f"VRAM  {bar} {f.gpu_mem_used_mib:>5}/{f.gpu_mem_total_mib:<5} MiB\n", style="yellow")
 
             # Temp
             if f.gpu_temp_c is not None:
                 temp_norm = max(0.0, min(1.0, (f.gpu_temp_c - 30) / 70.0))
                 bar = _bar_str(temp_norm, 15, ascii_only=self.ascii_only, color_enabled=self.color)
-                content.append(f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C\n", style="red")
+                _append_ansi(content, f"Temp  {bar} {f.gpu_temp_c:>5.1f}°C\n", style="red")
 
             # Power
             if f.gpu_power_w is not None and f.gpu_power_limit_w:
                 pwr_pct = 100.0 * f.gpu_power_w / f.gpu_power_limit_w
                 bar = _bar_str(pwr_pct / 100.0, 15, ascii_only=self.ascii_only, color_enabled=self.color)
-                content.append(f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
+                _append_ansi(content, f"Power {bar} {f.gpu_power_w:>5.1f}/{f.gpu_power_limit_w:<5.0f} W", style="magenta")
 
         return Panel(content, title="GPU Details", box=ROUNDED, title_align="left", style="magenta")
 

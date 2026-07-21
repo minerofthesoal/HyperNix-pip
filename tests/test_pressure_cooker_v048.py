@@ -122,14 +122,14 @@ def test_pro_cooker_replay_without_warmup_raises() -> None:
 def test_universal_cooker_picks_electric_on_cpu() -> None:
     from hypernix.pressure_cooker import ElectricCooker, universal_cooker
 
-    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=True)
+    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=True, variant="legacy")
     assert isinstance(opt, ElectricCooker)
 
 
 def test_universal_cooker_prefer_safety_picks_stovetop_on_cpu() -> None:
     from hypernix.pressure_cooker import StovetopCooker, universal_cooker
 
-    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=False)
+    opt = universal_cooker(_tiny().parameters(), peak_lr=0.1, prefer_speed=False, variant="legacy")
     assert isinstance(opt, StovetopCooker)
 
 
