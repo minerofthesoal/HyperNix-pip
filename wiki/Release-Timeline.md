@@ -65,3 +65,15 @@ timeline
         : e6f964b - Change version to 0.70.6-3 and update changelog
 ```
 
+## Release v0.71.1 (2026-07-21)
+
+```mermaid
+timeline
+    title Release v0.71.1 Commits
+    0.71.1
+        : 30a263f - 0.71.1
+        : 1778daa - chore- update JSON stats (scheduled)
+        : c391796 - chore- update JSON stats (scheduled)
+        : cb07ec8 - fixes
+```
+
