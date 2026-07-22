@@ -77,3 +77,12 @@ timeline
         : cb07ec8 - fixes
 ```
 
+## Release v0.71.2 (2026-07-22)
+
+```mermaid
+timeline
+    title Release v0.71.2 Commits
+    0.71.2
+        : 488f761 - 0.71.2, MAJOR hyped tui improvements
+```
+
