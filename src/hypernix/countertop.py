@@ -196,6 +196,9 @@ class Countertop:
     max_history_tokens: int | None = None
     bell: Bell | None = None
     flour: Flour | None = None
+    t1_key: str | None = None
+    keymaster: Any = None
+    gatekeeper: Any = None
     sampling: dict[str, Any] = field(default_factory=dict)
     history: list[dict[str, str]] = field(default_factory=list)
 
@@ -207,6 +210,35 @@ class Countertop:
         # streamed generation too.
         if self.flour is not None and self.bell is not None and self.bell.flour is None:
             self.bell.flour = self.flour
+        self._t1_meta = None
+        if self.t1_key:
+            self.authenticate_t1(self.t1_key)
+
+    def authenticate_t1(self, t1_key: str) -> Any:
+        """Authenticate and bind a T1 API key to this Countertop session."""
+        from .gatekeeper import Gatekeeper
+        from .keymaster import Keymaster
+
+        if self.keymaster is None:
+            self.keymaster = Keymaster()
+        if self.gatekeeper is None:
+            self.gatekeeper = Gatekeeper(keymaster=self.keymaster)
+
+        self.t1_key = t1_key
+        self._t1_meta = self.gatekeeper.authenticate(t1_key)
+        return self._t1_meta
+
+    @property
+    def t1_meta(self) -> Any | None:
+        """Return the authenticated T1 key metadata, if bound."""
+        return getattr(self, "_t1_meta", None)
+
+    def t1_stats(self) -> dict[str, Any]:
+        """Return Gatekeeper usage statistics for the bound T1 key."""
+        meta = self.t1_meta
+        if meta and self.gatekeeper:
+            return self.gatekeeper.get_stats(meta.key_id)
+        return {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -224,6 +256,15 @@ class Countertop:
     ) -> str:
         """Append ``user`` to the transcript, generate a reply, append
         the reply, return it."""
+        meta = getattr(self, "_t1_meta", None)
+        if meta and self.gatekeeper:
+            est_tokens = len(user) // 4 + 10
+            self.gatekeeper.check_quota(
+                meta.key_id,
+                endpoint="/chat",
+                tokens_requested=est_tokens,
+            )
+
         self.history.append({"role": "user", "content": user})
         self._trim()
         kwargs: dict[str, Any] = dict(self.sampling)
@@ -247,6 +288,17 @@ class Countertop:
         if self.flour is not None:
             reply = self.flour.clean_reply(reply)
         self.history.append({"role": "assistant", "content": reply})
+
+        if meta and self.gatekeeper:
+            used_tokens = (len(user) + len(reply)) // 4 + 1
+            model_name = str(getattr(self.oven, "repo_id", "hypernix-t1"))
+            self.gatekeeper.record_usage(
+                meta.key_id,
+                endpoint="/chat",
+                model=model_name,
+                tokens_used=used_tokens,
+            )
+
         return reply
 
     def reset(self) -> None:
@@ -365,6 +417,9 @@ def countertop(
     max_history_tokens: int | None = None,
     bell: Bell | None = None,
     flour: Flour | None = None,
+    t1_key: str | None = None,
+    keymaster: Any = None,
+    gatekeeper: Any = None,
     **sampling: Any,
 ) -> Countertop:
     """Build a :class:`Countertop`.
@@ -372,7 +427,8 @@ def countertop(
     ``persona`` is a shortcut for picking a system prompt by name from
     :data:`hypernix.menu.MENU` — equivalent to passing
     ``system=MENU.get(persona)`` but avoids the import dance at the
-    call site.
+    call site. Pass ``t1_key`` to enforce Gatekeeper quotas and track
+    usage for T1 API keys.
     """
     if persona is not None:
         if system is not None:
@@ -386,6 +442,9 @@ def countertop(
         max_history_tokens=max_history_tokens,
         bell=bell,
         flour=flour,
+        t1_key=t1_key,
+        keymaster=keymaster,
+        gatekeeper=gatekeeper,
         sampling=sampling,
     )
 
