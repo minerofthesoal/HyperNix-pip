@@ -71,6 +71,7 @@ BUILTIN_PROMPTS: dict[str, str] = {
         "You are HyperNix, a helpful assistant. Answer concisely and "
         "accurately. If you don't know, say so."
     ),
+    "none": "",
 }
 
 

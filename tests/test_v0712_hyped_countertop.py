@@ -20,7 +20,7 @@ from hypernix.keymaster import Keymaster, KeyScope, KeyType
 
 def test_version_v0712():
     assert __version__ == "0.71.2"
-    assert HYPED_VERSION == "v0.71.2"
+    assert HYPED_VERSION == "v0.71.3"
 
 
 def test_countertop_t1_integration():

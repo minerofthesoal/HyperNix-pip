@@ -80,6 +80,7 @@ _SUBCOMMANDS = {
     "gkey",
     # v0.71.1
     "map",
+    "websearch",
 }
 
 
@@ -918,8 +919,15 @@ def main(argv: list[str] | None = None) -> int:
         return _run_gkey(rest)
     if cmd == "map":
         return _run_map(rest)
+    if cmd == "websearch":
+        return _run_websearch(rest)
     _print_usage()
     return 1
+
+def _run_websearch(raw: list[str]) -> int:
+    """`hypernix websearch` — Non-API web searching module."""
+    from .websearch import cli_main as websearch_main
+    return websearch_main(raw)
 
 def _run_protect(raw: list[str]) -> int:
     """`hypernix protect` / `prot` — Hardware health and monitor protection."""

@@ -226,6 +226,8 @@ __all__ = [
     "KeyMeta",
     "Quota",
     "QuotaViolation",
+    "websearch",
+    "search_web_non_api",
 ]
 
 # Every public name hypernix exposes, mapped to the one submodule that
@@ -402,6 +404,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'KeyMeta': ('keymaster', 'KeyMeta'),
     'Quota': ('gatekeeper', 'Quota'),
     'QuotaViolation': ('gatekeeper', 'QuotaViolation'),
+    'websearch': ('websearch', None),
+    'search_web_non_api': ('websearch', 'search_web_non_api'),
 }
 
 
@@ -501,6 +505,7 @@ if TYPE_CHECKING:
         tvtop,
         tvtop_plus_plus,
         ups,
+        websearch,
         whisk,
         workshop,
     )
@@ -592,3 +597,4 @@ if TYPE_CHECKING:
         print_models,
         session_dir,
     )
+    from .websearch import search_web_non_api

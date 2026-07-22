@@ -49,7 +49,7 @@ except Exception:  # noqa: BLE001
 # Version & Defaults
 # ---------------------------------------------------------------------------
 
-HYPED_VERSION = "v0.71.2"
+HYPED_VERSION = "v0.71.3"
 SKILLS_DIR = Path.home() / ".hypernix" / "skills"
 SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -70,9 +70,8 @@ class ModelEntry:
 
 CURATED_MODELS: tuple[ModelEntry, ...] = (
     # HyperNix Family
-    ModelEntry("hyper-nix.2",       "ray0rf1re/hyper-Nix.2",        "⚠ undertrained — see warning",         "HyperNix",   "⚠", "local"),
+    ModelEntry("hyper-nix.2",       "ray0rf1re/hyper-Nix.2",        "v2 base model — solid, chat tune",    "HyperNix",   "★", "local"),
     ModelEntry("hyper-nix.1",       "ray0rf1re/hyper-nix.1",        "v1 base model — solid, no chat tune",  "HyperNix",   "",  "local"),
-    ModelEntry("hyper-nix.3",       "ray0rf1re/hyper-nix.3",        "v3 experimental agentic model",       "HyperNix",   "★", "local"),
 
     # Nix Family
     ModelEntry("nix2.7a",           "Nix-ai/Nix-2.7a",              "Nix 2.7a — 2B Qwen2-shape",            "Nix",        "★", "local"),
@@ -85,6 +84,7 @@ CURATED_MODELS: tuple[ModelEntry, ...] = (
     ModelEntry("qwen3.5-2b",        "Qwen/Qwen3.5-2B",              "Qwen3.5 2B — AutoModel",               "Qwen 3.5",   "",  "local"),
     ModelEntry("qwen3.5-4b",        "Qwen/Qwen3.5-4B",              "Qwen3.5 4B — AutoModel",               "Qwen 3.5",   "★", "local"),
     ModelEntry("qwen3.5-9b",        "Qwen/Qwen3.5-9B",              "Qwen3.5 9B — AutoModel",               "Qwen 3.5",   "",  "local"),
+    ModelEntry("qwen2.5-coder-32b", "Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen 2.5 Coder 32B Instruct",     "Qwen 3.5",   "★", "local"),
 
     # Nano Family
     ModelEntry("nano-nano-v4",      "ray0rf1re/Nano-nano-v4",       "Llama-shape, 14L/896d",                "Nano",       "",  "local"),
@@ -97,13 +97,15 @@ CURATED_MODELS: tuple[ModelEntry, ...] = (
 
     # DeepSeek Family
     ModelEntry("deepseek-r1",       "deepseek-ai/DeepSeek-R1",      "DeepSeek R1 Reasoning Agent",          "DeepSeek",   "★", "local"),
-    ModelEntry("deepseek-v3",       "deepseek-ai/DeepSeek-V3",      "DeepSeek V3 671B MoE",                 "DeepSeek",   "",  "local"),
+    ModelEntry("deepseek-v3",       "deepseek-ai/DeepSeek-V3",      "DeepSeek V3 671B MoE",                 "DeepSeek",   "★", "local"),
 
     # Mistral Family
+    ModelEntry("mistral-large-2411", "mistralai/Mistral-Large-Instruct-2411", "Mistral Large 2411",         "Mistral",    "★", "local"),
     ModelEntry("mistral-small-24b", "mistralai/Mistral-Small-24B-Instruct-2501", "Mistral Small 24B",      "Mistral",    "",  "local"),
     ModelEntry("mixtral-8x7b",      "mistralai/Mixtral-8x7B-Instruct-v0.1", "Mixtral 8x7B MoE",             "Mistral",    "",  "local"),
 
     # Gemma Family
+    ModelEntry("gemma-2-27b",       "google/gemma-2-27b-it",        "Gemma 2 27B Instruct",                 "Gemma",      "★", "local"),
     ModelEntry("gemma-2-9b",        "google/gemma-2-9b-it",         "Gemma 2 9B Instruct",                  "Gemma",      "",  "local"),
     ModelEntry("gemma-3-12b",       "google/gemma-3-12b-it",        "Gemma 3 12B Multimodal",               "Gemma",      "★", "local"),
 
@@ -114,11 +116,13 @@ CURATED_MODELS: tuple[ModelEntry, ...] = (
     # OpenAI API Family
     ModelEntry("openai:gpt-4o",      "gpt-4o",                       "OpenAI GPT-4o API",                    "OpenAI",     "⚡", "openai"),
     ModelEntry("openai:gpt-4o-mini", "gpt-4o-mini",                  "OpenAI GPT-4o Mini API",               "OpenAI",     "⚡", "openai"),
+    ModelEntry("openai:o1",          "o1",                           "OpenAI o1 Reasoning API",              "OpenAI",     "⚡", "openai"),
     ModelEntry("openai:o3-mini",     "o3-mini",                      "OpenAI o3-mini Reasoning API",         "OpenAI",     "⚡", "openai"),
 
     # Anthropic API Family
-    ModelEntry("anthropic:claude-3-5-sonnet", "claude-3-5-sonnet-20241022", "Anthropic Claude 3.5 Sonnet", "Anthropic",  "⚡", "anthropic"),
-    ModelEntry("anthropic:claude-3-5-haiku",  "claude-3-5-haiku-20241022",  "Anthropic Claude 3.5 Haiku",  "Anthropic",  "⚡", "anthropic"),
+    ModelEntry("anthropic:claude-3-7-sonnet", "claude-3-7-sonnet-20250219", "Anthropic Claude 3.7 Sonnet", "Anthropic", "⚡", "anthropic"),
+    ModelEntry("anthropic:claude-3-5-sonnet", "claude-3-5-sonnet-20241022", "Anthropic Claude 3.5 Sonnet", "Anthropic", "⚡", "anthropic"),
+    ModelEntry("anthropic:claude-3-5-haiku",  "claude-3-5-haiku-20241022",  "Anthropic Claude 3.5 Haiku",  "Anthropic", "⚡", "anthropic"),
 )
 
 
@@ -348,6 +352,9 @@ class ToolRegistry:
         self.skill_mgr = skill_manager
         self.tools: dict[str, Callable[..., str]] = {}
         self.schemas: list[dict[str, Any]] = []
+        self.tasks: list[dict[str, Any]] = []
+        self.memory: dict[str, str] = {}
+        self.bg_processes: dict[int, subprocess.Popen] = {}
         self._register_all()
 
     def register(self, name: str, description: str, func: Callable[..., str], schema: dict[str, Any]) -> None:
@@ -611,6 +618,86 @@ class ToolRegistry:
             "type": "object",
             "properties": {"name": {"type": "string"}},
             "required": ["name"],
+        })
+
+        # OpenClaw Task & Session Management Tools
+        self.register("create_task", "Create session task item", self._create_task, {
+            "type": "object",
+            "properties": {"title": {"type": "string"}, "description": {"type": "string"}},
+            "required": ["title"],
+        })
+        self.register("update_task", "Update session task status (pending, in_progress, completed)", self._update_task, {
+            "type": "object",
+            "properties": {"task_id": {"type": "integer"}, "status": {"type": "string"}},
+            "required": ["task_id", "status"],
+        })
+        self.register("list_tasks", "List active session tasks", self._list_tasks, {"type": "object", "properties": {}})
+
+        # OpenClaw Enhanced Web & Scraper Tools
+        self.register("non_api_web_search", "Search web without API key via HTML scrapers", self._non_api_web_search, {
+            "type": "object",
+            "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+            "required": ["query"],
+        })
+        self.register("read_web_page", "Read web page and extract clean markdown & links", self._read_web_page, {
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+        })
+
+        # OpenClaw Code Editing & Environment Tools
+        self.register("apply_patch", "Apply unified diff patch to a file", self._apply_patch, {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "patch": {"type": "string"}},
+            "required": ["path", "patch"],
+        })
+        self.register("batch_replace", "Batch text replace across files in directory", self._batch_replace, {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "target": {"type": "string"},
+                "replacement": {"type": "string"},
+                "glob_pattern": {"type": "string"},
+            },
+            "required": ["path", "target", "replacement"],
+        })
+        self.register("set_env", "Set environment variable for agent session", self._set_env, {
+            "type": "object",
+            "properties": {"key": {"type": "string"}, "value": {"type": "string"}},
+            "required": ["key", "value"],
+        })
+        self.register("get_env", "Get environment variable", self._get_env, {
+            "type": "object",
+            "properties": {"key": {"type": "string"}},
+            "required": ["key"],
+        })
+
+        # OpenClaw Async Process & Memory Scratchpad Tools
+        self.register("run_background_command", "Launch bash command in background process", self._run_background_command, {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        })
+        self.register("check_process", "Check status of background process by PID", self._check_process, {
+            "type": "object",
+            "properties": {"pid": {"type": "integer"}},
+            "required": ["pid"],
+        })
+        self.register("memory_save", "Save key-value note in persistent agent scratchpad", self._memory_save, {
+            "type": "object",
+            "properties": {"key": {"type": "string"}, "value": {"type": "string"}},
+            "required": ["key", "value"],
+        })
+        self.register("memory_recall", "Recall key-value note from agent scratchpad", self._memory_recall, {
+            "type": "object",
+            "properties": {"key": {"type": "string"}},
+            "required": ["key"],
+        })
+        self.register("memory_clear", "Clear agent scratchpad memory", self._memory_clear, {"type": "object", "properties": {}})
+        self.register("code_refactor_check", "Analyze python code structure and lints", self._code_refactor_check, {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
         })
 
     def execute_tool(self, name: str, kwargs: dict[str, Any]) -> str:
@@ -970,6 +1057,169 @@ class ToolRegistry:
     def _delete_skill(self, name: str) -> str:
         return self.skill_mgr.delete_skill(name)
 
+    # OpenClaw Task Tracker Implementations
+    def _create_task(self, title: str, description: str = "") -> str:
+        task_id = len(self.tasks) + 1
+        self.tasks.append({"id": task_id, "title": title, "description": description, "status": "pending"})
+        return f"Task #{task_id} created: '{title}'"
+
+    def _update_task(self, task_id: int, status: str) -> str:
+        valid = {"pending", "in_progress", "completed", "failed"}
+        if status not in valid:
+            return f"Error: status must be one of {valid}"
+        for t in self.tasks:
+            if t["id"] == task_id:
+                t["status"] = status
+                return f"Task #{task_id} updated to '{status}'"
+        return f"Error: Task #{task_id} not found."
+
+    def _list_tasks(self) -> str:
+        if not self.tasks:
+            return "No session tasks yet."
+        icons = {"pending": "⏳", "in_progress": "🔄", "completed": "✅", "failed": "❌"}
+        lines = [f"{icons.get(t['status'], '?')} #{t['id']} [{t['status']}] {t['title']}" + (f"\n   {t['description']}" if t.get('description') else "") for t in self.tasks]
+        return "\n".join(lines)
+
+    # OpenClaw Non-API Web Search & Scraper
+    def _non_api_web_search(self, query: str, max_results: int = 8) -> str:
+        try:
+            from .websearch import format_search_results, search_web_non_api
+            results = search_web_non_api(query, max_results=max_results)
+            return format_search_results(results)
+        except Exception as exc:  # noqa: BLE001
+            return f"Non-API web search error: {exc}"
+
+    def _read_web_page(self, url: str) -> str:
+        try:
+            from .websearch import fetch_web_page
+            result = fetch_web_page(url)
+            out = f"Title: {result['title']}\nURL: {result['url']}\nStatus: {result['status']}\n\n{result['text']}"
+            if result.get("links"):
+                out += "\n\nLinks:\n" + "\n".join(f"  - {lnk['text']}: {lnk['href']}" for lnk in result["links"][:10])
+            return out
+        except Exception as exc:  # noqa: BLE001
+            return f"Read web page error: {exc}"
+
+    # OpenClaw Patch & Batch Edit
+    def _apply_patch(self, path: str, patch: str) -> str:
+        p = Path(path)
+        if not p.exists():
+            return f"Error: '{path}' does not exist."
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".patch", delete=False) as tmp:
+                tmp.write(patch)
+                tmp_path = tmp.name
+            result = subprocess.run(
+                ["patch", "-u", str(p), tmp_path],
+                capture_output=True, text=True, timeout=15,
+            )
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                return f"Patch applied successfully to '{path}'.\n{result.stdout}"
+            return f"Patch failed for '{path}': {result.stderr}"
+        except Exception as exc:  # noqa: BLE001
+            return f"apply_patch error: {exc}"
+
+    def _batch_replace(self, path: str, target: str, replacement: str, glob_pattern: str = "*.py") -> str:
+        p = Path(path)
+        if not p.exists():
+            return f"Error: '{path}' does not exist."
+        files = list(p.rglob(glob_pattern)) if p.is_dir() else [p]
+        count_files = 0
+        count_replacements = 0
+        for f in files:
+            if f.is_file():
+                try:
+                    text = f.read_text(encoding="utf-8", errors="ignore")
+                    if target in text:
+                        new_text = text.replace(target, replacement)
+                        f.write_text(new_text, encoding="utf-8")
+                        count_files += 1
+                        count_replacements += text.count(target)
+                except Exception:  # noqa: BLE001
+                    pass
+        return f"Batch replace: {count_replacements} occurrence(s) in {count_files} file(s)."
+
+    # OpenClaw Env Tools
+    def _set_env(self, key: str, value: str) -> str:
+        os.environ[key] = value
+        return f"Set env {key}={value!r}"
+
+    def _get_env(self, key: str) -> str:
+        val = os.environ.get(key)
+        if val is None:
+            return f"Env '{key}' not set."
+        return f"{key}={val!r}"
+
+    # OpenClaw Background Process
+    def _run_background_command(self, command: str) -> str:
+        try:
+            proc = subprocess.Popen(
+                command, shell=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            self.bg_processes[proc.pid] = proc
+            return f"Background process started with PID {proc.pid}: {command!r}"
+        except Exception as exc:  # noqa: BLE001
+            return f"run_background_command error: {exc}"
+
+    def _check_process(self, pid: int) -> str:
+        proc = self.bg_processes.get(pid)
+        if proc is None:
+            return f"No tracked background process with PID {pid}."
+        ret = proc.poll()
+        if ret is None:
+            return f"PID {pid}: still running."
+        return f"PID {pid}: finished with return code {ret}."
+
+    # OpenClaw Memory Scratchpad
+    def _memory_save(self, key: str, value: str) -> str:
+        self.memory[key] = value
+        return f"Saved memory[{key!r}] = {value!r}"
+
+    def _memory_recall(self, key: str) -> str:
+        if key not in self.memory:
+            return f"Memory key {key!r} not found. Available: {list(self.memory.keys())}"
+        return f"memory[{key!r}] = {self.memory[key]!r}"
+
+    def _memory_clear(self) -> str:
+        n = len(self.memory)
+        self.memory.clear()
+        return f"Cleared {n} memory entries."
+
+    # Code Refactor Check
+    def _code_refactor_check(self, path: str) -> str:
+        p = Path(path)
+        if not p.exists():
+            return f"Error: '{path}' does not exist."
+        if p.suffix != ".py":
+            return f"code_refactor_check only supports .py files (got {p.suffix})"
+        try:
+            src = p.read_text(encoding="utf-8", errors="ignore")
+            # Syntax check first
+            try:
+                import ast
+                tree = ast.parse(src, filename=str(p))
+                # Count top-level definitions
+                classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+                functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+                lines = src.splitlines()
+                long_lines = [i + 1 for i, ln in enumerate(lines) if len(ln) > 120]
+                report = [
+                    "Syntax: OK",
+                    f"Lines: {len(lines)}",
+                    f"Classes: {len(classes)}",
+                    f"Functions: {len(functions)}",
+                    f"Long lines (>120): {len(long_lines)}" + (f" @ {long_lines[:5]}" if long_lines else ""),
+                ]
+                return "\n".join(report)
+            except SyntaxError as e:
+                return f"Syntax Error: line {e.lineno}: {e.msg}"
+        except Exception as exc:  # noqa: BLE001
+            return f"code_refactor_check error: {exc}"
+
 
 # ---------------------------------------------------------------------------
 # Multi-Provider Model Runner
@@ -1200,7 +1450,8 @@ class Configurator:
         print(_color(96, _bold(" hyped · pick a persona", on=c), on=c))
         print()
         for i, name in enumerate(names, 1):
-            preview = _menu.MENU.get(name)[:60] + ("…" if len(_menu.MENU.get(name)) > 60 else "")
+            persona_text = _menu.MENU.get(name)
+            preview = persona_text[:60] + ("…" if len(persona_text) > 60 else "") if persona_text else "(no system prompt)"
             print(f"  {i:>2}. {name:<14} {_color(90, preview, on=c)}")
         print(_color(35, "   0. (coder — default agentic coding persona)", on=c))
         print()
@@ -1220,8 +1471,64 @@ class Configurator:
                 return names[idx - 1]
             print(_color(31, "  out of range.", on=self.color))
 
+    def _prompt_api_key_if_needed(self, model: ModelEntry) -> None:
+        """Interactively prompt for API key / endpoint if required by provider."""
+        c = self.color and not self.ascii_only
+        if model.provider == "openai":
+            existing = self.sampling.api_key or os.getenv("OPENAI_API_KEY", "")
+            if not existing:
+                print()
+                print(_color(220, "  ⚡ OpenAI API key required for this model.", on=c))
+                try:
+                    key = input("  Enter OpenAI API key (sk-...): ").strip()
+                    if key:
+                        self.sampling.api_key = key
+                        print(_color(82, f"  Key saved ({key[:8]}...)", on=c))
+                except (EOFError, KeyboardInterrupt):
+                    pass
+        elif model.provider == "anthropic":
+            existing = self.sampling.api_key or os.getenv("ANTHROPIC_API_KEY", "")
+            if not existing:
+                print()
+                print(_color(220, "  ⚡ Anthropic API key required for this model.", on=c))
+                try:
+                    key = input("  Enter Anthropic API key (sk-ant-...): ").strip()
+                    if key:
+                        self.sampling.api_key = key
+                        print(_color(82, f"  Key saved ({key[:8]}...)", on=c))
+                except (EOFError, KeyboardInterrupt):
+                    pass
+        elif model.provider == "rest":
+            existing = self.sampling.api_base
+            if not existing:
+                print()
+                print(_color(220, "  🌐 Custom REST endpoint required.", on=c))
+                try:
+                    base = input("  Enter REST API base URL (e.g. http://localhost:8000/v1/chat): ").strip()
+                    if base:
+                        self.sampling.api_base = base
+                        print(_color(82, f"  Endpoint saved: {base}", on=c))
+                    key = input("  Enter API key (leave blank if none): ").strip()
+                    if key:
+                        self.sampling.api_key = key
+                except (EOFError, KeyboardInterrupt):
+                    pass
+        elif model.provider == "t1":
+            existing = self.sampling.t1_key or os.getenv("HNX_T1_KEY", "")
+            if not existing:
+                print()
+                print(_color(220, "  🔑 HNX T1 API key required.", on=c))
+                try:
+                    key = input("  Enter T1 key (T1_...): ").strip()
+                    if key:
+                        self.sampling.t1_key = key
+                        print(_color(82, f"  T1 key saved ({key[:8]}...)", on=c))
+                except (EOFError, KeyboardInterrupt):
+                    pass
+
     def run(self) -> tuple[ModelEntry, SamplingConfig]:
         model = self.pick_model_interactive()
+        self._prompt_api_key_if_needed(model)
         persona = self.pick_persona_interactive()
         self.sampling.persona = persona
         self.sampling.provider = model.provider
@@ -1254,18 +1561,47 @@ class ChatScreen:
         from . import flour as _flour_mod
         from . import menu as _menu_mod
 
+        # Build the full tool manifest for injection into system prompt
+        tool_names = list(self.tool_registry.tools.keys())
+        tool_manifest_lines = []
+        for s in self.tool_registry.schemas:
+            params = s.get("parameters", {})
+            req = params.get("required", [])
+            props = params.get("properties", {})
+            param_desc = ", ".join(
+                f"{k}{'*' if k in req else ''}" for k in props
+            )
+            tool_manifest_lines.append(f"  - {s['name']}({param_desc}): {s['description']}")
+        tool_manifest = "\n".join(tool_manifest_lines)
+
         system = (
-            "You are Hyped, a world-class autonomous AI coding agent. "
-            "You have access to 34+ built-in tools (view_file, write_file, replace_file_content, "
-            "run_command, web_search, fetch_url, git_status, keymaster_create_key, create_skill, etc.). "
-            "Always inspect actual file contents and logs before making code changes. Never hallucinate syntax. "
-            "When you need to use a tool, output a JSON tool call block:\n"
+            f"You are Hyped {HYPED_VERSION}, a world-class autonomous AI coding agent built into the HyperNix toolkit.\n\n"
+            f"## AVAILABLE TOOLS ({len(tool_names)} total)\n"
+            "You have FULL ACCESS to the following tools. Always use them to complete tasks instead of guessing.\n\n"
+            f"{tool_manifest}\n\n"
+            "## TOOL CALL FORMAT\n"
+            "When you need to use a tool, output EXACTLY this JSON block and nothing else before it:\n"
             "```json\n"
-            '{"tool": "tool_name", "args": {"arg1": "val1"}}\n'
-            "```"
+            '{"tool": "<tool_name>", "args": {"<param>": "<value>"}}\n'
+            "```\n\n"
+            "## ANTI-HALLUCINATION RULES (CRITICAL)\n"
+            "1. ALWAYS call view_file to read file contents BEFORE editing — never invent or assume code.\n"
+            "2. ALWAYS call list_dir to discover file structure before referencing paths.\n"
+            "3. NEVER hallucinate function signatures, class names, or imports — verify with code_summary or grep_search.\n"
+            "4. ALWAYS call syntax_check after writing/editing Python files.\n"
+            "5. Run run_command to verify behaviour — never assume commands succeed.\n"
+            "6. When unsure about a fact, call non_api_web_search or fetch_url to verify.\n"
+            "7. If a tool returns an error, read the error message carefully and correct your approach.\n\n"
+            "## WORKFLOW\n"
+            "1. Plan → 2. Inspect (view_file / list_dir) → 3. Act (write/run) → 4. Verify (syntax_check / run_command)\n"
         )
-        if self.sampling.persona and self.sampling.persona in _menu_mod.MENU.names():
-            system += "\n\nPersona Instructions: " + _menu_mod.MENU.get(self.sampling.persona)
+
+        # Add persona if set and not 'none'
+        persona = self.sampling.persona
+        if persona and persona != "none" and persona in _menu_mod.MENU.names():
+            persona_text = _menu_mod.MENU.get(persona)
+            if persona_text:  # skip empty 'none' persona
+                system += f"\n## PERSONA INSTRUCTIONS\n{persona_text}\n"
 
         if self.sampling.flour_preset == "smart":
             self.flour = _flour_mod.Flour.smart_default(template="hyper-nix.2")
@@ -1329,14 +1665,35 @@ class ChatScreen:
 
         return "\n".join(status_panel + [""] + conv_panel)
 
+    def _setup_readline_completion(self) -> None:
+        """Configure readline tab-completion for / commands."""
+        try:
+            import readline
+            _COMMANDS = [
+                "/help", "/tools", "/skills", "/key", "/persona", "/model",
+                "/search", "/custom", "/provider", "/tasks", "/memory",
+                "/save", "/export", "/system", "/reset", "/clear", "/quit", "/exit",
+            ]
+
+            def _completer(text: str, state: int) -> str | None:
+                options = [c for c in _COMMANDS if c.startswith(text)] if text.startswith("/") else []
+                return options[state] if state < len(options) else None
+
+            readline.set_completer(_completer)
+            readline.parse_and_bind("tab: complete")
+        except Exception:  # noqa: BLE001
+            pass
+
     def run(self) -> None:
         c = self.color and not self.ascii_only
         commands_help = _color(
             90,
-            " /help  commands · /tools  list 34+ tools · /skills  created skills · "
-            "/key <val>  set key · /reset  clear · /quit",
+            " /help · /tools · /skills · /tasks · /memory · /search <q> · "
+            "/key <val> · /persona <name> · /model · /provider · /custom <url> · "
+            "/save <path> · /system <cmd> · /reset · /quit",
             on=c,
         )
+        self._setup_readline_completion()
         try:
             while True:
                 sys.stdout.write(CLEAR + self.render() + "\n" + commands_help + "\n\n")
@@ -1357,7 +1714,7 @@ class ChatScreen:
             sys.stdout.write(SHOW_CURSOR)
             sys.stdout.flush()
 
-    def _handle_command(self, line: str) -> bool:
+    def _handle_command(self, line: str) -> bool:  # noqa: PLR0912
         c = self.color and not self.ascii_only
         parts = line.split(maxsplit=1)
         cmd = parts[0].lower()
@@ -1365,22 +1722,42 @@ class ChatScreen:
 
         if cmd in ("/quit", "/exit", "/q"):
             return True
+
         if cmd in ("/reset", "/clear"):
             self.countertop.reset()
             print(_color(90, "  (history cleared)", on=c))
             time.sleep(0.4)
             return False
+
         if cmd == "/tools":
             print(_color(96, f"\n  Registered Built-in Tools ({len(self.tool_registry.tools)}):", on=c))
             for s in self.tool_registry.schemas:
                 print(f"  • {_color(33, s['name'], on=c)}: {s['description']}")
             input("\n  Press Enter to continue...")
             return False
+
         if cmd == "/skills":
             print(_color(96, "\n  AI Self-Created Skills:", on=c))
             print(self.tool_registry._list_skills())
             input("\n  Press Enter to continue...")
             return False
+
+        if cmd == "/tasks":
+            print(_color(96, "\n  Session Tasks:", on=c))
+            print(self.tool_registry._list_tasks())
+            input("\n  Press Enter to continue...")
+            return False
+
+        if cmd == "/memory":
+            if not self.tool_registry.memory:
+                print(_color(90, "  (memory scratchpad empty)", on=c))
+            else:
+                print(_color(96, "\n  Agent Memory Scratchpad:", on=c))
+                for k, v in self.tool_registry.memory.items():
+                    print(f"  {_color(33, k, on=c)}: {v[:120]}")
+            time.sleep(1.2)
+            return False
+
         if cmd == "/key":
             if not arg:
                 print(_color(33, "  Usage: /key <api_key_or_t1_key>", on=c))
@@ -1392,17 +1769,144 @@ class ChatScreen:
                 print(_color(82, f"  Key updated successfully ({arg[:8]}...)", on=c))
             time.sleep(1.0)
             return False
+
         if cmd == "/persona":
             if not arg:
-                print(_color(33, "  /persona <name> (e.g. chef, coder, security, architect)", on=c))
+                from . import menu as _m
+                print(_color(33, f"  Available personas: {', '.join(_m.MENU.names())}", on=c))
+                print(_color(33, "  Usage: /persona <name>  (use 'none' for no persona)", on=c))
             else:
                 self.sampling.persona = arg
                 print(_color(36, f"  Persona updated → {arg}", on=c))
             time.sleep(0.8)
             return False
+
+        if cmd == "/model":
+            if not arg:
+                print(_color(96, f"\n  Current model: {self.model_entry.short} ({self.model_entry.provider})", on=c))
+                print(_color(90, "  Usage: /model <short_name>  to switch models", on=c))
+            else:
+                entry = _resolve_short_name(arg)
+                if entry:
+                    self.model_entry = entry
+                    self.runner = OvenRunner(entry, self.sampling)
+                    try:
+                        self.runner.load()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    print(_color(82, f"  Switched to model: {entry.short}", on=c))
+                else:
+                    print(_color(31, f"  Unknown model: {arg!r}. Try a name from /tools or --model.", on=c))
+            time.sleep(0.8)
+            return False
+
+        if cmd == "/search":
+            if not arg:
+                print(_color(33, "  Usage: /search <query>", on=c))
+            else:
+                print(_color(96, f"\n  Searching for: {arg!r}", on=c))
+                result = self.tool_registry.execute_tool("non_api_web_search", {"query": arg})
+                print(result)
+                input("\n  Press Enter to continue...")
+            return False
+
+        if cmd == "/custom":
+            if not arg:
+                try:
+                    base = input("  REST endpoint URL: ").strip()
+                    if base:
+                        self.sampling.api_base = base
+                        print(_color(82, f"  Custom REST endpoint set: {base}", on=c))
+                except (EOFError, KeyboardInterrupt):
+                    pass
+            else:
+                self.sampling.api_base = arg
+                print(_color(82, f"  Custom REST endpoint set: {arg}", on=c))
+            time.sleep(0.8)
+            return False
+
+        if cmd == "/provider":
+            providers = ["local", "openai", "anthropic", "rest", "t1"]
+            if arg in providers:
+                self.sampling.provider = arg
+                print(_color(82, f"  Provider set to: {arg}", on=c))
+                # Prompt for key if API provider
+                if arg in ("openai", "anthropic", "t1"):
+                    try:
+                        label = {"openai": "OpenAI (sk-...)", "anthropic": "Anthropic (sk-ant-...)", "t1": "T1 key (T1_...)"}[arg]
+                        key = input(f"  Enter {label}: ").strip()
+                        if key:
+                            if arg == "t1":
+                                self.sampling.t1_key = key
+                            else:
+                                self.sampling.api_key = key
+                            print(_color(82, f"  Key saved ({key[:8]}...)", on=c))
+                    except (EOFError, KeyboardInterrupt):
+                        pass
+            else:
+                print(_color(33, f"  Available providers: {', '.join(providers)}", on=c))
+                print(_color(33, "  Usage: /provider <name>", on=c))
+            time.sleep(0.8)
+            return False
+
+        if cmd == "/save":
+            path = arg or "hyped_session.json"
+            try:
+                import json as _j
+                data = {"history": self.countertop.history, "model": self.model_entry.short, "persona": self.sampling.persona}
+                Path(path).write_text(_j.dumps(data, indent=2), encoding="utf-8")
+                print(_color(82, f"  Session saved to {path}", on=c))
+            except Exception as exc:  # noqa: BLE001
+                print(_color(31, f"  Save failed: {exc}", on=c))
+            time.sleep(0.8)
+            return False
+
+        if cmd == "/export":
+            path = arg or "hyped_transcript.txt"
+            try:
+                lines_out = []
+                for m in self.countertop.history:
+                    lines_out.append(f"[{m['role'].upper()}]\n{m['content']}\n")
+                Path(path).write_text("\n".join(lines_out), encoding="utf-8")
+                print(_color(82, f"  Transcript exported to {path}", on=c))
+            except Exception as exc:  # noqa: BLE001
+                print(_color(31, f"  Export failed: {exc}", on=c))
+            time.sleep(0.8)
+            return False
+
+        if cmd == "/system":
+            if not arg:
+                print(_color(33, "  Usage: /system <bash_command>", on=c))
+            else:
+                out = self.tool_registry.execute_tool("run_command", {"command": arg})
+                print(_color(90, out, on=c))
+                input("\n  Press Enter to continue...")
+            return False
+
         if cmd == "/help":
-            print(_color(33, "  Commands: /tools /skills /key <val> /persona <name> /save <path> /reset /quit", on=c))
-            time.sleep(1.5)
+            print(_color(96, "\n  hyped commands:", on=c))
+            cmds = [
+                ("/tools",           "List all available built-in tools"),
+                ("/skills",          "List AI self-created skills"),
+                ("/tasks",           "Show session task list"),
+                ("/memory",          "Show agent memory scratchpad"),
+                ("/search <query>",  "Quick web search without API"),
+                ("/key <val>",       "Set API key (OpenAI/Anthropic/T1)"),
+                ("/persona <name>",  "Change persona (none = no persona)"),
+                ("/model [<name>]",  "Show or switch current model"),
+                ("/provider <name>", "Set provider (local/openai/anthropic/rest/t1)"),
+                ("/custom [<url>]",  "Set custom REST API endpoint"),
+                ("/save [<path>]",   "Save session to JSON file"),
+                ("/export [<path>]", "Export transcript to text file"),
+                ("/system <cmd>",    "Run bash command directly"),
+                ("/reset",           "Clear conversation history"),
+                ("/quit",            "Exit hyped"),
+            ]
+            for name, desc in cmds:
+                print(f"  {_color(33, name, on=c):<28} {_color(90, desc, on=c)}")
+            print()
+            print(_color(90, "  Tip: Tab key completes /commands", on=c))
+            input("\n  Press Enter to continue...")
             return False
 
         print(_color(31, f"  Unknown command {cmd!r}; try /help", on=c))
