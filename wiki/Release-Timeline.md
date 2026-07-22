@@ -86,3 +86,13 @@ timeline
         : 488f761 - 0.71.2, MAJOR hyped tui improvements
 ```
 
+## Release v0.71.3 (2026-07-22)
+
+```mermaid
+timeline
+    title Release v0.71.3 Commits
+    0.71.3
+        : dd6f0b6 - Update version check to 0.71.3
+        : 67faf60 - 0.71.3, minor hyped improvements
+```
+
