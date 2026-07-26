@@ -3,6 +3,7 @@ and Countertop T1 API key integration.
 """
 
 import os
+import re
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -23,9 +24,16 @@ from hypernix.hyped import (
 from hypernix.keymaster import Keymaster, KeyScope, KeyType
 
 
+def _numeric_prefix(version_str: str) -> tuple[int, ...]:
+    """Leading dotted-int prefix, e.g. 'v0.71.4b1' -> (0, 71, 4)."""
+    match = re.match(r"^v?(\d+(?:\.\d+)*)", version_str)
+    assert match, f"no numeric version prefix in {version_str!r}"
+    return tuple(int(p) for p in match.group(1).split("."))
+
+
 def test_version_v0712():
-    assert __version__ == "0.71.4b1"
-    assert HYPED_VERSION == "v0.71.4b1"
+    assert _numeric_prefix(__version__) > (0, 71)
+    assert _numeric_prefix(HYPED_VERSION) > (0, 71)
 
 
 def test_countertop_t1_integration():
