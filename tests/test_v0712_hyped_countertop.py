@@ -24,8 +24,8 @@ from hypernix.keymaster import Keymaster, KeyScope, KeyType
 
 
 def test_version_v0712():
-    assert __version__ == "0.71.3"
-    assert HYPED_VERSION == "v0.71.3"
+    assert __version__ == "0.71.4b1"
+    assert HYPED_VERSION == "v0.71.4b1"
 
 
 def test_countertop_t1_integration():
