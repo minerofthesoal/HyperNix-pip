@@ -37,6 +37,7 @@ Apart from the main `hypernix` / `hnx` entry points, the package installs compan
 * `tvtop` — Classic TUI training dashboard.
 * `tvtop++` / `tvtoppp` — Premium TUI training dashboard with process list, block history, and dampened slope curve estimations.
 * `hyped` — Configurable high-quality chat TUI.
+* `hyped+` / `hyped-pro` — Standalone Node.js TUI with OpenClaw design, 2D pixel art coffee mascot animation, slash autocompletion, price estimator, and system prompt compactor.
 * `eth` — Ethanol GPU overclock and VRAM helper.
 
 ## `all` — the classic pipeline

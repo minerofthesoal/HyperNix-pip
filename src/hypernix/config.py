@@ -47,6 +47,7 @@ _DEFAULTS: dict[str, Any] = {
     "default_model":       None,
     "default_model_type":  None,   # "hf" | "openai" | "anthropic" | "gemini" | "local" | "experimental"
     "download_dir":        str(Path.home() / ".hypernix" / "models"),
+    "hf_token":            None,
     "preferred_quant":     None,
     "auto_update":         True,
     "telemetry":           False,
@@ -59,6 +60,7 @@ _DEFAULTS: dict[str, Any] = {
 _OPENAI_RE    = re.compile(r"^sk-[A-Za-z0-9\-_]{20,}$")
 _ANTHROPIC_RE = re.compile(r"^sk-ant-[A-Za-z0-9\-_]{20,}$")
 _GEMINI_RE    = re.compile(r"^AIza[A-Za-z0-9\-_]{30,}$")
+_HF_TOKEN_RE  = re.compile(r"^hf_[A-Za-z0-9]{20,}$")
 _HF_URL_RE    = re.compile(r"https?://huggingface\.co/([^/]+/[^/?#]+)")
 _HF_ID_RE     = re.compile(r"^[A-Za-z0-9_\-\.]+/[A-Za-z0-9_\-\.]+$")
 
@@ -70,7 +72,7 @@ _SUPPORTED_FAMILIES: tuple[str, ...] = (
     "nix", "hyper-nix", "hypernix", "qwen", "llama", "mistral",
     "gemma", "phi", "falcon", "mpt", "gpt", "deepseek", "internlm",
     "baichuan", "yi", "bloom", "opt", "pythia", "gptj", "neox",
-    "flan", "t5", "bart", "bert", "roberta",
+    "flan", "t5", "bart", "bert", "roberta", "kimi", "fable",
 )
 
 
@@ -115,9 +117,41 @@ def get_config_value(key: str) -> Any:
     return cfg[key]
 
 
+def set_config_value(key: str, value: Any) -> None:
+    """Public API: set a single config value by key."""
+    cfg = _load_config()
+    cfg[key] = value
+    _save_config(cfg)
+
+
 def get_default_model() -> str | None:
     """Public API: return the currently configured default model (or None)."""
     return _load_config().get("default_model")
+
+
+def get_models_dir() -> Path:
+    """Public API: return the unified models directory used across all modules."""
+    import os
+    env_dir = os.getenv("HYPERNIX_MODELS_DIR")
+    if env_dir:
+        p = Path(env_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    cfg = _load_config()
+    d_dir = cfg.get("download_dir") or str(Path.home() / ".hypernix" / "models")
+    p = Path(d_dir)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def get_hf_token() -> str | None:
+    """Public API: return the HuggingFace token from environment or config."""
+    import os
+    env_tok = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+    if env_tok:
+        return env_tok
+    return _load_config().get("hf_token")
+
 
 
 # ---------------------------------------------------------------------------

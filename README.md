@@ -359,6 +359,7 @@ hypernix <subcommand> [options]
   generate              sample text from a local snapshot
   oven                  code-generation wrapper (preheat + complete / fill)
   chat                  interactive chat REPL against any supported model
+  hyped+ / hyped-pro    Node.js TUI agent CLI (OpenClaw style, pixel art coffee mascot)
   stml                  VRAM trained context length calculator
 ```
 

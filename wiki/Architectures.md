@@ -136,6 +136,28 @@ Key sections (see the source for the full list — 60+ entries at v0.41):
 `nemotron-4-15b`, `llama-3.1-nemotron-70b-instruct`, `mistral-nemo-12b`,
 `gpt-oss-20b`, `gpt-oss-120b`
 
+### New in v0.71.4b2
+`kimi-k3`, `claude-sonnet-4.6` (API), `claude-sonnet-5` (API), `claude-opus-4.8` (API),
+`claude-haiku-4.5` (API), `fable-5`, `gpt-4o` (API), `gpt-5.6-terra` (API),
+`gpt-5.6-sol` (API), `gpt-5.5` (API), `deepseek-r1`, `deekseek-v4flash`,
+`qwen3.7-plus`, `gemma-4-27b`
+
+## Brewer Presets (`hnx brew`)
+
+The `hypernix.brewer` module defines the **hyperNix0x-v2** family of from-scratch
+architecture presets. These are used for building new models, not loading pretrained checkpoints.
+
+| Preset | CLI alias | Layers | d_model | Params | ctx |
+|---|---|---|---|---|---|
+| `hypernix0x_v2_33m` | `33m`, `micro` | 6 | 512 | **~33.6429M** | 4096 |
+| `hypernix0x_v2_small` | `small` | 9 | 1024 | ~458M | 20482 |
+| `hypernix0x_v2_medium` | `medium` | 18 | 1280 | ~918M | 40964 |
+| `hypernix0x_v2_large` | `large` | 36 | 2048 | ~3.5B | 103724 |
+
+The **33m** preset (`hypernix0x_v2_33m`) was added in v0.71.4b2. It targets lightweight edge
+devices, fast inference, and image text-to-text models (Vision support), with 33,642,900 parameters
+exactly (`n_layers=6`, `d_model=512`, `d_ff=1444`, `n_heads=16`, `n_kv_heads=4`, GQA, sliding window `1024`).
+
 ### `arch="auto"` vs native
 
 `ModelInfo.arch == "auto"` means the loader will use

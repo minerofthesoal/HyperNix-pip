@@ -1,17 +1,18 @@
 # Roadmap
 
+## 0.71.4b2 (Shipped)
 
-## 0.71.0
+- `hyped+` (`hyped-pro`) Node.js TUI based on OpenClaw, Qwen Code CLI, and Claude Desktop
+- Updated Hyped Model Catalog (Kimi K3, Claude Sonnet 4.6/5, Opus 4.8, Haiku 4.5, Fable 5, GPT-4o, GPT-5.6 Terra/Sol, GPT-5.5, DeepSeek R1/V4 Flash, Qwen 3.7 Plus, Gemma 4)
+- Unified model directory (`~/.hypernix/models`) & HuggingFace token support
+- Brewer 33.6429M parameter architecture preset (`hypernix0x_v2_33m`) & Vision model support
+- Slash command auto-completion, price estimator, prompt compaction, auto context compaction, and `hyper-Nix.2` warning banner
 
-- security improvements
-- _
-- _
+## 0.72.0 (Next Milestone)
 
- ## 0.71.2
-
-- new tui
-- _
-- _
+- Advanced multi-agent orchestration & subagent execution protocols
+- Web-based TUI live streaming over WebSockets
+- Enhanced quantization formats & Pascal sm_61 auto-tuning
 
 ---
 

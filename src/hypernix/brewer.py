@@ -455,6 +455,35 @@ class BrewerModel(nn.Module):
 # Preset factory functions
 # ---------------------------------------------------------------------------
 
+def hypernix0x_v2_33m() -> BrewerConfig:
+    """``hyperNix0x-v2-33m`` — 6 layers, ~33.6429M params (33,642,900 parameters), ctx=4096.
+
+    Designed for lightweight edge devices, fast inference, and image text-to-text models.
+    """
+    return BrewerConfig(
+        name="hypernix0x-v2-33m",
+        vocab_size=32_000,
+        n_layers=6,
+        n_heads=16,
+        n_kv_heads=4,
+        d_model=512,
+        d_ff=1444,            # tuned for 33.6429M total parameters
+        max_seq_len=4096,
+        rope_theta=100_000.0,
+        norm_eps=1e-5,
+        dropout=0.0,
+        tie_embeddings=True,
+        use_sliding_window=True,
+        sliding_window_size=1024,
+        attention_type="gqa",
+    )
+
+
+def hypernix0x_v2_micro() -> BrewerConfig:
+    """Alias for ``hypernix0x-v2-33m`` (33.6429M parameters)."""
+    return hypernix0x_v2_33m()
+
+
 def hypernix0x_v2_small() -> BrewerConfig:
     """``hyperNix0x-v2-small`` — 9 layers, ~458 M params, ctx=20 482.
 
@@ -971,6 +1000,8 @@ class Brewer:
 # ---------------------------------------------------------------------------
 
 _PRESET_MAP: dict[str, Callable[[], BrewerConfig]] = {
+    "33m":    hypernix0x_v2_33m,
+    "micro":  hypernix0x_v2_micro,
     "small":  hypernix0x_v2_small,
     "medium": hypernix0x_v2_medium,
     "large":  hypernix0x_v2_large,
@@ -1117,6 +1148,8 @@ __all__ = [
     # High-level API
     "Brewer",
     # Preset factories
+    "hypernix0x_v2_33m",
+    "hypernix0x_v2_micro",
     "hypernix0x_v2_small",
     "hypernix0x_v2_medium",
     "hypernix0x_v2_large",

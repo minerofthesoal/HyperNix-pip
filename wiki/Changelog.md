@@ -17,6 +17,30 @@ next release header.
 
 
 
+## 0.71.4b2
+
+✨ **`hyped+` (`hyped-pro`) Node.js TUI** — Standalone Node.js interactive CLI (`hyped+` / `hyped-pro`) featuring a locked multi-panel layout inspired by OpenClaw, Qwen Code CLI, Claude Desktop, and Claude CLI. Includes quick 2D pixel art coffee mascot startup animation, 256-color Hyped theme, and instant execution.
+
+✨ **Updated Hyped Model Catalog** — Added Kimi K3 (`kimi-k3`), Claude Sonnet 4.6 (`claude-sonnet-4.6`), Claude Sonnet 5 (`claude-sonnet-5`), Claude Opus 4.8 (`claude-opus-4.8`), Claude Haiku 4.5 (`claude-haiku-4.5`), Fable 5 (`fable-5`), GPT-4o (`gpt-4o`), GPT-5.6 Terra (`gpt-5.6-terra`), GPT-5.6 Sol (`gpt-5.6-sol`), GPT-5.5 (`gpt-5.5`), DeepSeek R1 (`deepseek-r1`), DeepSeek V4 Flash (`deekseek-v4flash`), Qwen 3.7 Plus (`qwen3.7-plus`), and Gemma 4 (`gemma-4-27b`).
+
+✨ **Unified Model Directory & HF Token Support** — Standardized all model snapshot downloads, conversions, and caches across modules to a single unified path (`~/.hypernix/models` or `HYPERNIX_MODELS_DIR`). Added explicit HuggingFace token support (`hf_token` config setting / `HF_TOKEN` env var).
+
+✨ **Hyped TUI Slash Commands & Features**:
+  - `/system-prompt <text>`: Custom system prompt instruction support.
+  - `/compact-prompt`: Prompt compactor tool to compress long custom system prompts into dense directives.
+  - `/auto-compact`: Toggle automatic context window compaction.
+  - `/price`: Real-time token count and USD price cost estimation per model.
+  - `/vision <img> <prompt>`: Multi-modal vision input support.
+  - Command auto-completion on tab for all slash commands.
+
+✨ **Brewer 33.6429M Parameter Architecture** — Added `hypernix0x_v2_33m` (33.6429M parameters: 33,642,900 parameters) architecture preset (`d_model=512`, `n_layers=6`, `d_ff=1444`, `ctx=4096`) in `brewer.py`.
+
+🐛 **Normal Hyped Model Load Error Fix** — Resolved issue where missing local model weights caused `hyped` to return `[Error: Model runner not properly loaded.]`. Improved exception handling, fallback logic, and auto-download prompts.
+
+🛡️ **`hyper-Nix.2` Undertrained Warning Banner** — Prominently surfaces the undertrained warning box whenever `hyper-Nix.2` is selected or executed.
+
+
+
 ## 0.71.1
 
 ✨ **`hnx map`** — a new steampunk schematic TUI. Dials represent parameter

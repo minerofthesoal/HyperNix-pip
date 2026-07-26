@@ -411,6 +411,79 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
     "mimo": ModelInfo(
         "Mimo/Mimo-1", "auto", "Mimo model.", family="mimo"
     ),
+    # ---- 0.71.4b2 Additions -----------------------------------------------
+    "kimi-k3": ModelInfo(
+        "MoonshotAI/Kimi-K3", "auto", "Kimi K3 reasoning model.", family="kimi"
+    ),
+    "kimi k3": ModelInfo(
+        "MoonshotAI/Kimi-K3", "auto", "Alias for kimi-k3.", family="kimi"
+    ),
+    "claude-sonnet-4.6": ModelInfo(
+        "anthropic/claude-sonnet-4-6", "auto", "Claude Sonnet 4.6.", family="anthropic"
+    ),
+    "claude sonnet 4.6": ModelInfo(
+        "anthropic/claude-sonnet-4-6", "auto", "Alias for claude-sonnet-4.6.", family="anthropic"
+    ),
+    "sonnet 5": ModelInfo(
+        "anthropic/claude-sonnet-5", "auto", "Claude Sonnet 5.", family="anthropic"
+    ),
+    "claude-sonnet-5": ModelInfo(
+        "anthropic/claude-sonnet-5", "auto", "Alias for sonnet 5.", family="anthropic"
+    ),
+    "opus 4.8": ModelInfo(
+        "anthropic/claude-opus-4-8", "auto", "Claude Opus 4.8.", family="anthropic"
+    ),
+    "claude-opus-4.8": ModelInfo(
+        "anthropic/claude-opus-4-8", "auto", "Alias for opus 4.8.", family="anthropic"
+    ),
+    "fable 5": ModelInfo(
+        "fable-ai/fable-5", "auto", "Fable 5 model.", family="fable"
+    ),
+    "fable-5": ModelInfo(
+        "fable-ai/fable-5", "auto", "Alias for fable 5.", family="fable"
+    ),
+    "gpt4o": ModelInfo(
+        "openai/gpt-4o", "auto", "GPT-4o multimodal model.", family="openai"
+    ),
+    "gpt-4o": ModelInfo(
+        "openai/gpt-4o", "auto", "Alias for gpt4o.", family="openai"
+    ),
+    "gpt5.6terra": ModelInfo(
+        "openai/gpt-5.6-terra", "auto", "GPT-5.6 Terra model.", family="openai"
+    ),
+    "5.6sol": ModelInfo(
+        "openai/gpt-5.6-sol", "auto", "GPT-5.6 Sol model.", family="openai"
+    ),
+    "5.5": ModelInfo(
+        "openai/gpt-5.5", "auto", "GPT-5.5 model.", family="openai"
+    ),
+    "deepseek-r1": ModelInfo(
+        "deepseek-ai/DeepSeek-R1", "auto", "DeepSeek R1 reasoning agent.", family="deepseek"
+    ),
+    "deekseek-v4flash": ModelInfo(
+        "deepseek-ai/DeepSeek-V4-Flash", "auto", "DeepSeek V4 Flash model.", family="deepseek"
+    ),
+    "deepseek-v4flash": ModelInfo(
+        "deepseek-ai/DeepSeek-V4-Flash", "auto", "Alias for deekseek-v4flash.", family="deepseek"
+    ),
+    "qwen 3.7 plus": ModelInfo(
+        "Qwen/Qwen3.7-Plus", "auto", "Qwen 3.7 Plus model.", family="qwen"
+    ),
+    "qwen-3.7-plus": ModelInfo(
+        "Qwen/Qwen3.7-Plus", "auto", "Alias for qwen 3.7 plus.", family="qwen"
+    ),
+    "gemma 4": ModelInfo(
+        "google/gemma-4-27b-it", "auto", "Gemma 4 27B instruction-tuned.", family="gemma"
+    ),
+    "gemma-4": ModelInfo(
+        "google/gemma-4-27b-it", "auto", "Alias for gemma 4.", family="gemma"
+    ),
+    "claude haiku 4.5": ModelInfo(
+        "anthropic/claude-haiku-4-5", "auto", "Claude Haiku 4.5.", family="anthropic"
+    ),
+    "claude-haiku-4.5": ModelInfo(
+        "anthropic/claude-haiku-4-5", "auto", "Alias for claude haiku 4.5.", family="anthropic"
+    ),
 }
 
 
@@ -565,14 +638,26 @@ def download_model(
     except Exception:  # noqa: BLE001
         pass
 
+    if token is None:
+        try:
+            from .config import get_hf_token
+            token = get_hf_token()
+        except Exception:  # noqa: BLE001
+            pass
+
     # Determine the local directory where the snapshot will be placed.
     # If the caller supplied ``local_dir`` we honour it (used for explicit paths).
-    # Otherwise we compute a cache directory under ``$HOME/.cache/hypernix/models``.
+    # Otherwise we compute a directory under the unified models directory.
     if local_dir is not None:
         target_dir = Path(local_dir).expanduser().resolve()
     else:
+        try:
+            from .config import get_models_dir
+            base_dir = get_models_dir()
+        except Exception:  # noqa: BLE001
+            base_dir = Path.home() / ".hypernix" / "models"
         model_name = model_dir_name or repo_id.split('/')[-1]
-        target_dir = Path.home() / ".cache" / "hypernix" / "models" / model_name
+        target_dir = base_dir / model_name
     target_dir.mkdir(parents=True, exist_ok=True)
     # Build the candidate list.  When the short name has an entry in
     # FALLBACK_CHAINS (e.g. "nix" → 2.7a → 2.6-mm → 2.5), each repo

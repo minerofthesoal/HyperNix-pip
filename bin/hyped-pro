@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# hyped-pro binary launcher
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHONPATH="${SCRIPT_DIR}/../src:${PYTHONPATH}" python3 -m hypernix.hyped_pro "$@"

@@ -112,3 +112,13 @@ timeline
         : 4b1a06c - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4b2 (2026-07-26)
+
+```mermaid
+timeline
+    title Release v0.71.4b2 Commits
+    0.71.4b2
+        : a7b9104 - 0.71.4b2 release, hyped+ (hyped-pro) OpenClaw Node.js TUI, updated models catalog, unified model folder, brewer 33.6429M preset, vision support, slash command autocomplete, price estimate, prompt compaction, auto compaction, and bug fixes
+```
+
+

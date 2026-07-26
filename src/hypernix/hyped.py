@@ -49,13 +49,13 @@ except Exception:  # noqa: BLE001
 # Version & Defaults
 # ---------------------------------------------------------------------------
 
-HYPED_VERSION = "v0.71.3"
+HYPED_VERSION = "v0.71.4b2"
 SKILLS_DIR = Path.home() / ".hypernix" / "skills"
 SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
-# Curated Model Catalog (11 Families, 25+ Models)
+# Curated Model Catalog (14 Families, 40+ Models)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -70,7 +70,7 @@ class ModelEntry:
 
 CURATED_MODELS: tuple[ModelEntry, ...] = (
     # HyperNix Family
-    ModelEntry("hyper-nix.2",       "ray0rf1re/hyper-Nix.2",        "v2 base model — solid, chat tune",    "HyperNix",   "★", "local"),
+    ModelEntry("hyper-nix.2",       "ray0rf1re/hyper-Nix.2",        "v2 base model — solid, chat tune (⚠ undertrained)", "HyperNix", "⚠️", "local"),
     ModelEntry("hyper-nix.1",       "ray0rf1re/hyper-nix.1",        "v1 base model — solid, no chat tune",  "HyperNix",   "",  "local"),
 
     # Nix Family
@@ -79,12 +79,17 @@ CURATED_MODELS: tuple[ModelEntry, ...] = (
     ModelEntry("nix2.5",            "ray0rf1re/Nix2.5",             "Nix 2.5 — 3B Qwen2, tied embeds",      "Nix",        "",  "local"),
     ModelEntry("nix3-coder",        "Nix-ai/Nix3-Coder-7B",         "Nix 3 Coder 7B agentic fine-tune",     "Nix",        "★", "local"),
 
+    # Kimi Family
+    ModelEntry("kimi-k3",           "MoonshotAI/Kimi-K3",           "Kimi K3 Reasoning Agent",              "Kimi",       "★", "local"),
+    ModelEntry("kimi-k2.5+",        "MoonshotAI/Kimi-K2.5-Plus",    "Kimi K2.5+ Long Context",              "Kimi",       "",  "local"),
+
     # Qwen Family
-    ModelEntry("qwen3.5-0.8b",      "Qwen/Qwen3.5-0.8B",            "Qwen3.5 0.8B — AutoModel",             "Qwen 3.5",   "",  "local"),
-    ModelEntry("qwen3.5-2b",        "Qwen/Qwen3.5-2B",              "Qwen3.5 2B — AutoModel",               "Qwen 3.5",   "",  "local"),
-    ModelEntry("qwen3.5-4b",        "Qwen/Qwen3.5-4B",              "Qwen3.5 4B — AutoModel",               "Qwen 3.5",   "★", "local"),
-    ModelEntry("qwen3.5-9b",        "Qwen/Qwen3.5-9B",              "Qwen3.5 9B — AutoModel",               "Qwen 3.5",   "",  "local"),
-    ModelEntry("qwen2.5-coder-32b", "Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen 2.5 Coder 32B Instruct",     "Qwen 3.5",   "★", "local"),
+    ModelEntry("qwen3.7-plus",      "Qwen/Qwen3.7-Plus",            "Qwen 3.7 Plus — Reasoning & Code",     "Qwen",       "★", "local"),
+    ModelEntry("qwen3.5-0.8b",      "Qwen/Qwen3.5-0.8B",            "Qwen3.5 0.8B — AutoModel",             "Qwen",       "",  "local"),
+    ModelEntry("qwen3.5-2b",        "Qwen/Qwen3.5-2B",              "Qwen3.5 2B — AutoModel",               "Qwen",       "",  "local"),
+    ModelEntry("qwen3.5-4b",        "Qwen/Qwen3.5-4B",              "Qwen3.5 4B — AutoModel",               "Qwen",       "★", "local"),
+    ModelEntry("qwen3.5-9b",        "Qwen/Qwen3.5-9B",              "Qwen3.5 9B — AutoModel",               "Qwen",       "",  "local"),
+    ModelEntry("qwen2.5-coder-32b", "Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen 2.5 Coder 32B Instruct",     "Qwen",       "★", "local"),
 
     # Nano Family
     ModelEntry("nano-nano-v4",      "ray0rf1re/Nano-nano-v4",       "Llama-shape, 14L/896d",                "Nano",       "",  "local"),
@@ -97,32 +102,40 @@ CURATED_MODELS: tuple[ModelEntry, ...] = (
 
     # DeepSeek Family
     ModelEntry("deepseek-r1",       "deepseek-ai/DeepSeek-R1",      "DeepSeek R1 Reasoning Agent",          "DeepSeek",   "★", "local"),
+    ModelEntry("deekseek-v4flash",  "deepseek-ai/DeepSeek-V4-Flash","DeepSeek V4 Flash Fast Agent",         "DeepSeek",   "⚡", "local"),
     ModelEntry("deepseek-v3",       "deepseek-ai/DeepSeek-V3",      "DeepSeek V3 671B MoE",                 "DeepSeek",   "★", "local"),
 
-    # Mistral Family
+    # Mistral & Fable Family
+    ModelEntry("fable-5",           "fable-ai/fable-5",             "Fable 5 Creative & Code Model",        "Fable",      "★", "local"),
     ModelEntry("mistral-large-2411", "mistralai/Mistral-Large-Instruct-2411", "Mistral Large 2411",         "Mistral",    "★", "local"),
     ModelEntry("mistral-small-24b", "mistralai/Mistral-Small-24B-Instruct-2501", "Mistral Small 24B",      "Mistral",    "",  "local"),
     ModelEntry("mixtral-8x7b",      "mistralai/Mixtral-8x7B-Instruct-v0.1", "Mixtral 8x7B MoE",             "Mistral",    "",  "local"),
 
     # Gemma Family
-    ModelEntry("gemma-2-27b",       "google/gemma-2-27b-it",        "Gemma 2 27B Instruct",                 "Gemma",      "★", "local"),
-    ModelEntry("gemma-2-9b",        "google/gemma-2-9b-it",         "Gemma 2 9B Instruct",                  "Gemma",      "",  "local"),
+    ModelEntry("gemma-4-27b",       "google/gemma-4-27b-it",        "Gemma 4 27B Instruction-Tuned",        "Gemma 4",    "★", "local"),
     ModelEntry("gemma-3-12b",       "google/gemma-3-12b-it",        "Gemma 3 12B Multimodal",               "Gemma",      "★", "local"),
+    ModelEntry("gemma-2-9b",        "google/gemma-2-9b-it",         "Gemma 2 9B Instruct",                  "Gemma",      "",  "local"),
 
     # Phi Family
     ModelEntry("phi-4-14b",         "microsoft/phi-4",              "Phi-4 14B Reasoning LM",               "Phi",        "★", "local"),
     ModelEntry("phi-3.5-mini",      "microsoft/Phi-3.5-mini-instruct", "Phi-3.5 Mini 3.8B",               "Phi",        "",  "local"),
 
     # OpenAI API Family
-    ModelEntry("openai:gpt-4o",      "gpt-4o",                       "OpenAI GPT-4o API",                    "OpenAI",     "⚡", "openai"),
+    ModelEntry("openai:gpt-4o",      "gpt-4o",                       "OpenAI GPT-4o Multimodal API",         "OpenAI",     "⚡", "openai"),
+    ModelEntry("openai:gpt-5.6-terra", "gpt-5.6-terra",              "OpenAI GPT-5.6 Terra Frontier API",    "OpenAI",     "⚡", "openai"),
+    ModelEntry("openai:gpt-5.6-sol",   "gpt-5.6-sol",                 "OpenAI GPT-5.6 Sol High-Speed API",   "OpenAI",     "⚡", "openai"),
+    ModelEntry("openai:gpt-5.5",       "gpt-5.5",                     "OpenAI GPT-5.5 Reasoning API",         "OpenAI",     "⚡", "openai"),
     ModelEntry("openai:gpt-4o-mini", "gpt-4o-mini",                  "OpenAI GPT-4o Mini API",               "OpenAI",     "⚡", "openai"),
     ModelEntry("openai:o1",          "o1",                           "OpenAI o1 Reasoning API",              "OpenAI",     "⚡", "openai"),
     ModelEntry("openai:o3-mini",     "o3-mini",                      "OpenAI o3-mini Reasoning API",         "OpenAI",     "⚡", "openai"),
 
     # Anthropic API Family
+    ModelEntry("anthropic:claude-sonnet-4.6", "claude-4-6-sonnet",   "Anthropic Claude Sonnet 4.6 API",     "Anthropic",  "⚡", "anthropic"),
+    ModelEntry("anthropic:claude-sonnet-5",   "claude-5-sonnet",     "Anthropic Claude Sonnet 5 API",       "Anthropic",  "⚡", "anthropic"),
+    ModelEntry("anthropic:claude-opus-4.8",   "claude-4-8-opus",       "Anthropic Claude Opus 4.8 API",       "Anthropic",  "⚡", "anthropic"),
+    ModelEntry("anthropic:claude-haiku-4.5",  "claude-4-5-haiku",      "Anthropic Claude Haiku 4.5 API",      "Anthropic",  "⚡", "anthropic"),
     ModelEntry("anthropic:claude-3-7-sonnet", "claude-3-7-sonnet-20250219", "Anthropic Claude 3.7 Sonnet", "Anthropic", "⚡", "anthropic"),
     ModelEntry("anthropic:claude-3-5-sonnet", "claude-3-5-sonnet-20241022", "Anthropic Claude 3.5 Sonnet", "Anthropic", "⚡", "anthropic"),
-    ModelEntry("anthropic:claude-3-5-haiku",  "claude-3-5-haiku-20241022",  "Anthropic Claude 3.5 Haiku",  "Anthropic", "⚡", "anthropic"),
 )
 
 
@@ -1221,6 +1234,47 @@ class ToolRegistry:
             return f"code_refactor_check error: {exc}"
 
 
+
+
+
+def estimate_cost(model_short: str, input_tokens: int, output_tokens: int) -> dict[str, float]:
+    """Estimate price in USD based on model pricing per 1M tokens."""
+    rates = {
+        "gpt-4o": (2.50, 10.00),
+        "gpt-4o-mini": (0.15, 0.60),
+        "gpt-5.6-terra": (5.00, 15.00),
+        "gpt-5.6-sol": (3.00, 10.00),
+        "gpt-5.5": (4.00, 12.00),
+        "claude-4-6-sonnet": (3.00, 15.00),
+        "claude-5-sonnet": (3.50, 17.50),
+        "claude-4-8-opus": (15.00, 75.00),
+        "claude-4-5-haiku": (0.80, 4.00),
+        "claude-3-7-sonnet": (3.00, 15.00),
+        "deepseek-r1": (0.55, 2.19),
+    }
+    key = model_short.lower().replace("openai:", "").replace("anthropic:", "")
+    in_rate, out_rate = rates.get(key, (0.0, 0.0))
+    in_cost = (input_tokens / 1_000_000.0) * in_rate
+    out_cost = (output_tokens / 1_000_000.0) * out_rate
+    return {
+        "input_cost": round(in_cost, 6),
+        "output_cost": round(out_cost, 6),
+        "total_cost": round(in_cost + out_cost, 6),
+    }
+
+
+def compact_prompt(raw_prompt: str) -> str:
+    """Compact a long custom system prompt into a dense, high-impact instruction format."""
+    lines = [ln.strip() for ln in raw_prompt.splitlines() if ln.strip()]
+    directives = []
+    for line in lines:
+        cleaned = re.sub(r"^(please|make sure to|you should|always|remember to)\s+", "", line, flags=re.I)
+        cleaned = cleaned.rstrip(".")
+        if cleaned and cleaned not in directives:
+            directives.append(cleaned)
+    return "SYSTEM DIRECTIVES: " + " | ".join(directives[:15])
+
+
 # ---------------------------------------------------------------------------
 # Multi-Provider Model Runner
 # ---------------------------------------------------------------------------
@@ -1232,16 +1286,25 @@ class OvenRunner:
         self.entry = entry
         self.config = config
         self.local_oven: Any = None
+        self.load_error: str | None = None
 
     def load(self) -> None:
         if self.entry.provider == "local":
-            from .old_oven import preheat
-            self.local_oven = preheat(self.entry.repo_id, quiet=True)
+            try:
+                from .old_oven import preheat
+                self.local_oven = preheat(self.entry.repo_id, quiet=True)
+            except Exception as exc:  # noqa: BLE001
+                self.load_error = str(exc)
+                self.local_oven = None
 
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         provider = self.entry.provider
-        if provider == "local" and self.local_oven:
-            return self.local_oven.chat(messages, **kwargs)
+        if provider == "local":
+            if self.local_oven:
+                return self.local_oven.chat(messages, **kwargs)
+            last_msg = messages[-1]["content"] if messages else ""
+            err_note = f" (Note: {self.load_error})" if self.load_error else ""
+            return f"[Hyped Engine ({self.entry.short})]: Received prompt: {last_msg[:80]!r}... Local weights for '{self.entry.repo_id}' are not cached on disk{err_note}. Use /provider to switch to OpenAI/Anthropic/REST or run `hnx download {self.entry.short}`."
         elif provider == "openai":
             return self._call_openai(messages, **kwargs)
         elif provider == "anthropic":
@@ -1251,9 +1314,7 @@ class OvenRunner:
         elif provider == "t1":
             return self._call_t1(messages, **kwargs)
         else:
-            if self.local_oven:
-                return self.local_oven.chat(messages, **kwargs)
-            return "[Error: Model runner not properly loaded.]"
+            return f"[Hyped Engine ({self.entry.short})]: Provider '{provider}' not configured."
 
     def _call_openai(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         key = self.config.api_key or os.getenv("OPENAI_API_KEY", "")
@@ -1681,9 +1742,10 @@ class ChatScreen:
         try:
             import readline
             _COMMANDS = [
-                "/help", "/tools", "/skills", "/key", "/persona", "/model",
-                "/search", "/custom", "/provider", "/tasks", "/memory",
-                "/save", "/export", "/system", "/reset", "/clear", "/quit", "/exit",
+                "/help", "/tools", "/skills", "/tasks", "/memory", "/search",
+                "/key", "/persona", "/model", "/provider", "/custom", "/save",
+                "/export", "/system", "/system-prompt", "/compact-prompt",
+                "/auto-compact", "/price", "/vision", "/reset", "/clear", "/quit", "/exit",
             ]
 
             def _completer(text: str, state: int) -> str | None:
@@ -1700,8 +1762,8 @@ class ChatScreen:
         commands_help = _color(
             90,
             " /help · /tools · /skills · /tasks · /memory · /search <q> · "
-            "/key <val> · /persona <name> · /model · /provider · /custom <url> · "
-            "/save <path> · /system <cmd> · /reset · /quit",
+            "/model · /provider · /system-prompt <txt> · /compact-prompt · /auto-compact · "
+            "/price · /vision <img_path> <p> · /quit",
             on=c,
         )
         self._setup_readline_completion()
@@ -1769,6 +1831,55 @@ class ChatScreen:
             time.sleep(1.2)
             return False
 
+        if cmd == "/system-prompt":
+            if not arg:
+                curr = self.sampling.system_prompt or "(default Hyped system prompt)"
+                print(_color(96, f"\n  Current System Prompt:\n{curr}", on=c))
+                print(_color(90, "  Usage: /system-prompt <custom_instructions>", on=c))
+            else:
+                self.sampling.system_prompt = arg
+                self.countertop.system = arg
+                print(_color(82, f"  Custom system prompt set: {arg[:80]}...", on=c))
+            time.sleep(1.0)
+            return False
+
+        if cmd == "/compact-prompt":
+            raw = arg or self.sampling.system_prompt or "You are Hyped autonomous AI agent. Follow anti-hallucination rules and verify actions."
+            compacted = compact_prompt(raw)
+            self.sampling.system_prompt = compacted
+            self.countertop.system = compacted
+            print(_color(82, f"\n  Compacted System Prompt:\n  {compacted}", on=c))
+            time.sleep(1.5)
+            return False
+
+        if cmd == "/auto-compact":
+            self.sampling.auto_compact = not self.sampling.auto_compact
+            status = "enabled" if self.sampling.auto_compact else "disabled"
+            print(_color(82, f"  Auto context compaction {status}.", on=c))
+            time.sleep(0.8)
+            return False
+
+        if cmd == "/price":
+            in_toks = sum(len(m.get("content", "")) // 4 for m in self.countertop.history)
+            out_toks = self.tool_call_count * 100 + len(self.countertop.history) * 50
+            est = estimate_cost(self.model_entry.short, in_toks, out_toks)
+            print(_color(96, f"\n  Price & Token Estimate ({self.model_entry.short}):", on=c))
+            print(f"  Est. Input Tokens:  {in_toks:,} (${est['input_cost']:.6f})")
+            print(f"  Est. Output Tokens: {out_toks:,} (${est['output_cost']:.6f})")
+            print(f"  Total Estimated:   ${est['total_cost']:.6f}")
+            input("\n  Press Enter to continue...")
+            return False
+
+        if cmd == "/vision":
+            parts_v = arg.split(maxsplit=1)
+            if len(parts_v) < 2:
+                print(_color(33, "  Usage: /vision <image_path> <prompt>", on=c))
+            else:
+                img_path, v_prompt = parts_v[0], parts_v[1]
+                v_msg = f"[IMAGE_INPUT: {img_path}]\n{v_prompt}"
+                self._chat_turn(v_msg)
+            return False
+
         if cmd == "/key":
             if not arg:
                 print(_color(33, "  Usage: /key <api_key_or_t1_key>", on=c))
@@ -1805,6 +1916,12 @@ class ChatScreen:
                         self.runner.load()
                     except Exception:  # noqa: BLE001
                         pass
+                    if "hyper-nix.2" in entry.short.lower() or "hypernix.2" in entry.short.lower():
+                        try:
+                            from .utils import warn_hyper_nix_2
+                            warn_hyper_nix_2(entry.repo_id)
+                        except Exception:  # noqa: BLE001
+                            pass
                     print(_color(82, f"  Switched to model: {entry.short}", on=c))
                 else:
                     print(_color(31, f"  Unknown model: {arg!r}. Try a name from /tools or --model.", on=c))
@@ -1906,6 +2023,11 @@ class ChatScreen:
                 ("/persona <name>",  "Change persona (none = no persona)"),
                 ("/model [<name>]",  "Show or switch current model"),
                 ("/provider <name>", "Set provider (local/openai/anthropic/rest/t1)"),
+                ("/system-prompt <txt>", "Set custom system prompt"),
+                ("/compact-prompt",  "Compact system prompt into dense directives"),
+                ("/auto-compact",    "Toggle automatic context compaction"),
+                ("/price",           "Show token & price cost estimate"),
+                ("/vision <img> <p>", "Multi-modal vision text query"),
                 ("/custom [<url>]",  "Set custom REST API endpoint"),
                 ("/save [<path>]",   "Save session to JSON file"),
                 ("/export [<path>]", "Export transcript to text file"),
