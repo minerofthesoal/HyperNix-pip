@@ -31,10 +31,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from rich.text import Text
+
 from hypernix.cctvtop import CCTVTop
 from hypernix.tv import _bar_str, _block_history_bar, _gauge_line
 from hypernix.tvtop_plus_plus import Frame, TVTopPlusPlus, _append_ansi
-from rich.text import Text
 
 
 def _make_frame(**overrides) -> Frame:

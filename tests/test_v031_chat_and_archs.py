@@ -119,8 +119,9 @@ def test_explicit_rope_style_overrides_inference() -> None:
 
 def test_hf_model_prefix_stripped_on_load(tmp_path: Path) -> None:
     """A config/state_dict with HF-style ``model.`` prefix loads cleanly."""
-    from hypernix import HyperNixConfig, HyperNixModel, load_snapshot
     from safetensors.torch import save_file
+
+    from hypernix import HyperNixConfig, HyperNixModel, load_snapshot
 
     cfg = HyperNixConfig(
         vocab_size=32, hidden_size=8, intermediate_size=16,
@@ -193,9 +194,10 @@ def test_nano_nano_ties_output_to_embedding() -> None:
 
 
 def test_load_snapshot_dispatches_to_nano_nano(tmp_path: Path) -> None:
+    from safetensors.torch import save_file
+
     from hypernix import load_snapshot
     from hypernix.nano_nano import NanoNanoConfig, NanoNanoModel
-    from safetensors.torch import save_file
 
     cfg = NanoNanoConfig(
         vocab_size=64, dim=16, num_layers=2, num_heads=2, num_kv_heads=1,

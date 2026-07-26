@@ -206,8 +206,9 @@ def test_torch_compat_fallback_rmsnorm_matches_formula() -> None:
     """Construct the fallback class directly and verify its math."""
     # Re-execute the class body with has_native_rmsnorm forced False so
     # we exercise the fallback path even when running on a modern torch.
-    import hypernix.torch_compat as tc
     import torch.nn as nn
+
+    import hypernix.torch_compat as tc
 
     class FallbackRMSNorm(nn.Module):
         def __init__(self, shape, eps=1e-6):

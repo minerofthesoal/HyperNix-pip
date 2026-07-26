@@ -122,6 +122,7 @@ def test_grill_pan_seen_is_not_in_init_signature() -> None:
 
 def test_pick_pan_unknown_tier_gives_useful_error() -> None:
     import pytest
+
     from hypernix import pans
 
     with pytest.raises(ValueError, match="unknown pan tier"):
@@ -130,6 +131,7 @@ def test_pick_pan_unknown_tier_gives_useful_error() -> None:
 
 def test_pick_pan_bad_kwarg_lists_valid_ones() -> None:
     import pytest
+
     from hypernix import pans
 
     with pytest.raises(ValueError, match="Skillet rejected"):

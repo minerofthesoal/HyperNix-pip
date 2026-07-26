@@ -239,6 +239,7 @@ class TestSTML:
 
     def test_regulate_passthrough_short_sequence(self) -> None:
         import torch
+
         from hypernix.stml import STML
 
         mgr = STML(trained_context=512, untrained_max_context=2048, segment_length=256)
@@ -249,6 +250,7 @@ class TestSTML:
 
     def test_regulate_truncates_beyond_untrained_max(self) -> None:
         import torch
+
         from hypernix.stml import STML
 
         mgr = STML(trained_context=512, untrained_max_context=256, segment_length=64)
@@ -261,6 +263,7 @@ class TestSTML:
 
     def test_regulate_folds_long_sequence_into_batch(self) -> None:
         import torch
+
         from hypernix.stml import STML
 
         seg = 64
@@ -282,6 +285,7 @@ class TestSTML:
 
     def test_regulate_with_regulator(self) -> None:
         import torch
+
         from hypernix.stml import STML
 
         fake_reg = MagicMock()
@@ -425,6 +429,7 @@ class TestTurboAbbicus:
 
     def test_regulate_truncates_batch(self) -> None:
         import torch
+
         from hypernix.abbicus import TurboAbbicus, TurboAbbicusConfig
 
         cfg = TurboAbbicusConfig(
@@ -529,8 +534,9 @@ class TestTVTopPlusPlusLayout:
 
     def test_log_panel_shows_more_lines_on_wide_terminal(self, tmp_path: Path) -> None:
         """Log panel must show 8 lines, not the old 6."""
-        from hypernix.tvtop_plus_plus import TVTopPlusPlus
         from rich.console import Console
+
+        from hypernix.tvtop_plus_plus import TVTopPlusPlus
 
         log = tmp_path / "train.log"
         lines = "\n".join(f"loss={i/10:.2f}" for i in range(1, 15))

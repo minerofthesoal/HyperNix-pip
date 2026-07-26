@@ -1,9 +1,10 @@
 """Tests for PressureCookerV3 and PressureCookerV3Plus optimizers."""
 
-import hypernix.pressure_cooker_v3 as pressure_cooker_v3
 import pytest
 import torch
 import torch.nn as nn
+
+import hypernix.pressure_cooker_v3 as pressure_cooker_v3
 from hypernix.pressure_cooker_v3 import (
     PressureCookerV2Plus,
     PressureCookerV3,

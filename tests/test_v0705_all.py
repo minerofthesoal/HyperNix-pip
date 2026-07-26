@@ -67,8 +67,9 @@ class TestTVTopPlusPlusFixes:
 
     def test_small_mode_layout_structure(self):
         """Small mode should create a simplified layout."""
-        from hypernix.tvtop_plus_plus import TVTopPlusPlus
         from rich.console import Console
+
+        from hypernix.tvtop_plus_plus import TVTopPlusPlus
 
         tv = TVTopPlusPlus(small_mode=True)
         console = Console(force_terminal=True, width=80)
@@ -277,6 +278,7 @@ class TestPressureCookerV5QAT:
     def test_fake_quantize_preserves_shape(self):
         """Fake quantization should preserve tensor shape."""
         import torch
+
         from hypernix.pressure_cooker_v5 import fake_quantize_tensor
 
         x = torch.randn(10, 20)
@@ -289,6 +291,7 @@ class TestPressureCookerV5QAT:
     def test_fake_quantize_reduces_precision(self):
         """Fake quantization should reduce effective precision."""
         import torch
+
         from hypernix.pressure_cooker_v5 import fake_quantize_tensor
 
         x = torch.linspace(-1, 1, 1000)
@@ -302,6 +305,7 @@ class TestPressureCookerV5QAT:
     def test_compute_quantization_params(self):
         """Should compute valid scale and zero_point."""
         import torch
+
         from hypernix.pressure_cooker_v5 import compute_quantization_params
 
         x = torch.randn(100)
@@ -313,6 +317,7 @@ class TestPressureCookerV5QAT:
     def test_qat_fake_quantize_module(self):
         """QATFakeQuantize module should be callable."""
         import torch
+
         from hypernix.pressure_cooker_v5 import QATFakeQuantize
 
         fq = QATFakeQuantize(num_levels=64)
@@ -324,6 +329,7 @@ class TestPressureCookerV5QAT:
     def test_pressure_cooker_v5_creation(self):
         """Should create PressureCookerV5 instance."""
         import torch
+
         from hypernix.pressure_cooker_v5 import PressureCookerV5
 
         param = torch.nn.Parameter(torch.randn(10))
@@ -334,6 +340,7 @@ class TestPressureCookerV5QAT:
     def test_pressure_cooker_v5_with_qat(self):
         """Should create V5 with QAT config."""
         import torch
+
         from hypernix.pressure_cooker_v5 import PressureCookerV5, QATConfig
 
         param = torch.nn.Parameter(torch.randn(10))
@@ -346,6 +353,7 @@ class TestPressureCookerV5QAT:
     def test_pressure_cooker_v5_describe(self):
         """Describe should include V5-specific fields."""
         import torch
+
         from hypernix.pressure_cooker_v5 import PressureCookerV5
 
         param = torch.nn.Parameter(torch.randn(10))
@@ -413,6 +421,7 @@ class TestMTP:
     def test_mtp_head_forward(self):
         """MTPHead forward should return correct number of logits."""
         import torch
+
         from hypernix.mtp import MTPHead
 
         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4)
@@ -426,6 +435,7 @@ class TestMTP:
     def test_mtp_head_forward_independent(self):
         """MTPHead should work in independent mode."""
         import torch
+
         from hypernix.mtp import MTPHead
 
         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4, shared=False)
@@ -448,6 +458,7 @@ class TestMTP:
     def test_mtp_trainer_attach_head(self):
         """Should attach MTP head."""
         import torch
+
         from hypernix.mtp import MTPConfig, MTPHead, MTPTrainer
 
         config = MTPConfig(num_tokens=4)

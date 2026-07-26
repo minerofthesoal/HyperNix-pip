@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from torch.optim import AdamW
+
 from hypernix.pressure_cooker_v5 import PressureCookerV5
 from hypernix.pressure_cooker_v5s import PressureCookerV5S
-from torch.optim import AdamW
 
 SEED = 0
 

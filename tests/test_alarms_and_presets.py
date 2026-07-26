@@ -293,6 +293,7 @@ def test_auto_alarm_accepts_preset() -> None:
 
 def test_gas_alarm_unknown_preset_lists_valid() -> None:
     import pytest
+
     from hypernix import smoke_alarm
 
     with pytest.raises(ValueError, match="unknown preset"):

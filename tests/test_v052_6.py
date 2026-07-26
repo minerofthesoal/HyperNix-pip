@@ -19,6 +19,7 @@ can ``**spread`` config dicts straight into the constructor.
 from __future__ import annotations
 
 import pytest
+
 from hypernix import smoke_alarm
 
 # ---------------------------------------------------------------------------

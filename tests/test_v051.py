@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 import torch
+
 from hypernix import DEFAULT_REPO_ID, KNOWN_MODELS, bell, cookbook, countertop, flour, menu
 from hypernix.bell import Bell, silent_bell, stdout_bell
 from hypernix.cookbook import (

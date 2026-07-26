@@ -14,8 +14,9 @@ import time
 
 import torch
 import torch.nn as nn
-from hypernix.pressure_cooker_v5 import PressureCookerV5
 from torch.optim import AdamW
+
+from hypernix.pressure_cooker_v5 import PressureCookerV5
 
 N_STEPS = 100
 BATCH_SIZE = 128

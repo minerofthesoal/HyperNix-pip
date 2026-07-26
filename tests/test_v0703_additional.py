@@ -5,6 +5,7 @@ from unittest import mock
 
 import torch
 import torch.nn as nn
+
 from hypernix.lazy_suzan import LazySusan, LazySusanConfig
 
 

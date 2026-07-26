@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from hypernix.tvtop_plus_plus import TVTopPlusPlus, cli_main
 
 
