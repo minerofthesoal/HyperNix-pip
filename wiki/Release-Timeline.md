@@ -134,3 +134,12 @@ timeline
         : 98dc5f4 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4b2 (2026-07-26)
+
+```mermaid
+timeline
+    title Release v0.71.4b2 Commits
+    0.71.4b2
+        : bcfb3e2 - Rename 'hyped+' to 'hyped-plus' in pyproject.toml
+```
+
