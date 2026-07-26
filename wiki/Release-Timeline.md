@@ -122,3 +122,15 @@ timeline
 ```
 
 
+## Release v0.71.4b2 (2026-07-26)
+
+```mermaid
+timeline
+    title Release v0.71.4b2 Commits
+    0.71.4b2
+        : c2d87c9 - upload fixed hyped version
+        : 3564b64 - Delete src/hypernix/hyped.py
+        : 5591c64 - 0.71.4b2, hyped pro, base hyped fixes, model updates, wiki updates and more
+        : 98dc5f4 - chore- update JSON stats (scheduled)
+```
+
