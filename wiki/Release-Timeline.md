@@ -96,3 +96,19 @@ timeline
         : 67faf60 - 0.71.3, minor hyped improvements
 ```
 
+## Release v0.71.4b1 (2026-07-26)
+
+```mermaid
+timeline
+    title Release v0.71.4b1 Commits
+    0.71.4b1
+        : e3a88d2 - test fixes
+        : 5383a08 - Update version assertions in test for v0.71.4b1
+        : 8a12c8d - ruff fixes
+        : e143083 - paper and improvements and wiki fixes
+        : c36c169 - chore- update JSON stats (scheduled)
+        : 92a584b - chore- update JSON stats (scheduled)
+        : 9b3c79a - chore- update JSON stats (scheduled)
+        : 4b1a06c - chore- update JSON stats (scheduled)
+```
+
