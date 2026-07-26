@@ -49,7 +49,7 @@ class Shaker:
         self._rng = random.Random(self.seed)
 
     def _source_lines(self) -> Iterator[str]:
-        if isinstance(self.source, (str, Path)):
+        if isinstance(self.source, str | Path):
             with Path(self.source).open(encoding="utf-8") as f:
                 for line in f:
                     yield line.rstrip("\n")

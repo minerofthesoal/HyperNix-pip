@@ -28,7 +28,6 @@ from typing import Any
 
 import pytest
 import torch
-
 from hypernix.bell import Bell
 from hypernix.cookbook import COOKBOOK
 from hypernix.countertop import Countertop
@@ -207,7 +206,7 @@ class TestUniversalCookerPascalAware:
         cooker = UniversalCooker.select(params, prefer_speed=True, variant="legacy")
         # Should be one of the CPU tiers.
         from hypernix.pressure_cooker import ElectricCooker, StovetopCooker
-        assert isinstance(cooker, (ElectricCooker, StovetopCooker))
+        assert isinstance(cooker, ElectricCooker | StovetopCooker)
 
     def test_select_pascal_path_forces_fused_off_under_legacy_variant(self, monkeypatch) -> None:
         """Simulate a Pascal CUDA device by stubbing _is_pre_volta and
@@ -310,4 +309,4 @@ class TestUniversalCookerV5Family:
 
         params = [torch.nn.Parameter(torch.randn(3, 3))]
         cooker = universal_cooker(params, variant="legacy")
-        assert isinstance(cooker, (ElectricCooker, StovetopCooker))
+        assert isinstance(cooker, ElectricCooker | StovetopCooker)

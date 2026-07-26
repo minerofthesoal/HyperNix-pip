@@ -20,7 +20,6 @@ preset (``i7-7700hq``).
 from __future__ import annotations
 
 import pytest
-
 from hypernix import smoke_alarm
 from hypernix.freezer import cpu_preset
 

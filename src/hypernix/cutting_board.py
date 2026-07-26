@@ -37,7 +37,7 @@ from typing import Any
 
 
 def _open_stream(source: Path | str | Iterable[str]) -> Iterable[str]:
-    if isinstance(source, (str, Path)):
+    if isinstance(source, str | Path):
         return Path(source).read_text(encoding="utf-8").splitlines()
     return list(source)
 

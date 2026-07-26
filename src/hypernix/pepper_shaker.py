@@ -137,7 +137,7 @@ def _iter_source(_src) -> Iterator[str]:  # pragma: no cover
     # Re-exported symbol for callers that want to iterate a raw source
     # without constructing a Shaker.  (Kept for API symmetry with
     # ``salt_shaker.Shaker._source_lines`` which is private.)
-    if isinstance(_src, (list, tuple)):
+    if isinstance(_src, list | tuple):
         yield from _src
     elif hasattr(_src, "read"):
         yield from _src

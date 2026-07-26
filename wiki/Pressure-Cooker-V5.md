@@ -2,21 +2,20 @@
 
 ## Overview
 
-Pressure Cooker V5 is HyperNix's flagship optimizer, abandoning traditional AdamW mechanics entirely in favor of an **Oscillation Resistant Cosine Power (ORCP)** architecture, combining 6-bit quantized momentum, Quantization-Aware Training (QAT), and Multi-Token Prediction (MTP) support. V5+ extends V5 with automatic model transformation and quantization sensitivity analysis. V5S adds a third dimension of cosine similarity tracking (oscillation resistant cosin 3d), pressure diffusion, and lower memory usage.
+Pressure Cooker V5 is HyperNix's flagship optimizer, abandoning traditional AdamW mechanics entirely in favor of an **Oscillation Resistant Cosine Power (ORCP)** architecture, combining quantized momentum, Quantization-Aware Training (QAT), and Multi-Token Prediction (MTP) support. V5+ (`PressureCookerV5Plus`) extends V5 with automatic model transformation, quantization sensitivity analysis, and finer directional trust regions. V5S (`PressureCookerV5S`) is a separate, ground-up 3D-ORCP optimizer: it tracks *three* cosine-similarity EMAs at different time horizons instead of one/two, adds a lightweight "pressure diffusion" spatial smoothing pass over the gradient, and keeps memory below AdamW's by never allocating a full second-moment tensor. See the [V5/V5S efficiency paper](../pressure_cooker_v5_v5s_paper.md) for the full derivation and measured numbers.
 
 ## Features
 
-### 6-Bit Quantized Momentum
+### Quantized Momentum
 
-Momentum buffers are quantized to 6-bit signed integers using stochastic rounding, reducing memory usage by ~75% compared to fp32 momentum while maintaining training stability.
+Momentum buffers are quantized to int8 (8-bit signed integers, `[-127, 127]`) with a per-tensor fp32 scale, using standard round-to-nearest (`torch.round`) -- not stochastic rounding. This is always on; there is no `quantize_momentum` toggle. It reduces the momentum buffer's own memory by 75% versus keeping it in fp32 (1 byte/element vs. 4), and -- combined with factored row/column curvature instead of a full elementwise second moment -- measures at roughly 12-13% of AdamW's total optimizer-state footprint in practice (see the [efficiency paper](../pressure_cooker_v5_v5s_paper.md) for the exact measured numbers and derivation).
 
 ```python
 from hypernix.pressure_cooker_v5 import PressureCookerV5
 
 cooker = PressureCookerV5(
     model.parameters(),
-    peak_lr=2e-4,
-    quantize_momentum=True,  # Enable 6-bit quantized momentum
+    lr=2e-4,
 )
 ```
 
@@ -78,6 +77,41 @@ evaluate(model)
 cooker.swap_ema_weights(model)  # Swap back
 ```
 
+### V5S: 3D-ORCP (`PressureCookerV5S`)
+
+V5S is not a subclass of V5 -- it's a separate optimizer (`hypernix.pressure_cooker_v5s.PressureCookerV5S`) built around three co-designed ideas:
+
+1. **3D Cosine Oscillation Resistance (3D-COR)** -- three cosine-similarity EMAs at fast (β≈0.80), medium (β≈0.95), and ultra-slow (β≈0.999) time horizons, combined into a single "volumetric oscillation score" (VOS) that damps the effective learning rate.
+2. **Pressure Diffusion (PD)** -- a small 1-D convolution over the flattened gradient that smooths high-frequency noise before it enters the update rule, at O(n) cost and zero extra persistent state.
+3. **Low Power Mode (LPM)** -- one quantized int8 momentum buffer plus factored row/column curvature, same as V5, so memory stays close to V5's footprint.
+
+```python
+from hypernix.pressure_cooker_v5s import PressureCookerV5S, V5SConfig
+
+# Defaults (general pretraining)
+cooker = PressureCookerV5S(model.parameters(), lr=3e-4)
+
+# Fine-tuning starting point (see class docstring for other presets)
+cooker = PressureCookerV5S(
+    model.parameters(),
+    lr=1e-4,
+    diffusion_factor=0.05,
+    vos_3d_gain=4.0,
+    freeze_patience=64,
+)
+
+# Or via an explicit config object
+cfg = V5SConfig(fast_beta=0.80, med_beta=0.95, ultra_slow_beta=0.999, diffusion_factor=0.12)
+cooker = PressureCookerV5S(model.parameters(), v5s_config=cfg, lr=3e-4)
+
+# Diagnostics
+cooker.print_summary()                  # human-readable config + live oscillation stats
+stats = cooker.get_oscillation_stats()  # {"fast_cos", "med_cos", "ultra_cos", "vos"}
+frozen = cooker.get_frozen_fraction()   # fraction of coordinates currently soft-frozen
+```
+
+`Agedcookerv5s` is the Pascal-safe (CUDA 6.1/6.2, e.g. GTX 10-series) variant: it caps the diffusion kernel width at 3 and stores curvature buffers in fp16.
+
 ## GPU Tiers
 
 | Tier | Class | Use Case | QAT | MTP |
@@ -108,12 +142,22 @@ cooker.swap_ema_weights(model)  # Swap back
 
 ## CLI
 
-```bash
-# Configure V5 with QAT and MTP
-hnx pressure-cooker-v5 --tier V5 --qat 6 --mtp --epochs 10
+There is currently no `pressure-cooker-v5` CLI subcommand -- `hypernix train run` (see `wiki/Training.md` / `hypernix.cli`) drives the built-in training loop, but optimizer choice, QAT, and MTP are configured in Python, not via CLI flags:
 
-# V5+ with full pipeline
-hnx pressure-cooker-v5 --tier V5+ --qat 4 --mtp --mtp-tokens 4 --ema 0.999
+```bash
+hypernix train run --model-dir ./snapshot --dataset data.txt --out-dir ./ckpt --lr 3e-4
+```
+
+```python
+from hypernix.pressure_cooker_v5 import PressureCookerV5, QATConfig
+from hypernix.pressure_cooker_v5s import PressureCookerV5S
+
+# V5 with QAT
+cooker = PressureCookerV5(model.parameters(), lr=2e-4, qat_config=QATConfig(bits=6))
+cooker.attach_qat(model)
+
+# V5S (3D-ORCP core, see the V5S section of this page)
+cooker = PressureCookerV5S(model.parameters(), lr=3e-4)
 ```
 
 ## Integration with Freezer

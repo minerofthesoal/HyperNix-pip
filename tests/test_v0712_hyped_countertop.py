@@ -5,6 +5,7 @@ and Countertop T1 API key integration.
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from hypernix import __version__
 from hypernix.countertop import countertop
@@ -12,6 +13,10 @@ from hypernix.gatekeeper import Gatekeeper
 from hypernix.hyped import (
     CURATED_MODELS,
     HYPED_VERSION,
+    ChatScreen,
+    ModelEntry,
+    OvenRunner,
+    SamplingConfig,
     SkillManager,
     ToolRegistry,
 )
@@ -102,6 +107,34 @@ def test_tool_registry():
         # Test system_info
         sys_out = tr.execute_tool("system_info", {})
         assert "OS:" in sys_out
+
+
+def test_chat_screen_submit_prompt_does_not_crash():
+    """Regression test: submitting a prompt in the hyped TUI used to
+    raise ``AttributeError: 'OvenRunner' object has no attribute
+    '_format_chat'`` on every turn, for every provider, because
+    ChatScreen wired a low-level ``Bell`` streamer (which requires
+    ``.model`` / ``.tokenizer`` / ``._format_chat`` on the oven it's
+    given) around ``OvenRunner``, a multi-provider wrapper that only
+    exposes the high-level ``.chat()`` API. ChatScreen no longer wires
+    a Bell into its Countertop, so a submitted prompt should route
+    straight through ``OvenRunner.chat()`` and return normally.
+    """
+    entry = ModelEntry("nix-mini", "hypernix/nix-mini", "test model", "HyperNix", "", "local")
+    sampling = SamplingConfig()
+    runner = OvenRunner(entry, sampling)
+    runner.local_oven = MagicMock()
+    runner.local_oven.chat.return_value = "Hello from the model!"
+
+    screen = ChatScreen(
+        runner=runner, model_entry=entry, sampling=sampling,
+        color=False, ascii_only=True,
+    )
+
+    reply = screen.countertop.say("hi there")
+
+    assert reply == "Hello from the model!"
+    assert runner.local_oven.chat.called
 
 
 def test_curated_models_catalog():

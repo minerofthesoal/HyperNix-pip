@@ -89,7 +89,7 @@ class QAProcessor:
         return None
 
     def _iter_raw_source(self) -> Iterator[Any]:
-        if isinstance(self.source, (str, Path)):
+        if isinstance(self.source, str | Path):
             with Path(self.source).open("r", encoding="utf-8", errors="replace") as f:
                 for line in f:
                     yield line.strip()

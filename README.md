@@ -10,62 +10,162 @@
 
 **End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
 
+## What's fixed in this update
+
+- **`hyped` TUI crash on every prompt** — submitting *any* prompt in the `hyped` chat TUI raised `AttributeError: 'OvenRunner' object has no attribute '_format_chat'` immediately after pressing Enter, on every provider (local/openai/anthropic/rest/t1). Root cause: `ChatScreen` wired a low-level `Bell` streamer into `Countertop`, but `Bell.stream_chat()` needs an oven exposing `.model` / `.tokenizer` / `._format_chat` directly, and `OvenRunner` (the multi-provider wrapper) only exposes a high-level `.chat()`. Fixed in `hyped.py`; regression test added in `tests/test_v0712_hyped_countertop.py`.
+- **`scripts/benchmark_v5.py` / `benchmark_v5s.py`** — both hard-coded `.cuda()` (crashed with no GPU) and trained all optimizers *sequentially on one shared model instance*, so later optimizers in the loop started from already-mutated weights instead of a fair, identical starting point. Rewritten to be device-safe, give each optimizer its own seeded model copy, and report peak memory alongside step time.
+- **`wiki/Pressure-Cooker-V5.md`** — corrected a factually wrong "6-bit quantized momentum" / "stochastic rounding" claim (the real implementation is int8 with standard rounding; see `_quantize_momentum` in `pressure_cooker_v5.py`), fixed an example that called `PressureCookerV5(..., peak_lr=..., quantize_momentum=...)` — neither kwarg exists, so it raised `TypeError` as written — and replaced a fabricated `hnx pressure-cooker-v5 --tier ...` CLI example with the actual supported entry points. Added the missing V5S section.
+- **This README** — roughly 30 lines across the module table and changelog sections were truncated mid-sentence with a literal `[...]` and a missing closing `|` (from an earlier editing pass), breaking the module table's markdown rendering. All 30 have been completed with accurate text checked against the current source, and the same "6-bit" inaccuracy above is fixed everywhere it appeared here too.
+- **New**: [`pressure_cooker_v5_v5s_paper.md`](pressure_cooker_v5_v5s_paper.md) — a from-source-measured efficiency writeup for `PressureCookerV5` / `V5S`, and `scripts/measure_optimizer_memory.py`, a new script that measures exact (not estimated) optimizer-state memory per parameter tensor.
+
+## Table of contents
+
+- [What's fixed in this update](#whats-fixed-in-this-update)
+- [Module reference](#module-reference)
+- [What's new in v0.70.5](#whats-new-in-v0705)
+- [What's new in v0.70.4](#whats-new-in-v0704)
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [Python API tour](#python-api-tour)
+- [CLI reference](#cli-reference)
+- [Supported model families](#supported-model-families)
+- [Examples](#examples)
+- [Wiki / deep dives](#wiki--deep-dives)
+- [How the GGUF pipeline works](#how-the-gguf-pipeline-works)
+- [Platform notes](#platform-notes)
+- [Build / release](#build--release)
+- [Usage & Documentation](#usage--documentation)
+- [License](#license)
+
+
+Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
+
+## Module reference
+
+Click a category below to expand it.
+
+<details>
+<summary><strong>Models & Training</strong> &nbsp;(11 modules)</summary>
 
 | Subsystem | What it does |
 |---|---|
 | `hypernix.download` | Pull snapshots from the Hub (short-name resolution, gated repos, offline cache). |
 | `hypernix.train` | `HyperNixConfig`, `HyperNixModel`, `init_from_scratch`, `expand_checkpoint`, `train`. Non-HyperNix archs route through `AutoModelForCausalLM`. |
-| `hypernix.old_oven` | `CodeOven` — ready-to-use wrapper around a snapshot: `.complete()`, `.chat()`, `.fill()`, `.save_pt()`. `new_oven()` spins a fresh one from the [ARCH_PRESETS](#supported-mode[...]
-| `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
-| `hypernix.mediocre_fridge` | Judge-training dataset generation — `synthesize_judge_corpus`, `collect_responses_from`. |
-| `hypernix.new_fridge` | Training-curve graphing — `parse_training_log`, `plot_loss_curve`, `plot_score_distribution`. Matplotlib installed lazily. |
-| `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric w[...]
-| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB), `NewFreezer` (11 GB+), `FlashFreezer` (OOM-safe retry wrapper). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core U[...]
-| `hypernix.smoke_alarm` | Training-step planner & monitor. `RadsAlarm` (constants, lightest), `GasAlarm` (CPU/GPU presets), `ModernAlarm` (warmup-measured), `AutoAlarm` (selector). Plus `storage_warn[...]
-| `hypernix.pans` | 5-tier data preprocessing: `FryingPan` → `SaucePan` → `Skillet` → `GrillPan` → `Wok`. Pair with `sink.Sink.pour` to write the output to disk. |
-| `hypernix.microwave` | 5-tier throwaway inference: `defrost` → `low_zap` → `zap` → `high_zap` → `chat_zap`, plus `reheat` for continuing a prior output. |
-| `hypernix.table` | Dead-simple tabular viewer: `from_training_log`, `from_judge_corpus`, `filter`, `select`, `show`. |
-| `hypernix.sink` | Append-only file sink with optional rotation + dedupe. |
 | `hypernix.instant_pot` | `brew(recipe)` — one-shot end-to-end pipeline. Also available as `hypernix brew recipe.json`. |
 | `hypernix.coffee_maker` | 3 tiers (drip / french-press / percolator) + `cold_brew` type for long checkpointed runs. |
-| `hypernix.espresso_maker` | 4-tier evaluation: `Ristretto` / `SingleShot` / `DoubleShot` / `Lungo` — run a prompt battery, score, return shots. |
+| `hypernix.deep_fryer` | 2-tier model-weight perturbation: `LightFry` (regulariser) / `HeavyFry` (severe, for bad-model negatives). In-place, reversible via snapshot. |
+| `hypernix.abbicus` | Automatic token regulation and curriculum tuning. **`Abbicus`** (linear) dynamically modifies max sequence length based on model size (0.5B-72B), global step, and dataset type. `TurboAbbicus` (exponential) adds sine-wave oscillation and a hard VRAM safeguard. |
+| `hypernix.compute_framework` | Hardware-agnostic multi-device training. Abstracts CUDA, MPS, CPU, TPU backends with automatic DDP/ZeRO wrapping. `ComputeFramework` handles PyTorch DDP initialization, device placement, and gradient sync without manual `torch.distributed` boilerplate. |
+| `hypernix.workshop` | Model frameworks and TTS/ASR pipelines. `WorkshopFramework` base class with `FrameworkConfig` for TTS, ASR, LLM, Vision models. Pre-built templates for the ray0rf1re/nano-nano collection plus 30+ third-party architectures. |
+| `hypernix.whisk` | Checkpoint averaging — `swa_average` (uniform mean), `ema` (exponential), `geometric_mean`. Accepts state dicts or paths to `.pt` / `.safetensors`. `whisk_to_snapshot` writes the merged weights back out as a loadable HyperNix snapshot. |
+| `hypernix.recipe_book` | Named-config registry. `RecipeBook` with `add` / `get` / `save` / `load` / `cook(name, **overrides)`. `cook` dispatches by `kind` (`instant_pot` / `cold_brew` / `espresso`) so a saved recipe runs the matching pipeline directly. |
+| `hypernix.mtp` | *(v0.70.5)* Multi-Token Prediction — predict multiple future tokens for 1.5-3x training efficiency + speculative decoding. `MTPConfig`, `MTPHead`, `MTPTrainer`. |
+
+</details>
+
+<details>
+<summary><strong>Optimizers</strong> &nbsp;(3 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector that picks a tier automatically from the detected device. |
+| `hypernix.pressure_cooker_v3` | ZeRO-optimized V3 optimizer with FP8 support. `QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig` dataclass. `PressureCookerV3` / `PressureCookerV3Plus` classes with ZeRO-1/2 sharding, plus `StovetopV3Cooker` / `StovetopV3CookerPlus` CPU-tuned variants. |
+| `hypernix.pressure_cooker_v5` | *(v0.70.5 / v0.70.6)* ORCP optimizer family with int8-quantized momentum, factored curvature, QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, and EMA shadowing. `PressureCookerV5` + `PressureCookerV5Plus`, plus the ground-up 3D-ORCP `PressureCookerV5S`. Pascal-safe variants: `Agedcookerv5`, `ULTRAagedcookerv5`, `Agedcookerv5s`. See the [efficiency paper](pressure_cooker_v5_v5s_paper.md). |
+
+</details>
+
+<details>
+<summary><strong>Memory / VRAM</strong> &nbsp;(4 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
+| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB, conservative batches, bf16/fp16), `NewFreezer` (11 GB+, fp32-preferred), `FlashFreezer` (OOM-safe retry wrapper around either). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core Ultra, Ryzen) via `auto_freezer()`. |
+| `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
+| `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. The `STML` context manager folds long sequences into batch segments to keep the *untrained* context length bounded during training. |
+
+</details>
+
+<details>
+<summary><strong>Data Pipeline</strong> &nbsp;(9 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.pans` | 5-tier data preprocessing: `FryingPan` → `SaucePan` → `Skillet` → `GrillPan` → `Wok`. Pair with `sink.Sink.pour` to write the output to disk. |
 | `hypernix.blender` | 4-tier multi-source mixing: `HandBlender` / `PersonalBlender` / `CountertopBlender` / `HighPowerBlender`. |
 | `hypernix.toaster` | 4-tier per-line formatting: `TwoSliceToaster` / `FourSliceToaster` / `ConveyorToaster` / `ToasterOven`. |
 | `hypernix.food_processor` | 4-tier bulk chunking: `ChopBlade` / `SliceBlade` / `ShredBlade` / `PureeBlade`. |
-| `hypernix.smoker` | 4-tier training quality: `UseableSmoker` / `GoodSmoker` / `CommercialSmoker` / `HighQualitySmoker`. |
-| `hypernix.deep_fryer` | 2-tier model-weight perturbation: `LightFry` (regulariser) / `HeavyFry` (severe, for bad-model negatives). In-place, reversible via snapshot. |
-| `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
 | `hypernix.salt_shaker` | 3-tier gentle data augmentation: `FromTheBag` / `HandCrusher` / `PoshSaltDish`. |
 | `hypernix.pepper_shaker` | 3-tier sharp perturbations: `SmallShaker` (MLM-style mask) / `Dish` (typos) / `TallHandmade` (negation). |
-| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector.[...]
-| `hypernix.pressure_cooker_v3` | ZeRO-optimized V3 optimizer with FP8 support. New `QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig` dataclass. `PressureCookerV3` class with ZeR[...]
-| `hypernix.pressure_cooker_v5` | *(v0.70.5)* ORCP optimizer with 6-bit quantized momentum, QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing. `PressureCookerV5` + `PressureCookerV5Plus` with G[...]
-| `hypernix.mtp` | *(v0.70.5)* Multi-Token Prediction — predict multiple future tokens for 1.5-3x training efficiency + speculative decoding. `MTPConfig`, `MTPHead`, `MTPTrainer`. |
-| `hypernix.scavenger` | *(v0.70.5)* HuggingFace dataset discovery engine. Keyword search, storage budgets, quality filtering, relevance scoring. `ScavengerCriteria` + `Scavenger.hunt()`. |
+| `hypernix.qa` | *(v0.70.4)* **`QAProcessor`** — turns structured datasets (JSONL, `list[dict]`, plain text) into causal LM training strings. Two modes: `question_answer` (`Question: {q}\nAnswer: {a}`) and plain completion, with optional integrated `salt_shaker` / `pepper_shaker` seasoning. |
+| `hypernix.cutting_board` | Train / val / test splitting. `CuttingBoard` (deterministic random) + `StratifiedBoard` (preserves class distribution on labelled records). Renormalises ratios that don't sum to 1; writes per-split files or returns in-memory lists. |
+| `hypernix.lunchbox` | Consistent-schema dataset packager. `Lunchbox.for_eval()` pre-loads the recommended eval-results columns; `pack(path)` / `push_to_hub(repo_id)` routes through `datasets.Dataset` so column-schema mismatches fail fast instead of at upload time. |
+
+</details>
+
+<details>
+<summary><strong>Inference & Chat</strong> &nbsp;(7 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.old_oven` | `CodeOven` — ready-to-use wrapper around a snapshot: `.complete()`, `.chat()`, `.fill()`, `.save_pt()`. `new_oven()` spins a fresh one from the [ARCH_PRESETS](#arch_presets-seeds-for-new_oven) seed list instead of downloading a snapshot. |
+| `hypernix.microwave` | 5-tier throwaway inference: `defrost` → `low_zap` → `zap` → `high_zap` → `chat_zap`, plus `reheat` for continuing a prior output. |
+| `hypernix.cookbook` | Chat-template registry. Built-in templates for `chatml` / `hyper-nix.2` / `llama3` / `llama2` / `alpaca` / `vicuna` / `plain`. `for_model(repo_id)` picks the right one automatically from the repo's config; wired into `old_oven` and `countertop` by default. |
+| `hypernix.countertop` | Multi-turn chat session. `Countertop(oven, system=…)` with `say(user)` / `reset()` / `save(path)` / `load(path)`. Auto-trims long histories; optional `bell=` for token-by-token streaming, `flour=` for output cleanup, `t1_key=` for HNX1/T1-backed remote models. |
+| `hypernix.menu` | Named system-prompt registry: `default` / `concise` / `code-helper` / `judge` / `creative` / `chef` / `hyper-nix`. Pair with `countertop(oven, persona="…")` to pick a system prompt by name instead of writing one out each time. |
+| `hypernix.bell` | Streaming-token + done-notification primitive. `Bell.iter_chat(oven, messages)` yields tokens; `stream_chat` collects and fires callbacks. `stdout_bell()` / `file_bell(path)` ship as ready-made done-callbacks; `silent_bell()` disables notifications. |
+| `hypernix.flour` | Chat-quality logits processor — repetition penalty, frequency / presence penalty, no-repeat n-gram, bad-word suppression, role-leak suppression (cuts hallucinated `user:`-style follow-on turns a base-model-flavoured checkpoint sometimes emits). |
+
+</details>
+
+<details>
+<summary><strong>Monitoring & CLI</strong> &nbsp;(5 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.smoke_alarm` | Training-step planner & monitor. `RadsAlarm` (constants, lightest), `GasAlarm` (CPU/GPU presets), `ModernAlarm` (warmup-measured), `AutoAlarm` (selector). Plus `storage_warning()` for disk-space checks before a long run. |
+| `hypernix.table` | Dead-simple tabular viewer: `from_training_log`, `from_judge_corpus`, `filter`, `select`, `show`. |
+| `hypernix.tvtop` | Backwards-compatibility shim — all functionality moved to `hypernix.tv`. Re-exports everything so `import hypernix.tvtop` continues to work. Console script `tvtop` now launches the `tvtop_plus_plus` dashboard by default; use `tvtop-old` for the classic view. |
 | `hypernix.wiki_cli` | *(v0.70.5)* `hnx` / `hypenix` command — auto-generating wiki from source docstrings. `hnx`, `hnx -q`, `hnx -b`. |
 | `hypernix.vera` | *(v0.70.5)* Module verification — syntax, docstrings, types, smoke tests. `hnx vera <file>` / `hnx vera --all`. |
-| `hypernix.abbicus` | Automatic token regulation and curriculum tuning. **`Abbicus`** (linear) dynamically modifies max sequence length based on model size (0.5B–72B), global step, and dataset type[...]
-| `hypernix.qa` | *(v0.70.4)* **`QAProcessor`** — turns structured datasets (JSONL, `list[dict]`, plain text) into causal LM training strings. Two modes: `question_answer` (`Question: {q}\nAnswer: {[...]
-| `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. `[...]
-| `hypernix.compute_framework` | Hardware-agnostic multi-device training. Abstracts CUDA, MPS, CPU, TPU backends with automatic DDP/ZeRO wrapping. `ComputeFramework` handles PyTorch DDP initialization[...]
-| `hypernix.workshop` | Model frameworks and TTS/ASR pipelines. `WorkshopFramework` base class with `FrameworkConfig` for TTS, ASR, LLM, Vision models. Pre-built templates for ray0rf1re/nano-nano coll[...]
-| `hypernix.tvtop` | Backwards-compatibility shim — all functionality moved to `hypernix.tv`. Re-exports everything so `import hypernix.tvtop` continues to work. Console script `tvtop` now launches [...]
-| `hypernix.lunchbox` | Consistent-schema dataset packager. `Lunchbox.for_eval()` pre-loads the recommended eval-results columns; `pack(path)` / `push_to_hub(repo_id)` routes through `datasets.Dataset[...]
-| `hypernix.whisk` | Checkpoint averaging — `swa_average` (uniform mean), `ema` (exponential), `geometric_mean`. Accepts state dicts or paths to `.pt` / `.safetensors`. `whisk_to_snapshot` writes a [...]
-| `hypernix.cutting_board` | Train / val / test splitting. `CuttingBoard` (deterministic random) + `StratifiedBoard` (preserves class distribution on labelled records). Renormalises ratios; writes per[...]
-| `hypernix.apron` | RNG-state guard. `apron(seed=…)` context manager snapshots Python `random`, NumPy (if installed), torch CPU and every CUDA device's RNG, optionally seeds, and restores the origi[...]
-| `hypernix.recipe_book` | Named-config registry. `RecipeBook` with `add` / `get` / `save` / `load` / `cook(name, **overrides)`. `cook` dispatches by `kind` (`instant_pot` / `cold_brew` / `espresso`).[...]
-| `hypernix.cookbook` | Chat-template registry. Built-in templates for `chatml` / `hyper-nix.2` / `llama3` / `llama2` / `alpaca` / `vicuna` / `plain`. `for_model(repo_id)` picks the right one. Wired i[...]
-| `hypernix.countertop` | Multi-turn chat session. `Countertop(oven, system=…)` with `say(user)` / `reset()` / `save(path)` / `load(path)`. Auto-trims long histories, optional `bell=` for streaming,[...]
-| `hypernix.menu` | Named system-prompt registry: `default` / `concise` / `code-helper` / `judge` / `creative` / `chef` / `hyper-nix`. Pair with `countertop(oven, persona="…")` to pick a system prom[...]
-| `hypernix.bell` | Streaming-token + done-notification primitive. `Bell.iter_chat(oven, messages)` yields tokens; `stream_chat` collects and fires callbacks. `stdout_bell()` / `file_bell(path)` ship [...]
-| `hypernix.flour` | Chat-quality logits processor — repetition penalty, frequency / presence penalty, no-repeat n-gram, bad-word suppression, role-leak suppression (cuts hallucinated `user:` follow[...]
-| `hypernix.torch_compat` | Portability shim (RMSNorm + SDPA) for running on old Intel Macs with torch 1.13. See [`wiki/macOS-legacy.md`](wiki/macOS-legacy.md). |
+
+</details>
+
+<details>
+<summary><strong>Datasets & Judging</strong> &nbsp;(6 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.mediocre_fridge` | Judge-training dataset generation — `synthesize_judge_corpus`, `collect_responses_from`. |
+| `hypernix.new_fridge` | Training-curve graphing — `parse_training_log`, `plot_loss_curve`, `plot_score_distribution`. Matplotlib installed lazily. |
+| `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric with per-rule weights and explainable [0, 1] scores, and `industrial_range` uses any `CodeOven`-compatible model as an LLM judge (including pairwise comparison for preference pairs). |
+| `hypernix.espresso_maker` | 4-tier evaluation: `Ristretto` / `SingleShot` / `DoubleShot` / `Lungo` — run a prompt battery, score, return shots. |
+| `hypernix.smoker` | 4-tier training quality: `UseableSmoker` / `GoodSmoker` / `CommercialSmoker` / `HighQualitySmoker`. |
+| `hypernix.scavenger` | *(v0.70.5)* HuggingFace dataset discovery engine. Keyword search, storage budgets, quality filtering, relevance scoring. `ScavengerCriteria` + `Scavenger.hunt()`. |
+
+</details>
+
+<details>
+<summary><strong>Quantize & Export</strong> &nbsp;(3 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
 | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
-| `hypernix.quantize` | `llama-quantize` driver. v0.51.3 ships a 30-type `QUANT_CATALOG` (`QuantSpec` dataclass per type with bits-per-weight, category, recommendation) covering floats (`F32` / `F16` [...]
+| `hypernix.quantize` | `llama-quantize` driver. v0.51.3 ships a 30-type `QUANT_CATALOG` (`QuantSpec` dataclass per type with bits-per-weight, category, recommendation) covering floats (`F32` / `F16` / `BF16`), legacy k-quants (`Q4_0`…`Q5_1`), K-quants (`Q2_K`…`Q6_K`), and importance-matrix quants (`IQ1_S`…`IQ4_XS`); see the alias table below. |
 | `hypernix.upload` | Push the produced artifacts back to a HuggingFace repo. |
 
-Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.14.
+</details>
+
+<details>
+<summary><strong>Utilities</strong> &nbsp;(3 modules)</summary>
+
+| Subsystem | What it does |
+|---|---|
+| `hypernix.sink` | Append-only file sink with optional rotation + dedupe. |
+| `hypernix.apron` | RNG-state guard. `apron(seed=…)` context manager snapshots Python `random`, NumPy (if installed), torch CPU and every CUDA device's RNG, optionally seeds all of them, and restores the original state on exit. |
+| `hypernix.torch_compat` | Portability shim (RMSNorm + SDPA) for running on old Intel Macs with torch 1.13. See [`wiki/macOS-legacy.md`](wiki/macOS-legacy.md). |
+
+</details>
 
 ---
 
@@ -73,9 +173,9 @@ Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.14.
 
 Eleven major additions:
 
-- **`hnx` / `hypenix` Wiki CLI** — Auto-generating documentation browser. `hnx` shows all modules; `hnx <module>` shows docs; `hnx -q <module>` streams quick mode; `hnx -b` opens in browser. Docs re[...]
+- **`hnx` / `hypenix` Wiki CLI** — Auto-generating documentation browser. `hnx` shows all modules; `hnx <module>` shows docs; `hnx -q <module>` streams quick mode; `hnx -b` opens in browser. Docs regenerate from source docstrings, so they can't drift out of sync with the code.
 - **`hnx vera`** — Module verification: syntax check, docstring coverage, type annotations, smoke test. `hnx vera <file>` or `hnx vera --all`.
-- **`pressure_cooker_v5`** — ORCP optimizer with 6-bit quantized momentum (~75% memory savings), QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing, and GPU tiers (InductionCookerV5, ProCooker[...]
+- **`pressure_cooker_v5`** — ORCP optimizer family with int8-quantized momentum (~75% smaller than fp32, ~87% smaller total optimizer state than AdamW -- see the [efficiency paper](pressure_cooker_v5_v5s_paper.md)), QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing, and the ground-up 3D-ORCP `PressureCookerV5S` variant (v0.70.6).
 - **`mtp`** — Multi-Token Prediction for 1.5-3x training efficiency. Sequential/independent modes, shared/independent heads, native workshop integration.
 - **`scavenger`** — HuggingFace dataset discovery with keyword search, storage budgets, quality filtering (likes/downloads/age), and relevance scoring.
 - **Freezer QAT support** — `suggest_qat_batch_size()`, `prepare_for_qat()`, per-bit-width VRAM multiplier profiles.
@@ -89,7 +189,7 @@ Eleven major additions:
 
 ![HyperNix Training Features](docs/public/training-benefits-chart.png)
 
-> **Key insight**: MTP + Speculative Decoding offer the highest benefit-to-cost ratio. 6-bit quantized momentum saves 75% memory with minimal complexity. Combined use can reduce training costs by 40-6[...]
+> **Key insight**: MTP + Speculative Decoding offer the highest benefit-to-cost ratio. Int8-quantized momentum cuts the momentum buffer's own memory by 75% versus fp32, and PressureCookerV5/V5S's factored curvature keeps the rest of the optimizer state small too -- measured optimizer-state memory lands around 12-13% of AdamW's (see the [efficiency paper](pressure_cooker_v5_v5s_paper.md) for the exact numbers and methodology). The trade-offs -- including step-time overhead on some hardware -- are real and are covered in the paper rather than summarized as a single percentage here.
 
 ## What's new in v0.70.4
 
@@ -109,9 +209,9 @@ Five new modules + major optimizer rewrites:
 
 - **`abbicus`** — Automatic token regulation and curriculum tuning for model sizes 0.5B–72B
 - **`compute_framework`** — Hardware-agnostic multi-device training with auto DDP/ZeRO wrapping (CUDA/MPS/CPU/TPU)
-- **`pressure_cooker` V2** — Quantization-aware training with fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M, plus 10 upgrades (gradient checkpointing, adaptive clipping, EMA shadowing[...]
+- **`pressure_cooker` V2** — Quantization-aware training with fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M, plus 10 upgrades (mixed-precision autodetect, QAT hooks, gradient-checkpointing integration, adaptive per-layer gradient clipping, EMA weight shadowing, DDP/FSDP-aware distributed training, dynamic loss scaling with overflow backoff, parameter freeze/unfreeze callbacks, an LR finder, and metrics streaming to tvtop)
 - **`pressure_cooker_v3`** — ZeRO-1/2 optimizations, FP8 support, `QuantDtype` enum + `QuantConfig` dataclass
-- **`workshop`** — Model frameworks for TTS/ASR/LLM/Vision with pre-built templates, nano-nano collection support, 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.[...]
+- **`workshop`** — Model frameworks for TTS/ASR/LLM/Vision with pre-built templates, nano-nano collection support, 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.x, and others)
 - **`tvtop`** — Now launches the premium `tvtop_plus_plus` dashboard by default; use `tvtop-old` for the classic view
 
 ## Install
@@ -359,7 +459,7 @@ Topic-focused reference guides live in the `wiki/` directory:
 - [`wiki/CLI.md`](wiki/CLI.md) — full CLI cheat sheet
 - [`wiki/Quantization.md`](wiki/Quantization.md) — GGUF conversion + k-quant pipeline
 - [`wiki/Changelog.md`](wiki/Changelog.md) — full per-release version history
-- [`wiki/Pressure-Cooker-V5.md`](wiki/Pressure-Cooker-V5.md) — Pressure Cooker V5/V5+ with QAT and MTP
+- [`wiki/Pressure-Cooker-V5.md`](wiki/Pressure-Cooker-V5.md) — Pressure Cooker V5 / V5+ / V5S with QAT and MTP
 - [`wiki/MTP.md`](wiki/MTP.md) — Multi-Token Prediction guide
 - [`wiki/Scavenger.md`](wiki/Scavenger.md) — HuggingFace dataset discovery
 
@@ -380,7 +480,7 @@ k-quant in the plan.
 - **Linux**: full support, every distro tested on: (Ubuntu, Debian, Arch.)
 - **macOS**: Metal for inference, Homebrew for `llama-quantize`. (untested)
 - **Windows**: native support; doctor accepts Windows; `llama-quantize` auto-downloads Windows binaries; use scoop / chocolatey for system deps. (untested)
-- **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal[...]
+- **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal_mode_hints()` returns a dict of recommended settings (batch size, dtype, TF32/SDPA toggles) for the detected card.
 
 ## Build / release
 
@@ -401,11 +501,18 @@ Comprehensive performance analysis and training guides available in the followin
 
 | Document | Description |
 |---|---|
+| [**pressure_cooker_v5_v5s_paper.md**](pressure_cooker_v5_v5s_paper.md) | PressureCookerV5 / V5S architecture, math, and measured efficiency numbers (memory + step-time), reproducible from the scripts below. |
 | [**01_ram_and_training_time.pdf**](01_ram_and_training_time.pdf) | RAM usage patterns and training time impact analysis. |
 | [**02_optimizer_speed_and_memory.pdf**](02_optimizer_speed_and_memory.pdf) | Optimizer performance comparison and memory optimization strategies. |
 | [**03_gpu_utilization_and_vram.pdf**](03_gpu_utilization_and_vram.pdf) | GPU utilization patterns and VRAM management best practices. |
 | [**04_architecture_and_pipeline.pdf**](04_architecture_and_pipeline.pdf) | Detailed architecture documentation and training pipeline information. |
 
+```bash
+# Reproduce the optimizer benchmarks yourself:
+python scripts/benchmark_v5.py              # AdamW vs PressureCookerV5, step time + peak mem
+python scripts/benchmark_v5s.py             # AdamW vs V5 vs V5S, step time + peak mem
+python scripts/measure_optimizer_memory.py  # exact optimizer-state bytes per parameter tensor
+```
 
 ## License
 

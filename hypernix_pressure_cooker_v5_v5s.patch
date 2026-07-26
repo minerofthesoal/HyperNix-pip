@@ -1,0 +1,1776 @@
+diff --git a/README.md b/README.md
+index cd28498..7e07dbd 100644
+--- a/README.md
++++ b/README.md
+@@ -10,62 +10,162 @@
+ 
+ **End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
+ 
++## What's fixed in this update
++
++- **`hyped` TUI crash on every prompt** — submitting *any* prompt in the `hyped` chat TUI raised `AttributeError: 'OvenRunner' object has no attribute '_format_chat'` immediately after pressing Enter, on every provider (local/openai/anthropic/rest/t1). Root cause: `ChatScreen` wired a low-level `Bell` streamer into `Countertop`, but `Bell.stream_chat()` needs an oven exposing `.model` / `.tokenizer` / `._format_chat` directly, and `OvenRunner` (the multi-provider wrapper) only exposes a high-level `.chat()`. Fixed in `hyped.py`; regression test added in `tests/test_v0712_hyped_countertop.py`.
++- **`scripts/benchmark_v5.py` / `benchmark_v5s.py`** — both hard-coded `.cuda()` (crashed with no GPU) and trained all optimizers *sequentially on one shared model instance*, so later optimizers in the loop started from already-mutated weights instead of a fair, identical starting point. Rewritten to be device-safe, give each optimizer its own seeded model copy, and report peak memory alongside step time.
++- **`wiki/Pressure-Cooker-V5.md`** — corrected a factually wrong "6-bit quantized momentum" / "stochastic rounding" claim (the real implementation is int8 with standard rounding; see `_quantize_momentum` in `pressure_cooker_v5.py`), fixed an example that called `PressureCookerV5(..., peak_lr=..., quantize_momentum=...)` — neither kwarg exists, so it raised `TypeError` as written — and replaced a fabricated `hnx pressure-cooker-v5 --tier ...` CLI example with the actual supported entry points. Added the missing V5S section.
++- **This README** — roughly 30 lines across the module table and changelog sections were truncated mid-sentence with a literal `[...]` and a missing closing `|` (from an earlier editing pass), breaking the module table's markdown rendering. All 30 have been completed with accurate text checked against the current source, and the same "6-bit" inaccuracy above is fixed everywhere it appeared here too.
++- **New**: [`pressure_cooker_v5_v5s_paper.md`](pressure_cooker_v5_v5s_paper.md) — a from-source-measured efficiency writeup for `PressureCookerV5` / `V5S`, and `scripts/measure_optimizer_memory.py`, a new script that measures exact (not estimated) optimizer-state memory per parameter tensor.
++
++## Table of contents
++
++- [What's fixed in this update](#whats-fixed-in-this-update)
++- [Module reference](#module-reference)
++- [What's new in v0.70.5](#whats-new-in-v0705)
++- [What's new in v0.70.4](#whats-new-in-v0704)
++- [Install](#install)
++- [Quickstart](#quickstart)
++- [Python API tour](#python-api-tour)
++- [CLI reference](#cli-reference)
++- [Supported model families](#supported-model-families)
++- [Examples](#examples)
++- [Wiki / deep dives](#wiki--deep-dives)
++- [How the GGUF pipeline works](#how-the-gguf-pipeline-works)
++- [Platform notes](#platform-notes)
++- [Build / release](#build--release)
++- [Usage & Documentation](#usage--documentation)
++- [License](#license)
++
++
++Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
++
++## Module reference
++
++Click a category below to expand it.
++
++<details>
++<summary><strong>Models & Training</strong> &nbsp;(11 modules)</summary>
+ 
+ | Subsystem | What it does |
+ |---|---|
+ | `hypernix.download` | Pull snapshots from the Hub (short-name resolution, gated repos, offline cache). |
+ | `hypernix.train` | `HyperNixConfig`, `HyperNixModel`, `init_from_scratch`, `expand_checkpoint`, `train`. Non-HyperNix archs route through `AutoModelForCausalLM`. |
+-| `hypernix.old_oven` | `CodeOven` — ready-to-use wrapper around a snapshot: `.complete()`, `.chat()`, `.fill()`, `.save_pt()`. `new_oven()` spins a fresh one from the [ARCH_PRESETS](#supported-mode[...]
+-| `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
+-| `hypernix.mediocre_fridge` | Judge-training dataset generation — `synthesize_judge_corpus`, `collect_responses_from`. |
+-| `hypernix.new_fridge` | Training-curve graphing — `parse_training_log`, `plot_loss_curve`, `plot_score_distribution`. Matplotlib installed lazily. |
+-| `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric w[...]
+-| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB), `NewFreezer` (11 GB+), `FlashFreezer` (OOM-safe retry wrapper). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core U[...]
+-| `hypernix.smoke_alarm` | Training-step planner & monitor. `RadsAlarm` (constants, lightest), `GasAlarm` (CPU/GPU presets), `ModernAlarm` (warmup-measured), `AutoAlarm` (selector). Plus `storage_warn[...]
+-| `hypernix.pans` | 5-tier data preprocessing: `FryingPan` → `SaucePan` → `Skillet` → `GrillPan` → `Wok`. Pair with `sink.Sink.pour` to write the output to disk. |
+-| `hypernix.microwave` | 5-tier throwaway inference: `defrost` → `low_zap` → `zap` → `high_zap` → `chat_zap`, plus `reheat` for continuing a prior output. |
+-| `hypernix.table` | Dead-simple tabular viewer: `from_training_log`, `from_judge_corpus`, `filter`, `select`, `show`. |
+-| `hypernix.sink` | Append-only file sink with optional rotation + dedupe. |
+ | `hypernix.instant_pot` | `brew(recipe)` — one-shot end-to-end pipeline. Also available as `hypernix brew recipe.json`. |
+ | `hypernix.coffee_maker` | 3 tiers (drip / french-press / percolator) + `cold_brew` type for long checkpointed runs. |
+-| `hypernix.espresso_maker` | 4-tier evaluation: `Ristretto` / `SingleShot` / `DoubleShot` / `Lungo` — run a prompt battery, score, return shots. |
++| `hypernix.deep_fryer` | 2-tier model-weight perturbation: `LightFry` (regulariser) / `HeavyFry` (severe, for bad-model negatives). In-place, reversible via snapshot. |
++| `hypernix.abbicus` | Automatic token regulation and curriculum tuning. **`Abbicus`** (linear) dynamically modifies max sequence length based on model size (0.5B-72B), global step, and dataset type. `TurboAbbicus` (exponential) adds sine-wave oscillation and a hard VRAM safeguard. |
++| `hypernix.compute_framework` | Hardware-agnostic multi-device training. Abstracts CUDA, MPS, CPU, TPU backends with automatic DDP/ZeRO wrapping. `ComputeFramework` handles PyTorch DDP initialization, device placement, and gradient sync without manual `torch.distributed` boilerplate. |
++| `hypernix.workshop` | Model frameworks and TTS/ASR pipelines. `WorkshopFramework` base class with `FrameworkConfig` for TTS, ASR, LLM, Vision models. Pre-built templates for the ray0rf1re/nano-nano collection plus 30+ third-party architectures. |
++| `hypernix.whisk` | Checkpoint averaging — `swa_average` (uniform mean), `ema` (exponential), `geometric_mean`. Accepts state dicts or paths to `.pt` / `.safetensors`. `whisk_to_snapshot` writes the merged weights back out as a loadable HyperNix snapshot. |
++| `hypernix.recipe_book` | Named-config registry. `RecipeBook` with `add` / `get` / `save` / `load` / `cook(name, **overrides)`. `cook` dispatches by `kind` (`instant_pot` / `cold_brew` / `espresso`) so a saved recipe runs the matching pipeline directly. |
++| `hypernix.mtp` | *(v0.70.5)* Multi-Token Prediction — predict multiple future tokens for 1.5-3x training efficiency + speculative decoding. `MTPConfig`, `MTPHead`, `MTPTrainer`. |
++
++</details>
++
++<details>
++<summary><strong>Optimizers</strong> &nbsp;(3 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector that picks a tier automatically from the detected device. |
++| `hypernix.pressure_cooker_v3` | ZeRO-optimized V3 optimizer with FP8 support. `QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig` dataclass. `PressureCookerV3` / `PressureCookerV3Plus` classes with ZeRO-1/2 sharding, plus `StovetopV3Cooker` / `StovetopV3CookerPlus` CPU-tuned variants. |
++| `hypernix.pressure_cooker_v5` | *(v0.70.5 / v0.70.6)* ORCP optimizer family with int8-quantized momentum, factored curvature, QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, and EMA shadowing. `PressureCookerV5` + `PressureCookerV5Plus`, plus the ground-up 3D-ORCP `PressureCookerV5S`. Pascal-safe variants: `Agedcookerv5`, `ULTRAagedcookerv5`, `Agedcookerv5s`. See the [efficiency paper](pressure_cooker_v5_v5s_paper.md). |
++
++</details>
++
++<details>
++<summary><strong>Memory / VRAM</strong> &nbsp;(4 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
++| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB, conservative batches, bf16/fp16), `NewFreezer` (11 GB+, fp32-preferred), `FlashFreezer` (OOM-safe retry wrapper around either). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core Ultra, Ryzen) via `auto_freezer()`. |
++| `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
++| `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. The `STML` context manager folds long sequences into batch segments to keep the *untrained* context length bounded during training. |
++
++</details>
++
++<details>
++<summary><strong>Data Pipeline</strong> &nbsp;(9 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.pans` | 5-tier data preprocessing: `FryingPan` → `SaucePan` → `Skillet` → `GrillPan` → `Wok`. Pair with `sink.Sink.pour` to write the output to disk. |
+ | `hypernix.blender` | 4-tier multi-source mixing: `HandBlender` / `PersonalBlender` / `CountertopBlender` / `HighPowerBlender`. |
+ | `hypernix.toaster` | 4-tier per-line formatting: `TwoSliceToaster` / `FourSliceToaster` / `ConveyorToaster` / `ToasterOven`. |
+ | `hypernix.food_processor` | 4-tier bulk chunking: `ChopBlade` / `SliceBlade` / `ShredBlade` / `PureeBlade`. |
+-| `hypernix.smoker` | 4-tier training quality: `UseableSmoker` / `GoodSmoker` / `CommercialSmoker` / `HighQualitySmoker`. |
+-| `hypernix.deep_fryer` | 2-tier model-weight perturbation: `LightFry` (regulariser) / `HeavyFry` (severe, for bad-model negatives). In-place, reversible via snapshot. |
+-| `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
+ | `hypernix.salt_shaker` | 3-tier gentle data augmentation: `FromTheBag` / `HandCrusher` / `PoshSaltDish`. |
+ | `hypernix.pepper_shaker` | 3-tier sharp perturbations: `SmallShaker` (MLM-style mask) / `Dish` (typos) / `TallHandmade` (negation). |
+-| `hypernix.pressure_cooker` | Custom AdamW optimizer in 5 tiers: base `PressureCooker` + CPU (`StovetopCooker`, `ElectricCooker`) + GPU (`InductionCooker`, `ProCooker`) + `universal_cooker` selector.[...]
+-| `hypernix.pressure_cooker_v3` | ZeRO-optimized V3 optimizer with FP8 support. New `QuantDtype` enum (FP8/FP16/FP32/FP64/Q8/Q6/Q5_5/Q4M) and `QuantConfig` dataclass. `PressureCookerV3` class with ZeR[...]
+-| `hypernix.pressure_cooker_v5` | *(v0.70.5)* ORCP optimizer with 6-bit quantized momentum, QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing. `PressureCookerV5` + `PressureCookerV5Plus` with G[...]
+-| `hypernix.mtp` | *(v0.70.5)* Multi-Token Prediction — predict multiple future tokens for 1.5-3x training efficiency + speculative decoding. `MTPConfig`, `MTPHead`, `MTPTrainer`. |
+-| `hypernix.scavenger` | *(v0.70.5)* HuggingFace dataset discovery engine. Keyword search, storage budgets, quality filtering, relevance scoring. `ScavengerCriteria` + `Scavenger.hunt()`. |
++| `hypernix.qa` | *(v0.70.4)* **`QAProcessor`** — turns structured datasets (JSONL, `list[dict]`, plain text) into causal LM training strings. Two modes: `question_answer` (`Question: {q}\nAnswer: {a}`) and plain completion, with optional integrated `salt_shaker` / `pepper_shaker` seasoning. |
++| `hypernix.cutting_board` | Train / val / test splitting. `CuttingBoard` (deterministic random) + `StratifiedBoard` (preserves class distribution on labelled records). Renormalises ratios that don't sum to 1; writes per-split files or returns in-memory lists. |
++| `hypernix.lunchbox` | Consistent-schema dataset packager. `Lunchbox.for_eval()` pre-loads the recommended eval-results columns; `pack(path)` / `push_to_hub(repo_id)` routes through `datasets.Dataset` so column-schema mismatches fail fast instead of at upload time. |
++
++</details>
++
++<details>
++<summary><strong>Inference & Chat</strong> &nbsp;(7 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.old_oven` | `CodeOven` — ready-to-use wrapper around a snapshot: `.complete()`, `.chat()`, `.fill()`, `.save_pt()`. `new_oven()` spins a fresh one from the [ARCH_PRESETS](#arch_presets-seeds-for-new_oven) seed list instead of downloading a snapshot. |
++| `hypernix.microwave` | 5-tier throwaway inference: `defrost` → `low_zap` → `zap` → `high_zap` → `chat_zap`, plus `reheat` for continuing a prior output. |
++| `hypernix.cookbook` | Chat-template registry. Built-in templates for `chatml` / `hyper-nix.2` / `llama3` / `llama2` / `alpaca` / `vicuna` / `plain`. `for_model(repo_id)` picks the right one automatically from the repo's config; wired into `old_oven` and `countertop` by default. |
++| `hypernix.countertop` | Multi-turn chat session. `Countertop(oven, system=…)` with `say(user)` / `reset()` / `save(path)` / `load(path)`. Auto-trims long histories; optional `bell=` for token-by-token streaming, `flour=` for output cleanup, `t1_key=` for HNX1/T1-backed remote models. |
++| `hypernix.menu` | Named system-prompt registry: `default` / `concise` / `code-helper` / `judge` / `creative` / `chef` / `hyper-nix`. Pair with `countertop(oven, persona="…")` to pick a system prompt by name instead of writing one out each time. |
++| `hypernix.bell` | Streaming-token + done-notification primitive. `Bell.iter_chat(oven, messages)` yields tokens; `stream_chat` collects and fires callbacks. `stdout_bell()` / `file_bell(path)` ship as ready-made done-callbacks; `silent_bell()` disables notifications. |
++| `hypernix.flour` | Chat-quality logits processor — repetition penalty, frequency / presence penalty, no-repeat n-gram, bad-word suppression, role-leak suppression (cuts hallucinated `user:`-style follow-on turns a base-model-flavoured checkpoint sometimes emits). |
++
++</details>
++
++<details>
++<summary><strong>Monitoring & CLI</strong> &nbsp;(5 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.smoke_alarm` | Training-step planner & monitor. `RadsAlarm` (constants, lightest), `GasAlarm` (CPU/GPU presets), `ModernAlarm` (warmup-measured), `AutoAlarm` (selector). Plus `storage_warning()` for disk-space checks before a long run. |
++| `hypernix.table` | Dead-simple tabular viewer: `from_training_log`, `from_judge_corpus`, `filter`, `select`, `show`. |
++| `hypernix.tvtop` | Backwards-compatibility shim — all functionality moved to `hypernix.tv`. Re-exports everything so `import hypernix.tvtop` continues to work. Console script `tvtop` now launches the `tvtop_plus_plus` dashboard by default; use `tvtop-old` for the classic view. |
+ | `hypernix.wiki_cli` | *(v0.70.5)* `hnx` / `hypenix` command — auto-generating wiki from source docstrings. `hnx`, `hnx -q`, `hnx -b`. |
+ | `hypernix.vera` | *(v0.70.5)* Module verification — syntax, docstrings, types, smoke tests. `hnx vera <file>` / `hnx vera --all`. |
+-| `hypernix.abbicus` | Automatic token regulation and curriculum tuning. **`Abbicus`** (linear) dynamically modifies max sequence length based on model size (0.5B–72B), global step, and dataset type[...]
+-| `hypernix.qa` | *(v0.70.4)* **`QAProcessor`** — turns structured datasets (JSONL, `list[dict]`, plain text) into causal LM training strings. Two modes: `question_answer` (`Question: {q}\nAnswer: {[...]
+-| `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. `[...]
+-| `hypernix.compute_framework` | Hardware-agnostic multi-device training. Abstracts CUDA, MPS, CPU, TPU backends with automatic DDP/ZeRO wrapping. `ComputeFramework` handles PyTorch DDP initialization[...]
+-| `hypernix.workshop` | Model frameworks and TTS/ASR pipelines. `WorkshopFramework` base class with `FrameworkConfig` for TTS, ASR, LLM, Vision models. Pre-built templates for ray0rf1re/nano-nano coll[...]
+-| `hypernix.tvtop` | Backwards-compatibility shim — all functionality moved to `hypernix.tv`. Re-exports everything so `import hypernix.tvtop` continues to work. Console script `tvtop` now launches [...]
+-| `hypernix.lunchbox` | Consistent-schema dataset packager. `Lunchbox.for_eval()` pre-loads the recommended eval-results columns; `pack(path)` / `push_to_hub(repo_id)` routes through `datasets.Dataset[...]
+-| `hypernix.whisk` | Checkpoint averaging — `swa_average` (uniform mean), `ema` (exponential), `geometric_mean`. Accepts state dicts or paths to `.pt` / `.safetensors`. `whisk_to_snapshot` writes a [...]
+-| `hypernix.cutting_board` | Train / val / test splitting. `CuttingBoard` (deterministic random) + `StratifiedBoard` (preserves class distribution on labelled records). Renormalises ratios; writes per[...]
+-| `hypernix.apron` | RNG-state guard. `apron(seed=…)` context manager snapshots Python `random`, NumPy (if installed), torch CPU and every CUDA device's RNG, optionally seeds, and restores the origi[...]
+-| `hypernix.recipe_book` | Named-config registry. `RecipeBook` with `add` / `get` / `save` / `load` / `cook(name, **overrides)`. `cook` dispatches by `kind` (`instant_pot` / `cold_brew` / `espresso`).[...]
+-| `hypernix.cookbook` | Chat-template registry. Built-in templates for `chatml` / `hyper-nix.2` / `llama3` / `llama2` / `alpaca` / `vicuna` / `plain`. `for_model(repo_id)` picks the right one. Wired i[...]
+-| `hypernix.countertop` | Multi-turn chat session. `Countertop(oven, system=…)` with `say(user)` / `reset()` / `save(path)` / `load(path)`. Auto-trims long histories, optional `bell=` for streaming,[...]
+-| `hypernix.menu` | Named system-prompt registry: `default` / `concise` / `code-helper` / `judge` / `creative` / `chef` / `hyper-nix`. Pair with `countertop(oven, persona="…")` to pick a system prom[...]
+-| `hypernix.bell` | Streaming-token + done-notification primitive. `Bell.iter_chat(oven, messages)` yields tokens; `stream_chat` collects and fires callbacks. `stdout_bell()` / `file_bell(path)` ship [...]
+-| `hypernix.flour` | Chat-quality logits processor — repetition penalty, frequency / presence penalty, no-repeat n-gram, bad-word suppression, role-leak suppression (cuts hallucinated `user:` follow[...]
+-| `hypernix.torch_compat` | Portability shim (RMSNorm + SDPA) for running on old Intel Macs with torch 1.13. See [`wiki/macOS-legacy.md`](wiki/macOS-legacy.md). |
++
++</details>
++
++<details>
++<summary><strong>Datasets & Judging</strong> &nbsp;(6 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.mediocre_fridge` | Judge-training dataset generation — `synthesize_judge_corpus`, `collect_responses_from`. |
++| `hypernix.new_fridge` | Training-curve graphing — `parse_training_log`, `plot_loss_curve`, `plot_score_distribution`. Matplotlib installed lazily. |
++| `hypernix.new_range` / `old_range` / `industrial_range` | Labeling rubrics for `mediocre_fridge.collect_responses_from`: `new_range` is a zero-dep first-fail rubric, `old_range` is a scored rubric with per-rule weights and explainable [0, 1] scores, and `industrial_range` uses any `CodeOven`-compatible model as an LLM judge (including pairwise comparison for preference pairs). |
++| `hypernix.espresso_maker` | 4-tier evaluation: `Ristretto` / `SingleShot` / `DoubleShot` / `Lungo` — run a prompt battery, score, return shots. |
++| `hypernix.smoker` | 4-tier training quality: `UseableSmoker` / `GoodSmoker` / `CommercialSmoker` / `HighQualitySmoker`. |
++| `hypernix.scavenger` | *(v0.70.5)* HuggingFace dataset discovery engine. Keyword search, storage budgets, quality filtering, relevance scoring. `ScavengerCriteria` + `Scavenger.hunt()`. |
++
++</details>
++
++<details>
++<summary><strong>Quantize & Export</strong> &nbsp;(3 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
+ | `hypernix.convert` | Safetensors → GGUF at fp32/fp16. Architecture-agnostic tensor naming. |
+-| `hypernix.quantize` | `llama-quantize` driver. v0.51.3 ships a 30-type `QUANT_CATALOG` (`QuantSpec` dataclass per type with bits-per-weight, category, recommendation) covering floats (`F32` / `F16` [...]
++| `hypernix.quantize` | `llama-quantize` driver. v0.51.3 ships a 30-type `QUANT_CATALOG` (`QuantSpec` dataclass per type with bits-per-weight, category, recommendation) covering floats (`F32` / `F16` / `BF16`), legacy k-quants (`Q4_0`…`Q5_1`), K-quants (`Q2_K`…`Q6_K`), and importance-matrix quants (`IQ1_S`…`IQ4_XS`); see the alias table below. |
+ | `hypernix.upload` | Push the produced artifacts back to a HuggingFace repo. |
+ 
+-Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.14.
++</details>
++
++<details>
++<summary><strong>Utilities</strong> &nbsp;(3 modules)</summary>
++
++| Subsystem | What it does |
++|---|---|
++| `hypernix.sink` | Append-only file sink with optional rotation + dedupe. |
++| `hypernix.apron` | RNG-state guard. `apron(seed=…)` context manager snapshots Python `random`, NumPy (if installed), torch CPU and every CUDA device's RNG, optionally seeds all of them, and restores the original state on exit. |
++| `hypernix.torch_compat` | Portability shim (RMSNorm + SDPA) for running on old Intel Macs with torch 1.13. See [`wiki/macOS-legacy.md`](wiki/macOS-legacy.md). |
++
++</details>
+ 
+ ---
+ 
+@@ -73,9 +173,9 @@ Cross-platform: Linux, macOS, Windows. Python 3.10 – 3.14.
+ 
+ Eleven major additions:
+ 
+-- **`hnx` / `hypenix` Wiki CLI** — Auto-generating documentation browser. `hnx` shows all modules; `hnx <module>` shows docs; `hnx -q <module>` streams quick mode; `hnx -b` opens in browser. Docs re[...]
++- **`hnx` / `hypenix` Wiki CLI** — Auto-generating documentation browser. `hnx` shows all modules; `hnx <module>` shows docs; `hnx -q <module>` streams quick mode; `hnx -b` opens in browser. Docs regenerate from source docstrings, so they can't drift out of sync with the code.
+ - **`hnx vera`** — Module verification: syntax check, docstring coverage, type annotations, smoke test. `hnx vera <file>` or `hnx vera --all`.
+-- **`pressure_cooker_v5`** — ORCP optimizer with 6-bit quantized momentum (~75% memory savings), QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing, and GPU tiers (InductionCookerV5, ProCooker[...]
++- **`pressure_cooker_v5`** — ORCP optimizer family with int8-quantized momentum (~75% smaller than fp32, ~87% smaller total optimizer state than AdamW -- see the [efficiency paper](pressure_cooker_v5_v5s_paper.md)), QAT (Q4/Q5/Q6/Q8), Multi-Token Prediction, EMA shadowing, and the ground-up 3D-ORCP `PressureCookerV5S` variant (v0.70.6).
+ - **`mtp`** — Multi-Token Prediction for 1.5-3x training efficiency. Sequential/independent modes, shared/independent heads, native workshop integration.
+ - **`scavenger`** — HuggingFace dataset discovery with keyword search, storage budgets, quality filtering (likes/downloads/age), and relevance scoring.
+ - **Freezer QAT support** — `suggest_qat_batch_size()`, `prepare_for_qat()`, per-bit-width VRAM multiplier profiles.
+@@ -89,7 +189,7 @@ Eleven major additions:
+ 
+ ![HyperNix Training Features](docs/public/training-benefits-chart.png)
+ 
+-> **Key insight**: MTP + Speculative Decoding offer the highest benefit-to-cost ratio. 6-bit quantized momentum saves 75% memory with minimal complexity. Combined use can reduce training costs by 40-6[...]
++> **Key insight**: MTP + Speculative Decoding offer the highest benefit-to-cost ratio. Int8-quantized momentum cuts the momentum buffer's own memory by 75% versus fp32, and PressureCookerV5/V5S's factored curvature keeps the rest of the optimizer state small too -- measured optimizer-state memory lands around 12-13% of AdamW's (see the [efficiency paper](pressure_cooker_v5_v5s_paper.md) for the exact numbers and methodology). The trade-offs -- including step-time overhead on some hardware -- are real and are covered in the paper rather than summarized as a single percentage here.
+ 
+ ## What's new in v0.70.4
+ 
+@@ -109,9 +209,9 @@ Five new modules + major optimizer rewrites:
+ 
+ - **`abbicus`** — Automatic token regulation and curriculum tuning for model sizes 0.5B–72B
+ - **`compute_framework`** — Hardware-agnostic multi-device training with auto DDP/ZeRO wrapping (CUDA/MPS/CPU/TPU)
+-- **`pressure_cooker` V2** — Quantization-aware training with fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M, plus 10 upgrades (gradient checkpointing, adaptive clipping, EMA shadowing[...]
++- **`pressure_cooker` V2** — Quantization-aware training with fp16/bf16/fp64 mixed-precision, QAT hooks for Q8/Q6/Q5.5/Q4M, plus 10 upgrades (mixed-precision autodetect, QAT hooks, gradient-checkpointing integration, adaptive per-layer gradient clipping, EMA weight shadowing, DDP/FSDP-aware distributed training, dynamic loss scaling with overflow backoff, parameter freeze/unfreeze callbacks, an LR finder, and metrics streaming to tvtop)
+ - **`pressure_cooker_v3`** — ZeRO-1/2 optimizations, FP8 support, `QuantDtype` enum + `QuantConfig` dataclass
+-- **`workshop`** — Model frameworks for TTS/ASR/LLM/Vision with pre-built templates, nano-nano collection support, 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.[...]
++- **`workshop`** — Model frameworks for TTS/ASR/LLM/Vision with pre-built templates, nano-nano collection support, 30+ architectures (LiquidAI LFM2.5, MiniCPM5, Gemma 4, Qwen3.5, Phi-4, DeepSeek-V2.x, and others)
+ - **`tvtop`** — Now launches the premium `tvtop_plus_plus` dashboard by default; use `tvtop-old` for the classic view
+ 
+ ## Install
+@@ -359,7 +459,7 @@ Topic-focused reference guides live in the `wiki/` directory:
+ - [`wiki/CLI.md`](wiki/CLI.md) — full CLI cheat sheet
+ - [`wiki/Quantization.md`](wiki/Quantization.md) — GGUF conversion + k-quant pipeline
+ - [`wiki/Changelog.md`](wiki/Changelog.md) — full per-release version history
+-- [`wiki/Pressure-Cooker-V5.md`](wiki/Pressure-Cooker-V5.md) — Pressure Cooker V5/V5+ with QAT and MTP
++- [`wiki/Pressure-Cooker-V5.md`](wiki/Pressure-Cooker-V5.md) — Pressure Cooker V5 / V5+ / V5S with QAT and MTP
+ - [`wiki/MTP.md`](wiki/MTP.md) — Multi-Token Prediction guide
+ - [`wiki/Scavenger.md`](wiki/Scavenger.md) — HuggingFace dataset discovery
+ 
+@@ -380,7 +480,7 @@ k-quant in the plan.
+ - **Linux**: full support, every distro tested on: (Ubuntu, Debian, Arch.)
+ - **macOS**: Metal for inference, Homebrew for `llama-quantize`. (untested)
+ - **Windows**: native support; doctor accepts Windows; `llama-quantize` auto-downloads Windows binaries; use scoop / chocolatey for system deps. (untested)
+-- **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal[...]
++- **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal_mode_hints()` returns a dict of recommended settings (batch size, dtype, TF32/SDPA toggles) for the detected card.
+ 
+ ## Build / release
+ 
+@@ -401,11 +501,18 @@ Comprehensive performance analysis and training guides available in the followin
+ 
+ | Document | Description |
+ |---|---|
++| [**pressure_cooker_v5_v5s_paper.md**](pressure_cooker_v5_v5s_paper.md) | PressureCookerV5 / V5S architecture, math, and measured efficiency numbers (memory + step-time), reproducible from the scripts below. |
+ | [**01_ram_and_training_time.pdf**](01_ram_and_training_time.pdf) | RAM usage patterns and training time impact analysis. |
+ | [**02_optimizer_speed_and_memory.pdf**](02_optimizer_speed_and_memory.pdf) | Optimizer performance comparison and memory optimization strategies. |
+ | [**03_gpu_utilization_and_vram.pdf**](03_gpu_utilization_and_vram.pdf) | GPU utilization patterns and VRAM management best practices. |
+ | [**04_architecture_and_pipeline.pdf**](04_architecture_and_pipeline.pdf) | Detailed architecture documentation and training pipeline information. |
+ 
++```bash
++# Reproduce the optimizer benchmarks yourself:
++python scripts/benchmark_v5.py              # AdamW vs PressureCookerV5, step time + peak mem
++python scripts/benchmark_v5s.py             # AdamW vs V5 vs V5S, step time + peak mem
++python scripts/measure_optimizer_memory.py  # exact optimizer-state bytes per parameter tensor
++```
+ 
+ ## License
+ 
+diff --git a/pressure_cooker_v5_v5s_paper.md b/pressure_cooker_v5_v5s_paper.md
+new file mode 100644
+index 0000000..16e34a6
+--- /dev/null
++++ b/pressure_cooker_v5_v5s_paper.md
+@@ -0,0 +1,251 @@
++# PressureCooker V5 / V5S: An Oscillation-Resistant, Quantized-State Optimizer Family for Memory-Constrained Training
++
++**Author:** ray0rf1re
++**Package:** [`hypernix`](https://pypi.org/project/hypernix/) (`hypernix.pressure_cooker_v5`, `hypernix.pressure_cooker_v5s`)
++**Scope of this paper:** `PressureCookerV5`, `PressureCookerV5Plus`, `PressureCookerV5S`, and their Pascal-safe variants (`Agedcookerv5`, `ULTRAagedcookerv5`, `Agedcookerv5s`).
++
++> **On accuracy.** Every number in this paper was either (a) measured by directly instantiating the real optimizer classes and reading their actual state tensors / wall-clock timings, with the exact reproduction commands given in §8, or (b) derived algebraically from the update rule as implemented in `pressure_cooker_v5.py` / `pressure_cooker_v5s.py` at the time of writing. Nothing here is an estimate carried over from a docstring or a marketing claim. Where a measurement is unfavorable to V5/V5S (§5), it is reported anyway. Where the source code's own informal comments turned out to disagree with measurement, that disagreement is called out explicitly (§4.3) rather than silently resolved in either direction.
++
++---
++
++## Table of contents
++
++1. [Introduction](#1-introduction)
++2. [Related work](#2-related-work)
++3. [Architecture](#3-architecture)
++4. [Memory efficiency](#4-memory-efficiency)
++5. [Compute efficiency (step time)](#5-compute-efficiency-step-time)
++6. [Use cases](#6-use-cases)
++7. [Verification](#7-verification)
++8. [Reproducibility](#8-reproducibility)
++9. [Limitations and threats to validity](#9-limitations-and-threats-to-validity)
++10. [Acknowledgments](#10-acknowledgments)
++11. [References](#11-references)
++
++---
++
++## 1. Introduction
++
++Modern first-order optimizers for deep learning overwhelmingly follow the AdamW template: two full-precision buffers per parameter (a first moment and a second moment), each the same shape and dtype as the parameter itself. For a model trained in fp32, that means every parameter tensor carries **2x its own size again** in optimizer state, on top of the parameter and its gradient — a 3x-4x memory multiplier over the raw weights before activations even enter the picture. On memory-constrained hardware (this package explicitly targets Pascal-generation 8 GB cards such as the GTX 1080 alongside modern GPUs), that multiplier is often the binding constraint on model size or batch size, not compute.
++
++`PressureCookerV5` and `PressureCookerV5S` are two related but independently-implemented optimizers in the `hypernix` package that attack this from the state-representation side: instead of a full-precision second moment, they combine a **quantized momentum buffer**, a **factored (row/column) curvature estimate** in place of an elementwise one, and **sub-byte-per-coordinate bookkeeping** (uint8 age counters) for adaptive coordinate freezing. Both are accompanied by an oscillation-resistance mechanism — cosine similarity between the gradient and momentum direction — that adaptively damps the learning rate and the power-law exponent used in the update itself, in place of AdamW's per-coordinate RMS normalization.
++
++This paper documents, with measured numbers: what the two optimizers actually do (§3), how much memory they actually save and why (§4), how they actually perform on wall-clock step time — including where that performance is currently *worse* than AdamW (§5) — what they're for (§6), how they're tested (§7), and exactly how to reproduce every figure in this document (§8).
++
++## 2. Related work
++
++Both optimizers borrow individual *ideas* from prior work but combine them into an update rule that is not a re-parameterization of any single one of these:
++
++- **AdamW** [Loshchilov & Hutter, 2019] — decoupled weight decay is used identically here, but ORCP has no exponential moving average of squared gradients and no bias-correction term.
++- **Adafactor** [Shazeer & Stern, 2018] — the row/column-factored curvature estimate for matrix parameters is structurally the same idea (an outer-product approximation to a full second moment), reducing an `O(rows*cols)` state to `O(rows+cols)`.
++- **LARS / LAMB** [You et al., 2017; 2019] — the per-tensor trust ratio (`||param|| / ||update||`, clamped) that scales the effective learning rate is the same layerwise-adaptive-rate idea.
++- **Sharpness-Aware Minimization (SAM)** [Foret et al., 2020] — `PressureCookerV5` implements the ascend-then-correct SAM step (`sam_rho > 0`) exactly as in the original paper; `PressureCookerV5S` does not yet implement SAM (its own docstring says so explicitly — see §6).
++- **Sophia** [Liu et al., 2023] — the hard clip on the curvature-normalized update (`sophia_clip`) is the same defensive clipping idea Sophia uses against noisy/negative curvature estimates.
++- **Lion** [Chen et al., 2023] and sign-based updates — the `sign(g) * |g|^power` update generalizes Lion's pure `sign(g)` update (Lion is the `power -> 0` limit); ORCP's power is adaptive rather than fixed.
++
++The novel combination in both optimizers is: (1) driving the adaptive power exponent and the learning-rate damping from a **cosine-similarity oscillation signal** rather than a gradient-magnitude signal, and (2) quantizing momentum to int8 while keeping curvature factored, so the *entire* optimizer state (not just one buffer) stays small. V5S additionally introduces (3) a three-timescale ("3D") version of the oscillation signal and (4) a gradient-domain spatial smoothing pass ("pressure diffusion") that has no analogue in any of the above.
++
++## 3. Architecture
++
++### 3.1 PressureCookerV5 — Oscillation Resistant Cosine Power (ORCP)
++
++Given a parameter `p` with gradient `g` and dequantized momentum `m` (from the int8 buffer, see §4.1), `PressureCookerV5._orcp_step` computes, per parameter tensor, per step:
++
++```
++cos_sim        = (g . m) / (||g|| * ||m||)
++slow_cos      <- slow_beta * slow_cos + (1 - slow_beta) * cos_sim          [beta = 0.98]
++osc_score      = clip( -(cos_sim + slow_cos) / 2,  -1, 1 )
++damp           = 1 / (1 + max(osc_score, 0) * 2)
++
++power_target   = power_max - (power_max - power_min) * max(osc_score, 0)
++power         <- 0.9 * power + 0.1 * power_target                          [adaptive exponent, EMA-smoothed]
++
++g_pred         = g + extrapolation * m                                     [one-step look-ahead, default alpha=0.15]
++m             <- momentum_beta * m + (1 - momentum_beta) * g               [re-quantized to int8]
++
++curv           = factored_or_elementwise_curvature(g_pred)                 [see 4.1]
++update         = sign(g_pred) * |g_pred|^power / sqrt(curv)
++update         = clip(update, -sophia_clip, sophia_clip)                   [default 1.0]
++update        *= freeze_scale(age, freeze_threshold, freeze_patience, freeze_decay)
++
++trust          = clip(||p|| / ||update||, trust_clip_lo, trust_clip_hi)    [default (0.05, 5.0)]
++lr_eff         = lr * damp * trust
++
++p             *= (1 - lr_eff * weight_decay)                               [decoupled weight decay]
++p             -= update * lr_eff
++```
++
++Negative `cos_sim` means the gradient just reversed direction relative to momentum -- classic oscillation. `osc_score` turns that into a `[-1, 1]` signal that (a) shrinks the effective learning rate (`damp`) and (b) pulls the power exponent toward `power_min` (more conservative, closer to a pure sign-update) while training is unstable, and lets it drift back toward `power_max` (more magnitude-sensitive) once the gradient direction stabilizes. This is the "Oscillation Resistant" and "Cosine Power" halves of the name.
++
++`PressureCookerV5Plus` (`V5+`) adds, on top of the above: a second, ultra-slow cosine EMA (`beta ~= 0.995`) for long-horizon drift detection, a resonance-flip counter that detects repeated sign reversals, entropy-based gradient-scale adjustment (`_extra_scale`), directional (row-wise) trust regions for matrix parameters, a "recovery ramp" that un-freezes coordinates gradually rather than instantly, and QAT auto-`prepare_model()`. It also defaults `ema_decay=0.999` (V5's own default is `0.0`, i.e. off) — see §4.2 for what that costs in memory.
++
++### 3.2 PressureCookerV5S — 3D-ORCP + Pressure Diffusion
++
++`PressureCookerV5S` is **not** a subclass of V5 — it is a separate class (`hypernix.pressure_cooker_v5s.PressureCookerV5S`) that shares only the quantized-momentum helper functions and the optional QAT/MTP infrastructure. Its update rule, per `_v5s_step_one`:
++
++```
++gd             = pressure_diffuse(g, diffusion_factor, kernel_width=3, mode="gauss")   [see 3.2.1]
++
++fast_cos      <- fast_beta  * fast_cos  + (1 - fast_beta)  * raw_cos(gd, m)   [beta ~= 0.80,  reacts  ~5 steps]
++med_cos       <- med_beta   * med_cos   + (1 - med_beta)   * raw_cos(gd, m)   [beta ~= 0.95,  reacts ~20 steps]
++ultra_cos     <- ultra_beta * ultra_cos + (1 - ultra_beta) * raw_cos(gd, m)   [beta ~= 0.999, reacts ~1000 steps]
++
++VOS            = clip( -(0.45*fast_cos + 0.35*med_cos + 0.20*ultra_cos), -1, 1 )   [volumetric oscillation score]
++damp           = 1 / (1 + max(VOS, 0) * vos_3d_gain)                                [default gain = 3.0]
++power_target   = power_max - (power_max - power_min) * max(VOS, 0)
++power         <- 0.9 * power + 0.1 * power_target
++
++g_pred         = gd + extrapolation * m
++curv           = factored_or_elementwise_curvature(g_pred)                          [identical structure to V5]
++update         = sign(g_pred) * |g_pred|^power / sqrt(curv)
++update         = clip(update, -sophia_clip, sophia_clip)
++update        *= freeze_scale(age, ...) * extra_scale(...)                          [extra_scale = 1.0 in base V5S]
++
++trust          = clip(||p|| / ||update||, trust_clip_lo, trust_clip_hi)
++lr_eff         = lr * damp * trust
++p             *= (1 - lr_eff * weight_decay)
++p             -= update * lr_eff
++m             <- momentum_beta * m + (1 - momentum_beta) * gd                       [note: diffused gradient, re-quantized]
++```
++
++The structural skeleton (power update, Sophia clip, freeze scale, LARS-style trust ratio, decoupled weight decay) is the same shape as V5's, which is expected since both are exploring the same underlying "quantized-state, cosine-damped, power-law update" design space — but every signal V5S computes it from (VOS instead of a single `osc_score`, `gd` instead of raw `g`) is genuinely different, which is why it is implemented as an independent class rather than a V5 subclass.
++
++#### 3.2.1 Pressure Diffusion
++
++```
++pressure_diffuse(g, factor, kernel_width=3, mode="gauss"):
++    flat        = g.flatten()
++    kernel      = normalized_1d_kernel(kernel_width, mode)     # sums to 1
++    diffused    = conv1d(flat, kernel, padding=kernel_width//2)
++    return ((1 - factor) * flat + factor * diffused).reshape(g.shape)
++```
++
++This is a 1-D convolution over the *flattened* gradient tensor — i.e., it smooths neighboring coordinates in memory layout order, not in any semantic/spatial sense (there is no assumption that adjacent flattened elements are spatially adjacent in the original tensor, e.g. a conv weight's `[out_ch, in_ch, kh, kw]` layout). It costs `O(n)` time and adds **no persistent per-parameter state** — the diffusion kernel is built once per call and discarded. Default `diffusion_factor=0.12` means the diffused gradient is a 88%/12% blend of the original and the locally-smoothed version.
++
++### 3.3 Pascal-safe variants
++
++`Agedcookerv5`, `ULTRAagedcookerv5` (wrapping V5 / V5Plus), and `Agedcookerv5s` (wrapping V5S) force `fused=False`, warn if run on non-Pascal hardware, and — for the V5S variant specifically — cap the diffusion kernel width at 3 and store curvature buffers in fp16 rather than fp32 (halving that already-small component of the state further). These exist because CUDA compute capability 6.1/6.2 (Pascal, e.g. GTX 10-series) lacks native bf16 and has weak fp16 tensor-core support relative to Ampere+, so the fused/tensor-core code paths some optimizers take are actively counterproductive there; see `hypernix.freezer.pascal_mode_hints()` for the corresponding VRAM-side guidance.
++
++## 4. Memory efficiency
++
++### 4.1 What actually gets allocated
++
++Per parameter tensor `p` with `N` elements (`R` rows x `C` cols for a matrix), `_init_state` allocates:
++
++| Buffer | V5 / V5S (matrix param) | V5 / V5S (vector param, `N <= 65536`) | AdamW |
++|---|---|---|---|
++| Momentum | `N` bytes (int8) + 1 fp32 scalar scale | `N` bytes (int8) + 1 fp32 scalar scale | `4N` bytes (`exp_avg`, fp32) |
++| 2nd-moment / curvature | `4(R+C)` bytes (`row_curv` + `col_curv`, fp32) | `4N` bytes (elementwise, fp32) | `4N` bytes (`exp_avg_sq`, fp32) |
++| Freeze / age counters | `R` bytes (uint8, `row_age`) | `N` bytes (uint8, `age`) | none |
++| EMA (if `ema_decay > 0`) | `4N` bytes (fp32 clone of `p`) | `4N` bytes | none (not a feature) |
++
++For a matrix parameter, as `N = R*C` grows large relative to `R+C` (true for any non-degenerate weight matrix — e.g. a 2048x2048 linear layer has `N=4.19M` vs `R+C=4096`), the row/column curvature and age terms become negligible and the state converges to **`~N` bytes total**, i.e. **1 byte per parameter** versus AdamW's **8 bytes per parameter** (`exp_avg` + `exp_avg_sq`, both fp32) — an asymptotic **8x** reduction in optimizer-state memory, or equivalently the state shrinks from `2.0x` the parameter tensor's own footprint (AdamW) to `~0.25x` (V5/V5S).
++
++### 4.2 Measured numbers
++
++Measured directly by instantiating each real optimizer, running one backward + `step()` (so all lazily-allocated state actually materializes), and summing `tensor.nelement() * tensor.element_size()` over every tensor in `optimizer.state[param]`. This does **not** depend on the device — an int8 buffer is the same number of bytes on CPU or CUDA — so it is a faithful, hardware-independent measurement of the thing the source docstrings make informal claims about. Script: `scripts/measure_optimizer_memory.py`.
++
++Two-layer `Linear(H,H) -> ReLU -> Linear(H,H)` MLP, fp32, batch 32:
++
++| Optimizer | H=1024 state | H=2048 state | H=4096 state | state / param (H=4096) | state vs. AdamW (H=4096) |
++|---|---|---|---|---|---|
++| AdamW | 16.02 MB | 64.03 MB | 256.06 MB | 2.000x | 1.000x (baseline) |
++| **PressureCookerV5** | 2.03 MB | 8.06 MB | 32.12 MB | 0.251x | **0.125x** |
++| **PressureCookerV5S** | 2.03 MB | 8.06 MB | 32.12 MB | 0.251x | **0.125x** |
++| PressureCookerV5Plus (default `ema_decay=0.999`) | -- | 48.05 MB (H=2048) | -- | 1.501x | 0.750x |
++
++Total *training* footprint (parameters + optimizer state, relative to parameter size alone): **AdamW = 3.00x**, **V5 / V5S = 1.25x**, **V5Plus (EMA on by default) = 2.50x**. All three match the `4.1` derivation almost exactly (the tiny gap between `0.251x` and the `0.25x` asymptote is exactly the `O(R+C)` row/column-curvature term predicted above, and it shrinks as `H` grows: `0.253x` at H=1024 -> `0.252x` at H=2048 -> `0.251x` at H=4096).
++
++**Independent cross-validation.** The repository already contained a prior benchmark (`02_optimizer_speed_and_memory.pdf`, generated on a 4-layer/256-hidden model, batch 8x128) that measured optimizer state the same way (directly from `.state` tensors after one step) on what its companion chart (`03_gpu_utilization_and_vram.pdf`) identifies as an actual NVIDIA GeForce GTX 1080. That measurement: **PressureCookerV5 = 6.11 MB, AdamW = 47.64 MB** -- a ratio of **12.8%**, matching this paper's independently-derived **12.5%** to within a fraction of a percentage point, on a completely different model shape, run at a different time, on real GPU hardware rather than this paper's CPU sandbox. (`PressureCookerV3`, included in the same chart, measured at 47.64 MB — the same as AdamW; V3 predates the quantized-state design introduced in V5 and is out of scope for this paper.)
++
++### 4.3 A correction to the source's own documentation
++
++Prior to this paper, `wiki/Pressure-Cooker-V5.md` and this package's `README.md` described the momentum buffer as **"6-bit, using stochastic rounding."** Neither claim matches `_quantize_momentum()`:
++
++```python
++def _quantize_momentum(m: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
++    scale = m.abs().amax().clamp(min=1e-12)
++    q = (m / scale * _INT8_MAX).round().clamp_(-_INT8_MAX, _INT8_MAX).to(torch.int8)
++    return q, scale
++```
++
++This is **int8** (8-bit, `torch.int8`, range `[-127, 127]`) with **standard round-to-nearest** (`.round()`), not stochastic rounding. The "~75% memory reduction" figure that accompanied the old claim happens to still be numerically correct (1 byte vs. 4 bytes is a 75% reduction), which is presumably why the bit-width error went unnoticed, but the specific mechanism described was wrong. Both documents have been corrected as part of this change (see the README's "What's fixed in this update" section).
++
++## 5. Compute efficiency (step time)
++
++This is the section where the honest result is *not* flattering, and it is reported in full rather than omitted.
++
++Measured with `scripts/benchmark_v5.py` / `scripts/benchmark_v5s.py`: each optimizer trains its own freshly-initialized, identically-seeded model copy (not a model already mutated by a previous optimizer in the loop -- the original versions of these two scripts had that bug; see the README changelog), for 100 steps, wall-clock timed with `time.perf_counter()`.
++
++**This sandbox has no GPU** (`torch.cuda.is_available() == False`), so all first-party numbers below are **CPU-only** (Intel Xeon @ 2.80GHz, PyTorch 2.13.0+cu130, Python 3.12.3) and are reported as such — not extrapolated to GPU behavior:
++
++| Optimizer | Shape | Mean step time (CPU) | Relative to AdamW |
++|---|---|---|---|
++| AdamW | `Linear(2048,2048)` x2, batch 128 | ~180 ms | 1.0x |
++| PressureCookerV5 | same | ~500-630 ms | **2.8x-3.5x slower** |
++| AdamW | `Linear(1024,1024)` x2, batch 128 | ~46-51 ms | 1.0x |
++| PressureCookerV5 | same | ~136-147 ms | **2.7x-3.0x slower** |
++| PressureCookerV5S | same | ~249-278 ms | **5.0x-5.9x slower** |
++
++**Independent cross-validation (real GTX 1080, 4L/256H model, batch 8x128, from `02_optimizer_speed_and_memory.pdf`):** PressureCookerV5 = 275.6 ms/step vs. AdamW = 211.3 ms/step (**1.30x slower**) — same direction as the CPU measurement above, smaller magnitude. A separate 60-step end-to-end training-time comparison in the repository (`01_ram_and_training_time.pdf`) shows the same pattern: PressureCookerV5 = 16.51 s vs. AdamW = 12.82 s over 60 steps (**1.29x slower**).
++
++**Why.** Every one of the extra ideas in §3 — the cosine-similarity computation(s), the adaptive power EMA, the factored curvature update, the freeze-scale age-counter bookkeeping, the trust-ratio norm computations, and (for V5S specifically) the `conv1d`-based pressure diffusion and *three* cosine EMAs instead of one — is an additional small tensor operation launched per parameter tensor, per step. On CPU, and to a lesser extent on older/smaller GPUs where kernel-launch overhead is a larger fraction of total step time, this Python-and-kernel-dispatch overhead dominates and is not hidden by the memory savings. V5S measuring consistently slower than V5 in this paper's own benchmarks (roughly 1.8x-1.9x V5's time) is consistent with it performing three EMA updates and one convolution instead of V5's one EMA update and zero convolutions.
++
++**The honest summary:** PressureCookerV5/V5S trade wall-clock step time for a large, real, independently-corroborated reduction in optimizer-state memory (§4). Whether that trade is worth it depends entirely on which resource is the actual bottleneck for a given run — on an 8 GB Pascal card where optimizer state genuinely limits batch size or model size, freeing up ~87% of that specific memory line-item can let a run happen at all; on a GPU where VRAM is not the constraint, the step-time cost is a real, measured downside with no offsetting benefit shown here.
++
++## 6. Use cases
++
++Grounded in the classes' own constructors and docstrings, not aspirational:
++
++- **General pretraining, memory-constrained hardware.** Defaults (`lr=3e-4`) on either V5 or V5S. This is the primary intended use case given §4-5: favorable when optimizer-state VRAM is the binding constraint.
++- **Fine-tuning.** `PressureCookerV5(..., finetune_mode=True)` (V5Plus) sets `power in [0.25, 0.8]` narrower, tighter `trust_clip`, longer `freeze_patience=64`, and disables SAM. `PressureCookerV5S(..., lr=1e-4, diffusion_factor=0.05, vos_3d_gain=4.0, freeze_patience=64)` is the documented equivalent for V5S.
++- **Low-memory edge training.** `diffusion_factor=0.0, ema_decay=0.0` (V5S) minimizes both compute and state further by disabling the two optional-cost features.
++- **Pascal / GTX 10-series GPUs.** `Agedcookerv5`, `ULTRAagedcookerv5`, `Agedcookerv5s` — force `fused=False`, cap the diffusion kernel, and (for the V5S variant) store curvature in fp16. Combine with `hypernix.freezer.OldFreezer` / `auto_freezer()` and `pascal_safe_dtype()` (which selects fp16, since Pascal has no native bf16).
++- **Quantization-Aware Training.** `qat_config=QATConfig(bits=4|5|6|8, ...)` plus `cooker.attach_qat(model)` (V5) or `cooker.prepare_model(model)` (V5Plus, which also applies mixed-precision skip-listing to `nn.Embedding`/`nn.LayerNorm`). V5S accepts the same `qat_config` but has no `attach_qat` convenience method of its own in the current source — it must be attached manually via the shared `QATFakeQuantize` machinery.
++- **Multi-Token Prediction training.** `enable_mtp=True, mtp_config=MTPConfig(num_tokens=4, ...)`, then `cooker.get_mtp_head(hidden_dim, vocab_size)` to obtain the prediction head. Available on both V5 and V5S.
++- **Flat-minima seeking via SAM.** `PressureCookerV5(..., sam_rho=0.05)` and pass a `closure` to `step()`. **Not currently available on V5S** — its `step()` docstring states this explicitly ("not yet supported in V5S; use PressureCookerV5 for SAM"), and this paper repeats that constraint rather than eliding it.
++- **Live diagnostics.** V5S exposes `get_oscillation_stats()` (mean fast/med/ultra cosine + VOS across all parameters), `get_frozen_fraction()` (fraction of coordinates currently soft-frozen), and `print_summary()` for monitoring training stability without external tooling.
++
++## 7. Verification
++
++Test suite state at the time of writing (full repository, `pytest`): **1475 passed, 1 skipped** (a CUDA-only test, expected to skip on a CPU-only machine), **0 failed**, against this paper's own bug fixes applied (§9 of the accompanying README changelog). `tests/test_v0705_all.py` and `tests/test_v051_1.py` -- the two files most directly exercising the V5/V5S/V5Plus classes -- pass **77/77**. `ruff check src tests` also passes cleanly: 64 pre-existing lint findings elsewhere in the codebase (import sorting, and `isinstance(x, (A, B))` -> PEP 604 `isinstance(x, A | B)`) were fixed alongside the changes described here -- mechanical, behavior-preserving fixes, re-verified against the full test suite after applying them, and unrelated to `pressure_cooker_v5`/`v5s` specifically.
++
++## 8. Reproducibility
++
++Every number in §4-5 can be regenerated directly:
++
++```bash
++pip install -e .            # from the repository root
++pip install torch            # any recent version; CPU-only is sufficient for §4, §5's CPU rows
++
++python scripts/measure_optimizer_memory.py   # -> Table in §4.2 (state bytes per parameter tensor)
++python scripts/benchmark_v5.py               # -> Table in §5, AdamW vs. V5, H=2048
++python scripts/benchmark_v5s.py              # -> Table in §5, AdamW vs. V5 vs. V5S, H=1024
++
++pytest tests/ -q                              # -> §7 (full suite)
++pytest tests/test_v0705_all.py tests/test_v051_1.py -q   # -> §7 (V5-specific subset)
++```
++
++Environment this paper's own numbers were measured in: Python 3.12.3, PyTorch 2.13.0+cu130, `hypernix` 0.71.3, Linux (CPU-only sandbox, Intel Xeon @ 2.80GHz). GPU-specific numbers are cited from the repository's own pre-existing `01_ram_and_training_time.pdf` / `02_optimizer_speed_and_memory.pdf` (generated on an NVIDIA GeForce GTX 1080 per `03_gpu_utilization_and_vram.pdf`) rather than re-measured, since no GPU was available while writing this paper — anyone with CUDA hardware, including a Pascal card, can re-run the three scripts above directly to get device-specific numbers.
++
++## 9. Limitations and threats to validity
++
++- **No GPU was available while writing this paper.** All first-party timing/memory numbers are CPU-measured. The GPU cross-validation in §4.2/§5 comes from pre-existing repository artifacts generated at an earlier, unknown point in time, on a different (4L/256H) model shape, and this paper cannot independently re-verify that those PDFs' generation process was itself bug-free.
++- **Micro-benchmark, not end-to-end training.** §5's timings are per-step wall clock on synthetic random data with a trivial `Linear-ReLU-Linear` model and an `out.pow(2).mean()` loss — not a real training run with a tokenizer, data loading, or a realistic transformer block. Real-workload step time will differ (likely narrowing the relative gap somewhat, since a larger fraction of real step time is spent in forward/backward compute that all three optimizers share equally).
++- **CPU step-time results carry inherent run-to-run variance** from OS scheduling noise on a shared sandbox; the ranges reported in §5 reflect two separate runs each, not statistically rigorous multi-trial confidence intervals.
++- **PressureCookerV5Plus and V5S's QAT/MTP paths are not benchmarked here** — §4-5 cover the default (QAT/MTP-disabled) configuration only, since that is what the memory/speed claims in the source docstrings were about.
++- **This paper does not evaluate model-quality outcomes** (final loss, downstream task accuracy, convergence speed in *steps* rather than wall-clock) for V5/V5S versus AdamW. It is scoped to computational-efficiency claims only, per the request that produced it.
++
++## 10. Acknowledgments
++
++Coding and writing assistance for the `hypernix` `pressure_cooker_v5`/`v5s` codebase and for this paper was provided, across development, by: Claude Sonnet 5, Claude Sonnet 4.6, Claude Opus 4.7, Google Gemini 3.5 Flash, Google Gemini 3.6 Flash, Google Gemini 3.1 Pro, and Qwen 3 Coder. This specific paper draft, the accompanying bug fixes (§4.3, and the `hyped` TUI / benchmark-script fixes noted in the README), and the measurement scripts in §8 were produced with Claude Sonnet 5.
++
++## 11. References
++
++- Loshchilov, I. & Hutter, F. (2019). *Decoupled Weight Decay Regularization.* ICLR.
++- Shazeer, N. & Stern, M. (2018). *Adafactor: Adaptive Learning Rates with Sublinear Memory Cost.* ICML.
++- You, Y. et al. (2017). *Large Batch Training of Convolutional Networks* (LARS). arXiv:1708.03888.
++- You, Y. et al. (2019). *Large Batch Optimization for Deep Learning: Training BERT in 76 Minutes* (LAMB). ICLR.
++- Foret, P. et al. (2020). *Sharpness-Aware Minimization for Efficiently Improving Generalization* (SAM). arXiv:2010.01412.
++- Liu, H. et al. (2023). *Sophia: A Scalable Stochastic Second-order Optimizer for Language Model Pre-training.* arXiv:2305.14342.
++- Chen, X. et al. (2023). *Symbolic Discovery of Optimization Algorithms* (Lion). NeurIPS.
+diff --git a/scripts/benchmark_v5.py b/scripts/benchmark_v5.py
+index 6178972..e495893 100644
+--- a/scripts/benchmark_v5.py
++++ b/scripts/benchmark_v5.py
+@@ -1,37 +1,95 @@
+-"""Benchmark for Pressure Cooker v5."""
++"""Benchmark for Pressure Cooker V5 vs AdamW.
++
++Each optimizer gets its own freshly-initialized, identically-seeded copy of
++the model so results are a fair apples-to-apples comparison rather than
++optimizers training sequentially on top of each other's already-updated
++weights. Runs on CUDA when available and falls back to CPU otherwise, so
++the script is runnable on any machine (results are of course only
++representative of the device actually used -- the printed device is always
++reported alongside the numbers).
++"""
++from __future__ import annotations
++
+ import time
+ 
+ import torch
+ import torch.nn as nn
++from hypernix.pressure_cooker_v5 import PressureCookerV5
+ from torch.optim import AdamW
+ 
+-from hypernix.pressure_cooker_v5 import PressureCookerV5
++N_STEPS = 100
++BATCH_SIZE = 128
++HIDDEN = 2048
++SEED = 0
+ 
+ 
+-def run_benchmark():
+-    model = nn.Sequential(
+-        nn.Linear(2048, 2048),
++def _make_model(device: torch.device) -> nn.Module:
++    torch.manual_seed(SEED)
++    return nn.Sequential(
++        nn.Linear(HIDDEN, HIDDEN),
+         nn.ReLU(),
+-        nn.Linear(2048, 2048)
+-    ).cuda()
+-    
+-    opts = {
+-        "AdamW": AdamW(model.parameters(), lr=1e-3),
+-        "V5": PressureCookerV5(model.parameters(), lr=1e-3),
+-    }
+-    
+-    for name, opt in opts.items():
++        nn.Linear(HIDDEN, HIDDEN),
++    ).to(device)
++
++
++def _bench_one(name: str, make_opt, device: torch.device) -> dict:
++    model = _make_model(device)
++    opt = make_opt(model)
++
++    torch.manual_seed(SEED + 1)
++    inputs = [
++        torch.randn(BATCH_SIZE, HIDDEN, device=device) for _ in range(N_STEPS)
++    ]
++
++    if device.type == "cuda":
+         torch.cuda.synchronize()
+-        start = time.perf_counter()
+-        for _ in range(100):
+-            opt.zero_grad()
+-            out = model(torch.randn(128, 2048, device='cuda'))
+-            loss = out.sum()
+-            loss.backward()
+-            opt.step()
++        torch.cuda.reset_peak_memory_stats(device)
++
++    start = time.perf_counter()
++    for x in inputs:
++        opt.zero_grad(set_to_none=True)
++        out = model(x)
++        loss = out.pow(2).mean()
++        loss.backward()
++        opt.step()
++    if device.type == "cuda":
+         torch.cuda.synchronize()
+-        elapsed = time.perf_counter() - start
+-        print(f"{name} Time: {elapsed:.3f}s")
++    elapsed = time.perf_counter() - start
++
++    peak_mem_mb = (
++        torch.cuda.max_memory_allocated(device) / (1024 ** 2)
++        if device.type == "cuda"
++        else float("nan")
++    )
++    return {
++        "name": name,
++        "elapsed_s": elapsed,
++        "ms_per_step": (elapsed / N_STEPS) * 1000,
++        "peak_mem_mb": peak_mem_mb,
++        "final_loss": float(loss.detach()),
++    }
++
++
++def run_benchmark() -> list[dict]:
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++    print(f"[benchmark_v5] device={device}, steps={N_STEPS}, "
++          f"batch={BATCH_SIZE}, hidden={HIDDEN}")
++
++    configs = {
++        "AdamW": lambda m: AdamW(m.parameters(), lr=1e-3),
++        "PressureCookerV5": lambda m: PressureCookerV5(m.parameters(), lr=1e-3),
++    }
++
++    results = [_bench_one(name, make_opt, device) for name, make_opt in configs.items()]
++    for r in results:
++        mem = f"{r['peak_mem_mb']:.1f} MB" if device.type == "cuda" else "n/a (CPU)"
++        print(
++            f"{r['name']:18s} total={r['elapsed_s']:.3f}s  "
++            f"per_step={r['ms_per_step']:.3f}ms  peak_mem={mem}  "
++            f"final_loss={r['final_loss']:.4f}"
++        )
++    return results
++
+ 
+ if __name__ == "__main__":
+     run_benchmark()
+diff --git a/scripts/benchmark_v5s.py b/scripts/benchmark_v5s.py
+index c660e38..031fcf4 100644
+--- a/scripts/benchmark_v5s.py
++++ b/scripts/benchmark_v5s.py
+@@ -1,39 +1,94 @@
+-"""Benchmark for Pressure Cooker v5S vs v5 vs AdamW."""
++"""Benchmark for Pressure Cooker V5S vs V5 vs AdamW.
++
++Same methodology as ``benchmark_v5.py``: each optimizer trains its own
++freshly-initialized, identically-seeded model copy (never a model already
++mutated by a previous optimizer in the loop), runs on CUDA when available
++and CPU otherwise, and reports both step latency and peak memory.
++"""
++from __future__ import annotations
++
+ import time
+ 
+ import torch
+ import torch.nn as nn
+-from torch.optim import AdamW
+-
+ from hypernix.pressure_cooker_v5 import PressureCookerV5
+ from hypernix.pressure_cooker_v5s import PressureCookerV5S
++from torch.optim import AdamW
+ 
++N_STEPS = 100
++BATCH_SIZE = 128
++HIDDEN = 1024
++SEED = 0
+ 
+-def run_benchmark():
+-    model = nn.Sequential(
+-        nn.Linear(1024, 1024),
++
++def _make_model(device: torch.device) -> nn.Module:
++    torch.manual_seed(SEED)
++    return nn.Sequential(
++        nn.Linear(HIDDEN, HIDDEN),
+         nn.ReLU(),
+-        nn.Linear(1024, 1024)
+-    ).cuda()
+-    
+-    opts = {
+-        "AdamW": AdamW(model.parameters(), lr=1e-3),
+-        "V5": PressureCookerV5(model.parameters(), lr=1e-3),
+-        "V5S": PressureCookerV5S(model.parameters(), lr=1e-3)
+-    }
+-    
+-    for name, opt in opts.items():
++        nn.Linear(HIDDEN, HIDDEN),
++    ).to(device)
++
++
++def _bench_one(name: str, make_opt, device: torch.device) -> dict:
++    model = _make_model(device)
++    opt = make_opt(model)
++
++    torch.manual_seed(SEED + 1)
++    inputs = [
++        torch.randn(BATCH_SIZE, HIDDEN, device=device) for _ in range(N_STEPS)
++    ]
++
++    if device.type == "cuda":
+         torch.cuda.synchronize()
+-        start = time.perf_counter()
+-        for _ in range(100):
+-            opt.zero_grad()
+-            out = model(torch.randn(128, 1024, device='cuda'))
+-            loss = out.sum()
+-            loss.backward()
+-            opt.step()
++        torch.cuda.reset_peak_memory_stats(device)
++
++    start = time.perf_counter()
++    for x in inputs:
++        opt.zero_grad(set_to_none=True)
++        out = model(x)
++        loss = out.pow(2).mean()
++        loss.backward()
++        opt.step()
++    if device.type == "cuda":
+         torch.cuda.synchronize()
+-        elapsed = time.perf_counter() - start
+-        print(f"{name} Time: {elapsed:.3f}s")
++    elapsed = time.perf_counter() - start
++
++    peak_mem_mb = (
++        torch.cuda.max_memory_allocated(device) / (1024 ** 2)
++        if device.type == "cuda"
++        else float("nan")
++    )
++    return {
++        "name": name,
++        "elapsed_s": elapsed,
++        "ms_per_step": (elapsed / N_STEPS) * 1000,
++        "peak_mem_mb": peak_mem_mb,
++        "final_loss": float(loss.detach()),
++    }
++
++
++def run_benchmark() -> list[dict]:
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++    print(f"[benchmark_v5s] device={device}, steps={N_STEPS}, "
++          f"batch={BATCH_SIZE}, hidden={HIDDEN}")
++
++    configs = {
++        "AdamW": lambda m: AdamW(m.parameters(), lr=1e-3),
++        "PressureCookerV5": lambda m: PressureCookerV5(m.parameters(), lr=1e-3),
++        "PressureCookerV5S": lambda m: PressureCookerV5S(m.parameters(), lr=1e-3),
++    }
++
++    results = [_bench_one(name, make_opt, device) for name, make_opt in configs.items()]
++    for r in results:
++        mem = f"{r['peak_mem_mb']:.1f} MB" if device.type == "cuda" else "n/a (CPU)"
++        print(
++            f"{r['name']:18s} total={r['elapsed_s']:.3f}s  "
++            f"per_step={r['ms_per_step']:.3f}ms  peak_mem={mem}  "
++            f"final_loss={r['final_loss']:.4f}"
++        )
++    return results
++
+ 
+ if __name__ == "__main__":
+     run_benchmark()
+diff --git a/scripts/measure_optimizer_memory.py b/scripts/measure_optimizer_memory.py
+new file mode 100644
+index 0000000..860dbbf
+--- /dev/null
++++ b/scripts/measure_optimizer_memory.py
+@@ -0,0 +1,92 @@
++"""Measure exact optimizer-state memory footprint for AdamW vs PressureCooker
++V5 vs V5S, per parameter tensor.
++
++This does not estimate or guess -- it instantiates each real optimizer,
++runs one backward + step so every state tensor actually gets allocated
++(lazy per-parameter state in PyTorch optimizers only materializes on first
++``step()``), then sums the exact byte size (``nelement() * element_size()``)
++of every tensor stored in ``optimizer.state[param]``.
++
++Runs entirely on CPU -- optimizer *state* memory does not depend on the
++device (a quantized int8 buffer is the same number of bytes on CPU or
++CUDA), so this is a faithful, device-independent measurement of the thing
++the PressureCooker V5/V5S docstrings make claims about.
++"""
++from __future__ import annotations
++
++import torch
++import torch.nn as nn
++from hypernix.pressure_cooker_v5 import PressureCookerV5
++from hypernix.pressure_cooker_v5s import PressureCookerV5S
++from torch.optim import AdamW
++
++SEED = 0
++
++
++def _state_bytes(opt: torch.optim.Optimizer) -> int:
++    total = 0
++    for state in opt.state.values():
++        for v in state.values():
++            if torch.is_tensor(v):
++                total += v.nelement() * v.element_size()
++    return total
++
++
++def _param_bytes(model: nn.Module) -> int:
++    return sum(p.nelement() * p.element_size() for p in model.parameters())
++
++
++def _run_one_step(model: nn.Module, opt: torch.optim.Optimizer, batch: int, in_dim: int) -> None:
++    torch.manual_seed(SEED + 1)
++    x = torch.randn(batch, in_dim)
++    opt.zero_grad(set_to_none=True)
++    loss = model(x).pow(2).mean()
++    loss.backward()
++    opt.step()
++
++
++def measure(hidden: int, batch: int = 32) -> list[dict]:
++    configs = {
++        "AdamW": lambda m: AdamW(m.parameters(), lr=1e-3),
++        "PressureCookerV5": lambda m: PressureCookerV5(m.parameters(), lr=1e-3),
++        "PressureCookerV5S": lambda m: PressureCookerV5S(m.parameters(), lr=1e-3),
++    }
++    rows = []
++    for name, make_opt in configs.items():
++        torch.manual_seed(SEED)
++        model = nn.Sequential(nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, hidden))
++        opt = make_opt(model)
++        _run_one_step(model, opt, batch, hidden)
++        pbytes = _param_bytes(model)
++        sbytes = _state_bytes(opt)
++        rows.append({
++            "name": name,
++            "hidden": hidden,
++            "param_bytes": pbytes,
++            "state_bytes": sbytes,
++            "state_over_param": sbytes / pbytes,
++        })
++    return rows
++
++
++def main() -> None:
++    print(f"{'optimizer':18s} {'hidden':>8s} {'param MB':>10s} {'state MB':>10s} {'state/param':>12s}")
++    baseline = None
++    for hidden in (1024, 2048, 4096):
++        rows = measure(hidden)
++        for r in rows:
++            if r["name"] == "AdamW":
++                baseline = r["state_bytes"]
++            rel = r["state_bytes"] / baseline if baseline else float("nan")
++            print(
++                f"{r['name']:18s} {r['hidden']:8d} "
++                f"{r['param_bytes'] / 1024**2:10.2f} "
++                f"{r['state_bytes'] / 1024**2:10.2f} "
++                f"{r['state_over_param']:11.3f}x  "
++                f"(AdamW-state x{rel:.3f})"
++            )
++        print()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/hypernix/blender.py b/src/hypernix/blender.py
+index 5ac144b..6963a13 100644
+--- a/src/hypernix/blender.py
++++ b/src/hypernix/blender.py
+@@ -23,7 +23,7 @@ from pathlib import Path
+ 
+ 
+ def _open_stream(source: Path | str | Iterable[str]) -> Iterator[str]:
+-    if isinstance(source, (str, Path)):
++    if isinstance(source, str | Path):
+         with Path(source).open(encoding="utf-8") as f:
+             for line in f:
+                 yield line.rstrip("\n")
+diff --git a/src/hypernix/convert.py b/src/hypernix/convert.py
+index e7c346a..5c1324c 100644
+--- a/src/hypernix/convert.py
++++ b/src/hypernix/convert.py
+@@ -243,7 +243,7 @@ def convert_to_gguf(
+             # HF tokenizer.json v2+ stores merges as [["a","b"], ...];
+             # llama.cpp wants a flat list of "a b" strings. Normalize so the
+             # GGUF passes `gguf_init_from_file_impl` validation.
+-            if isinstance(merges[0], (list, tuple)):
++            if isinstance(merges[0], list | tuple):
+                 merges = [" ".join(m) for m in merges]
+             writer.add_token_merges(merges)
+         bos = cfg.get("bos_token_id")
+diff --git a/src/hypernix/cutting_board.py b/src/hypernix/cutting_board.py
+index 0ce91f4..2b7ac78 100644
+--- a/src/hypernix/cutting_board.py
++++ b/src/hypernix/cutting_board.py
+@@ -37,7 +37,7 @@ from typing import Any
+ 
+ 
+ def _open_stream(source: Path | str | Iterable[str]) -> Iterable[str]:
+-    if isinstance(source, (str, Path)):
++    if isinstance(source, str | Path):
+         return Path(source).read_text(encoding="utf-8").splitlines()
+     return list(source)
+ 
+diff --git a/src/hypernix/hyped.py b/src/hypernix/hyped.py
+index b7d1366..8c07230 100644
+--- a/src/hypernix/hyped.py
++++ b/src/hypernix/hyped.py
+@@ -1556,7 +1556,6 @@ class ChatScreen:
+     tool_call_count: int = 0
+ 
+     def __post_init__(self) -> None:
+-        from . import bell as _bell_mod
+         from . import countertop as _ct_mod
+         from . import flour as _flour_mod
+         from . import menu as _menu_mod
+@@ -1608,11 +1607,23 @@ class ChatScreen:
+         else:
+             self.flour = _flour_mod.Flour.off()
+ 
+-        self.bell = _bell_mod.Bell(flour=self.flour)
++        # NOTE: no Bell is wired in here. Bell.stream_chat() drives raw
++        # token-by-token generation and requires the oven to expose
++        # `.model` / `.tokenizer` / `._format_chat` directly (see
++        # hypernix.old_oven.CodeOven). `self.runner` is an OvenRunner,
++        # which fronts five different providers (local/openai/
++        # anthropic/rest/t1) behind a single high-level `.chat()`
++        # method and does not expose that low-level surface. Wiring a
++        # Bell here made Countertop.say() call
++        # `bell.stream_chat(self.runner, ...)`, which immediately
++        # raised `AttributeError: 'OvenRunner' object has no
++        # attribute '_format_chat'` the moment a prompt was submitted
++        # in the hyped TUI. Leaving `bell=None` (the Countertop
++        # default) routes generation through `self.runner.chat(...)`
++        # instead, which is what actually implements every provider.
+         self.countertop = _ct_mod.Countertop(
+             oven=self.runner,
+             system=system,
+-            bell=self.bell,
+             flour=self.flour,
+             t1_key=self.sampling.t1_key,
+             sampling=self.sampling.to_kwargs(),
+diff --git a/src/hypernix/old_oven.py b/src/hypernix/old_oven.py
+index 03ea7ad..db7d8f3 100644
+--- a/src/hypernix/old_oven.py
++++ b/src/hypernix/old_oven.py
+@@ -605,7 +605,7 @@ class CodeOven:
+ 
+         # HF ``BatchEncoding`` exposes ``input_ids``; pull that out and recurse.
+         input_ids_attr = getattr(ids, "input_ids", None)
+-        if input_ids_attr is not None and not isinstance(ids, (list, tuple)):
++        if input_ids_attr is not None and not isinstance(ids, list | tuple):
+             return self._coerce_token_ids(input_ids_attr)
+ 
+         # torch.Tensor (any rank).  Flatten + convert to list of ints.
+@@ -616,13 +616,13 @@ class CodeOven:
+ 
+         # Sequence — could be list[int], list[list[int]] (batched), or
+         # list[str] (the bug we patched).
+-        if isinstance(ids, (list, tuple)):
++        if isinstance(ids, list | tuple):
+             if not ids:
+                 return []
+             head = ids[0]
+             if isinstance(head, int):
+                 return [int(x) for x in ids]
+-            if isinstance(head, (list, tuple)):
++            if isinstance(head, list | tuple):
+                 # Batched — take the first batch.
+                 return [int(x) for x in head]
+             if isinstance(head, torch.Tensor):
+diff --git a/src/hypernix/pans.py b/src/hypernix/pans.py
+index 5e01f6a..673794a 100644
+--- a/src/hypernix/pans.py
++++ b/src/hypernix/pans.py
+@@ -75,7 +75,7 @@ class Pan:
+         return self.max_chars
+ 
+     def _source_lines(self) -> Iterator[str]:
+-        if isinstance(self.source, (str, Path)):
++        if isinstance(self.source, str | Path):
+             p = Path(self.source)
+             with p.open(encoding="utf-8") as f:
+                 for line in f:
+diff --git a/src/hypernix/pepper_shaker.py b/src/hypernix/pepper_shaker.py
+index 31dda21..75cd72d 100644
+--- a/src/hypernix/pepper_shaker.py
++++ b/src/hypernix/pepper_shaker.py
+@@ -137,7 +137,7 @@ def _iter_source(_src) -> Iterator[str]:  # pragma: no cover
+     # Re-exported symbol for callers that want to iterate a raw source
+     # without constructing a Shaker.  (Kept for API symmetry with
+     # ``salt_shaker.Shaker._source_lines`` which is private.)
+-    if isinstance(_src, (list, tuple)):
++    if isinstance(_src, list | tuple):
+         yield from _src
+     elif hasattr(_src, "read"):
+         yield from _src
+diff --git a/src/hypernix/pressure_cooker_v5.py b/src/hypernix/pressure_cooker_v5.py
+index 07832d0..cb73288 100644
+--- a/src/hypernix/pressure_cooker_v5.py
++++ b/src/hypernix/pressure_cooker_v5.py
+@@ -488,7 +488,7 @@ class PressureCookerV5(OptimizerBase):
+ 
+         num_levels = self.qat_config.num_levels
+         for name, module in model.named_modules():
+-            if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
++            if isinstance(module, nn.Linear | nn.Conv1d | nn.Conv2d | nn.Conv3d):
+                 fake_quant = QATFakeQuantize(
+                     num_levels=num_levels,
+                     symmetric=self.qat_config.symmetric,
+diff --git a/src/hypernix/pressure_cooker_v5s.py b/src/hypernix/pressure_cooker_v5s.py
+index cb69f61..dcbe4f1 100644
+--- a/src/hypernix/pressure_cooker_v5s.py
++++ b/src/hypernix/pressure_cooker_v5s.py
+@@ -570,7 +570,7 @@ class PressureCookerV5S(OptimizerBase):
+         if cfg is None:
+             return
+         for name, module in model.named_modules():
+-            if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
++            if isinstance(module, nn.Linear | nn.Conv1d | nn.Conv2d | nn.Conv3d):
+                 fq = QATFakeQuantize(
+                     num_levels=cfg.num_levels,
+                     symmetric=cfg.symmetric,
+diff --git a/src/hypernix/qa.py b/src/hypernix/qa.py
+index ad54a7e..0c13889 100644
+--- a/src/hypernix/qa.py
++++ b/src/hypernix/qa.py
+@@ -89,7 +89,7 @@ class QAProcessor:
+         return None
+ 
+     def _iter_raw_source(self) -> Iterator[Any]:
+-        if isinstance(self.source, (str, Path)):
++        if isinstance(self.source, str | Path):
+             with Path(self.source).open("r", encoding="utf-8", errors="replace") as f:
+                 for line in f:
+                     yield line.strip()
+diff --git a/src/hypernix/salt_shaker.py b/src/hypernix/salt_shaker.py
+index 6ae9f9a..da91608 100644
+--- a/src/hypernix/salt_shaker.py
++++ b/src/hypernix/salt_shaker.py
+@@ -49,7 +49,7 @@ class Shaker:
+         self._rng = random.Random(self.seed)
+ 
+     def _source_lines(self) -> Iterator[str]:
+-        if isinstance(self.source, (str, Path)):
++        if isinstance(self.source, str | Path):
+             with Path(self.source).open(encoding="utf-8") as f:
+                 for line in f:
+                     yield line.rstrip("\n")
+diff --git a/src/hypernix/toaster.py b/src/hypernix/toaster.py
+index 94b595b..4f88963 100644
+--- a/src/hypernix/toaster.py
++++ b/src/hypernix/toaster.py
+@@ -26,7 +26,7 @@ from pathlib import Path
+ 
+ 
+ def _open_stream(source: Path | str | Iterable[str]) -> Iterator[str]:
+-    if isinstance(source, (str, Path)):
++    if isinstance(source, str | Path):
+         with Path(source).open(encoding="utf-8") as f:
+             for line in f:
+                 yield line.rstrip("\n")
+diff --git a/src/hypernix/ups.py b/src/hypernix/ups.py
+index d311d9a..b06d683 100644
+--- a/src/hypernix/ups.py
++++ b/src/hypernix/ups.py
+@@ -124,7 +124,7 @@ def _autodetect_coords(timeout: float = 5.0) -> tuple[float, float] | None:
+         return None
+     lat = data.get("latitude")
+     lon = data.get("longitude")
+-    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
++    if isinstance(lat, int | float) and isinstance(lon, int | float):
+         return float(lat), float(lon)
+     return None
+ 
+diff --git a/src/hypernix/vera.py b/src/hypernix/vera.py
+index 8afa0f3..a78c2fe 100644
+--- a/src/hypernix/vera.py
++++ b/src/hypernix/vera.py
+@@ -81,7 +81,7 @@ class HyperNixVerifier:
+         for node in ast.iter_child_nodes(tree):
+             if isinstance(node, ast.ClassDef):
+                 self._check_class(node, result)
+-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
++            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                 if not node.name.startswith("_"):
+                     self._check_function(node, result)
+ 
+@@ -131,7 +131,7 @@ class HyperNixVerifier:
+         result.stats["classes"] = result.stats.get("classes", 0) + 1
+ 
+         for item in node.body:
+-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
++            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+                 if not item.name.startswith("_") or item.name in ("__init__", "__call__"):
+                     self._check_function(item, result, prefix=f"{node.name}.")
+ 
+diff --git a/src/hypernix/wiki_cli.py b/src/hypernix/wiki_cli.py
+index f6a2a5f..7338408 100644
+--- a/src/hypernix/wiki_cli.py
++++ b/src/hypernix/wiki_cli.py
+@@ -87,7 +87,7 @@ def _get_module_doc(module_name: str) -> dict[str, Any] | None:
+                 "methods": [],
+             }
+             for item in node.body:
+-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
++                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+                     if item.name.startswith("_") and item.name not in ("__init__", "__call__", "__post_init__"):
+                         continue
+                     method_doc = {
+@@ -98,7 +98,7 @@ def _get_module_doc(module_name: str) -> dict[str, Any] | None:
+                     class_doc["methods"].append(method_doc)
+             doc["classes"].append(class_doc)
+ 
+-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
++        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+             if node.name.startswith("_"):
+                 continue
+             func_doc = {
+diff --git a/tests/test_alarms_and_presets.py b/tests/test_alarms_and_presets.py
+index 98db3fe..1d641e1 100644
+--- a/tests/test_alarms_and_presets.py
++++ b/tests/test_alarms_and_presets.py
+@@ -293,7 +293,6 @@ def test_auto_alarm_accepts_preset() -> None:
+ 
+ def test_gas_alarm_unknown_preset_lists_valid() -> None:
+     import pytest
+-
+     from hypernix import smoke_alarm
+ 
+     with pytest.raises(ValueError, match="unknown preset"):
+diff --git a/tests/test_kitchen_v044.py b/tests/test_kitchen_v044.py
+index cdbaa8b..e692269 100644
+--- a/tests/test_kitchen_v044.py
++++ b/tests/test_kitchen_v044.py
+@@ -122,7 +122,6 @@ def test_grill_pan_seen_is_not_in_init_signature() -> None:
+ 
+ def test_pick_pan_unknown_tier_gives_useful_error() -> None:
+     import pytest
+-
+     from hypernix import pans
+ 
+     with pytest.raises(ValueError, match="unknown pan tier"):
+@@ -131,7 +130,6 @@ def test_pick_pan_unknown_tier_gives_useful_error() -> None:
+ 
+ def test_pick_pan_bad_kwarg_lists_valid_ones() -> None:
+     import pytest
+-
+     from hypernix import pans
+ 
+     with pytest.raises(ValueError, match="Skillet rejected"):
+diff --git a/tests/test_lazy_suzan.py b/tests/test_lazy_suzan.py
+index bf8481f..e25204b 100644
+--- a/tests/test_lazy_suzan.py
++++ b/tests/test_lazy_suzan.py
+@@ -1,7 +1,6 @@
+ """Tests for LazySusan."""
+ import torch
+ import torch.nn as nn
+-
+ from hypernix.compute_framework import ComputeFramework
+ from hypernix.lazy_suzan import LazySusan, LazySusanConfig
+ 
+diff --git a/tests/test_map.py b/tests/test_map.py
+index ece6c29..239d959 100644
+--- a/tests/test_map.py
++++ b/tests/test_map.py
+@@ -16,9 +16,8 @@ from __future__ import annotations
+ 
+ import json
+ 
+-import pytest
+-
+ import hypernix.map as hmap
++import pytest
+ 
+ 
+ @pytest.fixture(autouse=True)
+diff --git a/tests/test_pressure_cooker_v3.py b/tests/test_pressure_cooker_v3.py
+index e961d47..1fd21d1 100644
+--- a/tests/test_pressure_cooker_v3.py
++++ b/tests/test_pressure_cooker_v3.py
+@@ -1,10 +1,9 @@
+ """Tests for PressureCookerV3 and PressureCookerV3Plus optimizers."""
+ 
++import hypernix.pressure_cooker_v3 as pressure_cooker_v3
+ import pytest
+ import torch
+ import torch.nn as nn
+-
+-import hypernix.pressure_cooker_v3 as pressure_cooker_v3
+ from hypernix.pressure_cooker_v3 import (
+     PressureCookerV2Plus,
+     PressureCookerV3,
+diff --git a/tests/test_shakers_and_torchcompat.py b/tests/test_shakers_and_torchcompat.py
+index 1c0d55b..7a1026f 100644
+--- a/tests/test_shakers_and_torchcompat.py
++++ b/tests/test_shakers_and_torchcompat.py
+@@ -206,9 +206,8 @@ def test_torch_compat_fallback_rmsnorm_matches_formula() -> None:
+     """Construct the fallback class directly and verify its math."""
+     # Re-execute the class body with has_native_rmsnorm forced False so
+     # we exercise the fallback path even when running on a modern torch.
+-    import torch.nn as nn
+-
+     import hypernix.torch_compat as tc
++    import torch.nn as nn
+ 
+     class FallbackRMSNorm(nn.Module):
+         def __init__(self, shape, eps=1e-6):
+diff --git a/tests/test_snapshot_roundtrip.py b/tests/test_snapshot_roundtrip.py
+index 28381e7..d37e713 100644
+--- a/tests/test_snapshot_roundtrip.py
++++ b/tests/test_snapshot_roundtrip.py
+@@ -55,9 +55,8 @@ def test_verify_snapshot_missing_weights_raises(tmp_path: Path) -> None:
+ def test_seeded_init_is_deterministic(tmp_path: Path) -> None:
+     """Same seed -> identical weights; different seed -> different weights."""
+     import torch
+-    from safetensors.torch import load_file
+-
+     from hypernix import HyperNixConfig, init_from_scratch
++    from safetensors.torch import load_file
+ 
+     cfg = HyperNixConfig(
+         vocab_size=32, hidden_size=8, intermediate_size=16,
+@@ -99,7 +98,6 @@ def test_expand_checkpoint_grows_and_roundtrips(tiny_snapshot_dir: Path, tmp_pat
+ 
+ def test_convert_tiny_to_gguf(tiny_snapshot_dir: Path, tmp_path: Path) -> None:
+     from gguf import GGUFReader
+-
+     from hypernix import convert_to_gguf
+ 
+     gguf_path = tmp_path / "tiny.gguf"
+diff --git a/tests/test_tupperware.py b/tests/test_tupperware.py
+index b55c36d..68f9bb9 100644
+--- a/tests/test_tupperware.py
++++ b/tests/test_tupperware.py
+@@ -4,7 +4,6 @@ from __future__ import annotations
+ from pathlib import Path
+ 
+ import pytest
+-
+ from hypernix.tupperware import RoundPlan, Tupperware, TupperwareConfig
+ 
+ 
+diff --git a/tests/test_tvtop_plus_plus_comprehensive.py b/tests/test_tvtop_plus_plus_comprehensive.py
+index 10b3eb5..fe4648d 100644
+--- a/tests/test_tvtop_plus_plus_comprehensive.py
++++ b/tests/test_tvtop_plus_plus_comprehensive.py
+@@ -19,7 +19,6 @@ from pathlib import Path
+ from unittest.mock import patch
+ 
+ import pytest
+-
+ from hypernix.tvtop_plus_plus import TVTopPlusPlus, cli_main
+ 
+ 
+@@ -90,7 +89,7 @@ class TestCrossPlatformCompatibility:
+         frame = tvt.latest_frame()
+         
+         # Should not crash even without GPU
+-        assert frame.gpu_util_percent is None or isinstance(frame.gpu_util_percent, (int, float))
++        assert frame.gpu_util_percent is None or isinstance(frame.gpu_util_percent, int | float)
+         assert frame.gpu_mem_total_mib is None or isinstance(frame.gpu_mem_total_mib, int)
+ 
+     def test_cpu_reading_fallback(self, tmp_path: Path):
+@@ -102,7 +101,7 @@ class TestCrossPlatformCompatibility:
+         frame = tvt.latest_frame()
+         
+         # Should have some CPU value (from psutil or /proc/stat)
+-        assert frame.cpu_percent is None or isinstance(frame.cpu_percent, (int, float))
++        assert frame.cpu_percent is None or isinstance(frame.cpu_percent, int | float)
+ 
+ 
+ class TestLayoutRendering:
+diff --git a/tests/test_v031_chat_and_archs.py b/tests/test_v031_chat_and_archs.py
+index d3f7928..17796f1 100644
+--- a/tests/test_v031_chat_and_archs.py
++++ b/tests/test_v031_chat_and_archs.py
+@@ -119,9 +119,8 @@ def test_explicit_rope_style_overrides_inference() -> None:
+ 
+ def test_hf_model_prefix_stripped_on_load(tmp_path: Path) -> None:
+     """A config/state_dict with HF-style ``model.`` prefix loads cleanly."""
+-    from safetensors.torch import save_file
+-
+     from hypernix import HyperNixConfig, HyperNixModel, load_snapshot
++    from safetensors.torch import save_file
+ 
+     cfg = HyperNixConfig(
+         vocab_size=32, hidden_size=8, intermediate_size=16,
+@@ -194,10 +193,9 @@ def test_nano_nano_ties_output_to_embedding() -> None:
+ 
+ 
+ def test_load_snapshot_dispatches_to_nano_nano(tmp_path: Path) -> None:
+-    from safetensors.torch import save_file
+-
+     from hypernix import load_snapshot
+     from hypernix.nano_nano import NanoNanoConfig, NanoNanoModel
++    from safetensors.torch import save_file
+ 
+     cfg = NanoNanoConfig(
+         vocab_size=64, dim=16, num_layers=2, num_heads=2, num_kv_heads=1,
+diff --git a/tests/test_v051.py b/tests/test_v051.py
+index d48549e..6be2873 100644
+--- a/tests/test_v051.py
++++ b/tests/test_v051.py
+@@ -17,7 +17,6 @@ from typing import Any
+ 
+ import pytest
+ import torch
+-
+ from hypernix import DEFAULT_REPO_ID, KNOWN_MODELS, bell, cookbook, countertop, flour, menu
+ from hypernix.bell import Bell, silent_bell, stdout_bell
+ from hypernix.cookbook import (
+diff --git a/tests/test_v051_1.py b/tests/test_v051_1.py
+index c18eedf..602dd59 100644
+--- a/tests/test_v051_1.py
++++ b/tests/test_v051_1.py
+@@ -28,7 +28,6 @@ from typing import Any
+ 
+ import pytest
+ import torch
+-
+ from hypernix.bell import Bell
+ from hypernix.cookbook import COOKBOOK
+ from hypernix.countertop import Countertop
+@@ -207,7 +206,7 @@ class TestUniversalCookerPascalAware:
+         cooker = UniversalCooker.select(params, prefer_speed=True, variant="legacy")
+         # Should be one of the CPU tiers.
+         from hypernix.pressure_cooker import ElectricCooker, StovetopCooker
+-        assert isinstance(cooker, (ElectricCooker, StovetopCooker))
++        assert isinstance(cooker, ElectricCooker | StovetopCooker)
+ 
+     def test_select_pascal_path_forces_fused_off_under_legacy_variant(self, monkeypatch) -> None:
+         """Simulate a Pascal CUDA device by stubbing _is_pre_volta and
+@@ -310,4 +309,4 @@ class TestUniversalCookerV5Family:
+ 
+         params = [torch.nn.Parameter(torch.randn(3, 3))]
+         cooker = universal_cooker(params, variant="legacy")
+-        assert isinstance(cooker, (ElectricCooker, StovetopCooker))
++        assert isinstance(cooker, ElectricCooker | StovetopCooker)
+diff --git a/tests/test_v051_3.py b/tests/test_v051_3.py
+index 656db84..ceb4012 100644
+--- a/tests/test_v051_3.py
++++ b/tests/test_v051_3.py
+@@ -12,9 +12,8 @@ still resolve unchanged.
+ """
+ from __future__ import annotations
+ 
+-import pytest
+-
+ import hypernix
++import pytest
+ from hypernix import quantize
+ from hypernix.quantize import (
+     CATALOG,
+diff --git a/tests/test_v051_4.py b/tests/test_v051_4.py
+index e500bbc..bd7d213 100644
+--- a/tests/test_v051_4.py
++++ b/tests/test_v051_4.py
+@@ -26,7 +26,6 @@ from typing import Any
+ 
+ import pytest
+ import torch
+-
+ from hypernix import new_oven
+ 
+ 
+diff --git a/tests/test_v052_5.py b/tests/test_v052_5.py
+index 7d9f95f..d2ec2f7 100644
+--- a/tests/test_v052_5.py
++++ b/tests/test_v052_5.py
+@@ -20,7 +20,6 @@ preset (``i7-7700hq``).
+ from __future__ import annotations
+ 
+ import pytest
+-
+ from hypernix import smoke_alarm
+ from hypernix.freezer import cpu_preset
+ 
+diff --git a/tests/test_v052_6.py b/tests/test_v052_6.py
+index 593c747..8f561c3 100644
+--- a/tests/test_v052_6.py
++++ b/tests/test_v052_6.py
+@@ -19,7 +19,6 @@ can ``**spread`` config dicts straight into the constructor.
+ from __future__ import annotations
+ 
+ import pytest
+-
+ from hypernix import smoke_alarm
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/tests/test_v060.py b/tests/test_v060.py
+index 817f980..7fba985 100644
+--- a/tests/test_v060.py
++++ b/tests/test_v060.py
+@@ -16,7 +16,6 @@ import time
+ from pathlib import Path
+ 
+ import pytest
+-
+ from hypernix import (
+     compactor,
+     dishwasher,
+diff --git a/tests/test_v061_1.py b/tests/test_v061_1.py
+index 810854e..911b654 100644
+--- a/tests/test_v061_1.py
++++ b/tests/test_v061_1.py
+@@ -24,7 +24,6 @@ from __future__ import annotations
+ import os
+ 
+ import pytest
+-
+ from hypernix import injection, plasma, tv, ups, utils
+ from hypernix.hyped import (
+     CURATED_MODELS,
+diff --git a/tests/test_v061_b1.py b/tests/test_v061_b1.py
+index cf298bd..545e0c6 100644
+--- a/tests/test_v061_b1.py
++++ b/tests/test_v061_b1.py
+@@ -12,7 +12,6 @@ from __future__ import annotations
+ from pathlib import Path
+ 
+ import pytest
+-
+ from hypernix import injection, plasma, tv, ups
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/tests/test_v0703_additional.py b/tests/test_v0703_additional.py
+index 403bb81..1dfac48 100644
+--- a/tests/test_v0703_additional.py
++++ b/tests/test_v0703_additional.py
+@@ -5,7 +5,6 @@ from unittest import mock
+ 
+ import torch
+ import torch.nn as nn
+-
+ from hypernix.lazy_suzan import LazySusan, LazySusanConfig
+ 
+ 
+diff --git a/tests/test_v0704b11_features.py b/tests/test_v0704b11_features.py
+index 3988f3a..18ffe6b 100644
+--- a/tests/test_v0704b11_features.py
++++ b/tests/test_v0704b11_features.py
+@@ -239,7 +239,6 @@ class TestSTML:
+ 
+     def test_regulate_passthrough_short_sequence(self) -> None:
+         import torch
+-
+         from hypernix.stml import STML
+ 
+         mgr = STML(trained_context=512, untrained_max_context=2048, segment_length=256)
+@@ -250,7 +249,6 @@ class TestSTML:
+ 
+     def test_regulate_truncates_beyond_untrained_max(self) -> None:
+         import torch
+-
+         from hypernix.stml import STML
+ 
+         mgr = STML(trained_context=512, untrained_max_context=256, segment_length=64)
+@@ -263,7 +261,6 @@ class TestSTML:
+ 
+     def test_regulate_folds_long_sequence_into_batch(self) -> None:
+         import torch
+-
+         from hypernix.stml import STML
+ 
+         seg = 64
+@@ -285,7 +282,6 @@ class TestSTML:
+ 
+     def test_regulate_with_regulator(self) -> None:
+         import torch
+-
+         from hypernix.stml import STML
+ 
+         fake_reg = MagicMock()
+@@ -429,7 +425,6 @@ class TestTurboAbbicus:
+ 
+     def test_regulate_truncates_batch(self) -> None:
+         import torch
+-
+         from hypernix.abbicus import TurboAbbicus, TurboAbbicusConfig
+ 
+         cfg = TurboAbbicusConfig(
+@@ -534,9 +529,8 @@ class TestTVTopPlusPlusLayout:
+ 
+     def test_log_panel_shows_more_lines_on_wide_terminal(self, tmp_path: Path) -> None:
+         """Log panel must show 8 lines, not the old 6."""
+-        from rich.console import Console
+-
+         from hypernix.tvtop_plus_plus import TVTopPlusPlus
++        from rich.console import Console
+ 
+         log = tmp_path / "train.log"
+         lines = "\n".join(f"loss={i/10:.2f}" for i in range(1, 15))
+diff --git a/tests/test_v0705_all.py b/tests/test_v0705_all.py
+index 4e5fc1f..6d8e288 100644
+--- a/tests/test_v0705_all.py
++++ b/tests/test_v0705_all.py
+@@ -67,9 +67,8 @@ class TestTVTopPlusPlusFixes:
+ 
+     def test_small_mode_layout_structure(self):
+         """Small mode should create a simplified layout."""
+-        from rich.console import Console
+-
+         from hypernix.tvtop_plus_plus import TVTopPlusPlus
++        from rich.console import Console
+ 
+         tv = TVTopPlusPlus(small_mode=True)
+         console = Console(force_terminal=True, width=80)
+@@ -278,7 +277,6 @@ class TestPressureCookerV5QAT:
+     def test_fake_quantize_preserves_shape(self):
+         """Fake quantization should preserve tensor shape."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import fake_quantize_tensor
+ 
+         x = torch.randn(10, 20)
+@@ -291,7 +289,6 @@ class TestPressureCookerV5QAT:
+     def test_fake_quantize_reduces_precision(self):
+         """Fake quantization should reduce effective precision."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import fake_quantize_tensor
+ 
+         x = torch.linspace(-1, 1, 1000)
+@@ -305,7 +302,6 @@ class TestPressureCookerV5QAT:
+     def test_compute_quantization_params(self):
+         """Should compute valid scale and zero_point."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import compute_quantization_params
+ 
+         x = torch.randn(100)
+@@ -317,7 +313,6 @@ class TestPressureCookerV5QAT:
+     def test_qat_fake_quantize_module(self):
+         """QATFakeQuantize module should be callable."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import QATFakeQuantize
+ 
+         fq = QATFakeQuantize(num_levels=64)
+@@ -329,7 +324,6 @@ class TestPressureCookerV5QAT:
+     def test_pressure_cooker_v5_creation(self):
+         """Should create PressureCookerV5 instance."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import PressureCookerV5
+ 
+         param = torch.nn.Parameter(torch.randn(10))
+@@ -340,7 +334,6 @@ class TestPressureCookerV5QAT:
+     def test_pressure_cooker_v5_with_qat(self):
+         """Should create V5 with QAT config."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import PressureCookerV5, QATConfig
+ 
+         param = torch.nn.Parameter(torch.randn(10))
+@@ -353,7 +346,6 @@ class TestPressureCookerV5QAT:
+     def test_pressure_cooker_v5_describe(self):
+         """Describe should include V5-specific fields."""
+         import torch
+-
+         from hypernix.pressure_cooker_v5 import PressureCookerV5
+ 
+         param = torch.nn.Parameter(torch.randn(10))
+@@ -421,7 +413,6 @@ class TestMTP:
+     def test_mtp_head_forward(self):
+         """MTPHead forward should return correct number of logits."""
+         import torch
+-
+         from hypernix.mtp import MTPHead
+ 
+         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4)
+@@ -435,7 +426,6 @@ class TestMTP:
+     def test_mtp_head_forward_independent(self):
+         """MTPHead should work in independent mode."""
+         import torch
+-
+         from hypernix.mtp import MTPHead
+ 
+         head = MTPHead(hidden_dim=128, vocab_size=1000, num_tokens=4, shared=False)
+@@ -458,7 +448,6 @@ class TestMTP:
+     def test_mtp_trainer_attach_head(self):
+         """Should attach MTP head."""
+         import torch
+-
+         from hypernix.mtp import MTPConfig, MTPHead, MTPTrainer
+ 
+         config = MTPConfig(num_tokens=4)
+diff --git a/tests/test_v0711_border_fix.py b/tests/test_v0711_border_fix.py
+index 8e4f20c..627c949 100644
+--- a/tests/test_v0711_border_fix.py
++++ b/tests/test_v0711_border_fix.py
+@@ -31,11 +31,10 @@ from __future__ import annotations
+ from pathlib import Path
+ 
+ import pytest
+-from rich.text import Text
+-
+ from hypernix.cctvtop import CCTVTop
+ from hypernix.tv import _bar_str, _block_history_bar, _gauge_line
+ from hypernix.tvtop_plus_plus import Frame, TVTopPlusPlus, _append_ansi
++from rich.text import Text
+ 
+ 
+ def _make_frame(**overrides) -> Frame:
+diff --git a/tests/test_v0712_hyped_countertop.py b/tests/test_v0712_hyped_countertop.py
+index 6eb29a6..b096ba5 100644
+--- a/tests/test_v0712_hyped_countertop.py
++++ b/tests/test_v0712_hyped_countertop.py
+@@ -5,6 +5,7 @@ and Countertop T1 API key integration.
+ import os
+ import tempfile
+ from pathlib import Path
++from unittest.mock import MagicMock
+ 
+ from hypernix import __version__
+ from hypernix.countertop import countertop
+@@ -12,6 +13,10 @@ from hypernix.gatekeeper import Gatekeeper
+ from hypernix.hyped import (
+     CURATED_MODELS,
+     HYPED_VERSION,
++    ChatScreen,
++    ModelEntry,
++    OvenRunner,
++    SamplingConfig,
+     SkillManager,
+     ToolRegistry,
+ )
+@@ -104,6 +109,34 @@ def test_tool_registry():
+         assert "OS:" in sys_out
+ 
+ 
++def test_chat_screen_submit_prompt_does_not_crash():
++    """Regression test: submitting a prompt in the hyped TUI used to
++    raise ``AttributeError: 'OvenRunner' object has no attribute
++    '_format_chat'`` on every turn, for every provider, because
++    ChatScreen wired a low-level ``Bell`` streamer (which requires
++    ``.model`` / ``.tokenizer`` / ``._format_chat`` on the oven it's
++    given) around ``OvenRunner``, a multi-provider wrapper that only
++    exposes the high-level ``.chat()`` API. ChatScreen no longer wires
++    a Bell into its Countertop, so a submitted prompt should route
++    straight through ``OvenRunner.chat()`` and return normally.
++    """
++    entry = ModelEntry("nix-mini", "hypernix/nix-mini", "test model", "HyperNix", "", "local")
++    sampling = SamplingConfig()
++    runner = OvenRunner(entry, sampling)
++    runner.local_oven = MagicMock()
++    runner.local_oven.chat.return_value = "Hello from the model!"
++
++    screen = ChatScreen(
++        runner=runner, model_entry=entry, sampling=sampling,
++        color=False, ascii_only=True,
++    )
++
++    reply = screen.countertop.say("hi there")
++
++    assert reply == "Hello from the model!"
++    assert runner.local_oven.chat.called
++
++
+ def test_curated_models_catalog():
+     families = {m.family for m in CURATED_MODELS}
+     assert len(families) >= 11
+diff --git a/wiki/Pressure-Cooker-V5.md b/wiki/Pressure-Cooker-V5.md
+index 1c9a7fa..2a347ab 100644
+--- a/wiki/Pressure-Cooker-V5.md
++++ b/wiki/Pressure-Cooker-V5.md
+@@ -2,21 +2,20 @@
+ 
+ ## Overview
+ 
+-Pressure Cooker V5 is HyperNix's flagship optimizer, abandoning traditional AdamW mechanics entirely in favor of an **Oscillation Resistant Cosine Power (ORCP)** architecture, combining 6-bit quantized momentum, Quantization-Aware Training (QAT), and Multi-Token Prediction (MTP) support. V5+ extends V5 with automatic model transformation and quantization sensitivity analysis. V5S adds a third dimension of cosine similarity tracking (oscillation resistant cosin 3d), pressure diffusion, and lower memory usage.
++Pressure Cooker V5 is HyperNix's flagship optimizer, abandoning traditional AdamW mechanics entirely in favor of an **Oscillation Resistant Cosine Power (ORCP)** architecture, combining quantized momentum, Quantization-Aware Training (QAT), and Multi-Token Prediction (MTP) support. V5+ (`PressureCookerV5Plus`) extends V5 with automatic model transformation, quantization sensitivity analysis, and finer directional trust regions. V5S (`PressureCookerV5S`) is a separate, ground-up 3D-ORCP optimizer: it tracks *three* cosine-similarity EMAs at different time horizons instead of one/two, adds a lightweight "pressure diffusion" spatial smoothing pass over the gradient, and keeps memory below AdamW's by never allocating a full second-moment tensor. See the [V5/V5S efficiency paper](../pressure_cooker_v5_v5s_paper.md) for the full derivation and measured numbers.
+ 
+ ## Features
+ 
+-### 6-Bit Quantized Momentum
++### Quantized Momentum
+ 
+-Momentum buffers are quantized to 6-bit signed integers using stochastic rounding, reducing memory usage by ~75% compared to fp32 momentum while maintaining training stability.
++Momentum buffers are quantized to int8 (8-bit signed integers, `[-127, 127]`) with a per-tensor fp32 scale, using standard round-to-nearest (`torch.round`) -- not stochastic rounding. This is always on; there is no `quantize_momentum` toggle. It reduces the momentum buffer's own memory by 75% versus keeping it in fp32 (1 byte/element vs. 4), and -- combined with factored row/column curvature instead of a full elementwise second moment -- measures at roughly 12-13% of AdamW's total optimizer-state footprint in practice (see the [efficiency paper](../pressure_cooker_v5_v5s_paper.md) for the exact measured numbers and derivation).
+ 
+ ```python
+ from hypernix.pressure_cooker_v5 import PressureCookerV5
+ 
+ cooker = PressureCookerV5(
+     model.parameters(),
+-    peak_lr=2e-4,
+-    quantize_momentum=True,  # Enable 6-bit quantized momentum
++    lr=2e-4,
+ )
+ ```
+ 
+@@ -78,6 +77,41 @@ evaluate(model)
+ cooker.swap_ema_weights(model)  # Swap back
+ ```
+ 
++### V5S: 3D-ORCP (`PressureCookerV5S`)
++
++V5S is not a subclass of V5 -- it's a separate optimizer (`hypernix.pressure_cooker_v5s.PressureCookerV5S`) built around three co-designed ideas:
++
++1. **3D Cosine Oscillation Resistance (3D-COR)** -- three cosine-similarity EMAs at fast (β≈0.80), medium (β≈0.95), and ultra-slow (β≈0.999) time horizons, combined into a single "volumetric oscillation score" (VOS) that damps the effective learning rate.
++2. **Pressure Diffusion (PD)** -- a small 1-D convolution over the flattened gradient that smooths high-frequency noise before it enters the update rule, at O(n) cost and zero extra persistent state.
++3. **Low Power Mode (LPM)** -- one quantized int8 momentum buffer plus factored row/column curvature, same as V5, so memory stays close to V5's footprint.
++
++```python
++from hypernix.pressure_cooker_v5s import PressureCookerV5S, V5SConfig
++
++# Defaults (general pretraining)
++cooker = PressureCookerV5S(model.parameters(), lr=3e-4)
++
++# Fine-tuning starting point (see class docstring for other presets)
++cooker = PressureCookerV5S(
++    model.parameters(),
++    lr=1e-4,
++    diffusion_factor=0.05,
++    vos_3d_gain=4.0,
++    freeze_patience=64,
++)
++
++# Or via an explicit config object
++cfg = V5SConfig(fast_beta=0.80, med_beta=0.95, ultra_slow_beta=0.999, diffusion_factor=0.12)
++cooker = PressureCookerV5S(model.parameters(), v5s_config=cfg, lr=3e-4)
++
++# Diagnostics
++cooker.print_summary()                  # human-readable config + live oscillation stats
++stats = cooker.get_oscillation_stats()  # {"fast_cos", "med_cos", "ultra_cos", "vos"}
++frozen = cooker.get_frozen_fraction()   # fraction of coordinates currently soft-frozen
++```
++
++`Agedcookerv5s` is the Pascal-safe (CUDA 6.1/6.2, e.g. GTX 10-series) variant: it caps the diffusion kernel width at 3 and stores curvature buffers in fp16.
++
+ ## GPU Tiers
+ 
+ | Tier | Class | Use Case | QAT | MTP |
+@@ -108,12 +142,22 @@ cooker.swap_ema_weights(model)  # Swap back
+ 
+ ## CLI
+ 
++There is currently no `pressure-cooker-v5` CLI subcommand -- `hypernix train run` (see `wiki/Training.md` / `hypernix.cli`) drives the built-in training loop, but optimizer choice, QAT, and MTP are configured in Python, not via CLI flags:
++
+ ```bash
+-# Configure V5 with QAT and MTP
+-hnx pressure-cooker-v5 --tier V5 --qat 6 --mtp --epochs 10
++hypernix train run --model-dir ./snapshot --dataset data.txt --out-dir ./ckpt --lr 3e-4
++```
++
++```python
++from hypernix.pressure_cooker_v5 import PressureCookerV5, QATConfig
++from hypernix.pressure_cooker_v5s import PressureCookerV5S
++
++# V5 with QAT
++cooker = PressureCookerV5(model.parameters(), lr=2e-4, qat_config=QATConfig(bits=6))
++cooker.attach_qat(model)
+ 
+-# V5+ with full pipeline
+-hnx pressure-cooker-v5 --tier V5+ --qat 4 --mtp --mtp-tokens 4 --ema 0.999
++# V5S (3D-ORCP core, see the V5S section of this page)
++cooker = PressureCookerV5S(model.parameters(), lr=3e-4)
+ ```
+ 
+ ## Integration with Freezer

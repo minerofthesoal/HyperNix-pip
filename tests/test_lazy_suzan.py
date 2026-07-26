@@ -1,7 +1,6 @@
 """Tests for LazySusan."""
 import torch
 import torch.nn as nn
-
 from hypernix.compute_framework import ComputeFramework
 from hypernix.lazy_suzan import LazySusan, LazySusanConfig
 

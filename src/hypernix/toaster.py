@@ -26,7 +26,7 @@ from pathlib import Path
 
 
 def _open_stream(source: Path | str | Iterable[str]) -> Iterator[str]:
-    if isinstance(source, (str, Path)):
+    if isinstance(source, str | Path):
         with Path(source).open(encoding="utf-8") as f:
             for line in f:
                 yield line.rstrip("\n")

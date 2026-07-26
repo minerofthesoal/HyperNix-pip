@@ -570,7 +570,7 @@ class PressureCookerV5S(OptimizerBase):
         if cfg is None:
             return
         for name, module in model.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+            if isinstance(module, nn.Linear | nn.Conv1d | nn.Conv2d | nn.Conv3d):
                 fq = QATFakeQuantize(
                     num_levels=cfg.num_levels,
                     symmetric=cfg.symmetric,

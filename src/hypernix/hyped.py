@@ -1556,7 +1556,6 @@ class ChatScreen:
     tool_call_count: int = 0
 
     def __post_init__(self) -> None:
-        from . import bell as _bell_mod
         from . import countertop as _ct_mod
         from . import flour as _flour_mod
         from . import menu as _menu_mod
@@ -1608,11 +1607,23 @@ class ChatScreen:
         else:
             self.flour = _flour_mod.Flour.off()
 
-        self.bell = _bell_mod.Bell(flour=self.flour)
+        # NOTE: no Bell is wired in here. Bell.stream_chat() drives raw
+        # token-by-token generation and requires the oven to expose
+        # `.model` / `.tokenizer` / `._format_chat` directly (see
+        # hypernix.old_oven.CodeOven). `self.runner` is an OvenRunner,
+        # which fronts five different providers (local/openai/
+        # anthropic/rest/t1) behind a single high-level `.chat()`
+        # method and does not expose that low-level surface. Wiring a
+        # Bell here made Countertop.say() call
+        # `bell.stream_chat(self.runner, ...)`, which immediately
+        # raised `AttributeError: 'OvenRunner' object has no
+        # attribute '_format_chat'` the moment a prompt was submitted
+        # in the hyped TUI. Leaving `bell=None` (the Countertop
+        # default) routes generation through `self.runner.chat(...)`
+        # instead, which is what actually implements every provider.
         self.countertop = _ct_mod.Countertop(
             oven=self.runner,
             system=system,
-            bell=self.bell,
             flour=self.flour,
             t1_key=self.sampling.t1_key,
             sampling=self.sampling.to_kwargs(),

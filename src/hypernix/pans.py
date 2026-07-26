@@ -75,7 +75,7 @@ class Pan:
         return self.max_chars
 
     def _source_lines(self) -> Iterator[str]:
-        if isinstance(self.source, (str, Path)):
+        if isinstance(self.source, str | Path):
             p = Path(self.source)
             with p.open(encoding="utf-8") as f:
                 for line in f:

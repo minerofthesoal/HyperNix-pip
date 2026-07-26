@@ -124,7 +124,7 @@ def _autodetect_coords(timeout: float = 5.0) -> tuple[float, float] | None:
         return None
     lat = data.get("latitude")
     lon = data.get("longitude")
-    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+    if isinstance(lat, int | float) and isinstance(lon, int | float):
         return float(lat), float(lon)
     return None
 

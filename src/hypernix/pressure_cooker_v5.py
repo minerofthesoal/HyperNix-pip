@@ -488,7 +488,7 @@ class PressureCookerV5(OptimizerBase):
 
         num_levels = self.qat_config.num_levels
         for name, module in model.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+            if isinstance(module, nn.Linear | nn.Conv1d | nn.Conv2d | nn.Conv3d):
                 fake_quant = QATFakeQuantize(
                     num_levels=num_levels,
                     symmetric=self.qat_config.symmetric,

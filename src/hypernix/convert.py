@@ -243,7 +243,7 @@ def convert_to_gguf(
             # HF tokenizer.json v2+ stores merges as [["a","b"], ...];
             # llama.cpp wants a flat list of "a b" strings. Normalize so the
             # GGUF passes `gguf_init_from_file_impl` validation.
-            if isinstance(merges[0], (list, tuple)):
+            if isinstance(merges[0], list | tuple):
                 merges = [" ".join(m) for m in merges]
             writer.add_token_merges(merges)
         bos = cfg.get("bos_token_id")

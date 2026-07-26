@@ -1,37 +1,95 @@
-"""Benchmark for Pressure Cooker v5."""
+"""Benchmark for Pressure Cooker V5 vs AdamW.
+
+Each optimizer gets its own freshly-initialized, identically-seeded copy of
+the model so results are a fair apples-to-apples comparison rather than
+optimizers training sequentially on top of each other's already-updated
+weights. Runs on CUDA when available and falls back to CPU otherwise, so
+the script is runnable on any machine (results are of course only
+representative of the device actually used -- the printed device is always
+reported alongside the numbers).
+"""
+from __future__ import annotations
+
 import time
 
 import torch
 import torch.nn as nn
+from hypernix.pressure_cooker_v5 import PressureCookerV5
 from torch.optim import AdamW
 
-from hypernix.pressure_cooker_v5 import PressureCookerV5
+N_STEPS = 100
+BATCH_SIZE = 128
+HIDDEN = 2048
+SEED = 0
 
 
-def run_benchmark():
-    model = nn.Sequential(
-        nn.Linear(2048, 2048),
+def _make_model(device: torch.device) -> nn.Module:
+    torch.manual_seed(SEED)
+    return nn.Sequential(
+        nn.Linear(HIDDEN, HIDDEN),
         nn.ReLU(),
-        nn.Linear(2048, 2048)
-    ).cuda()
-    
-    opts = {
-        "AdamW": AdamW(model.parameters(), lr=1e-3),
-        "V5": PressureCookerV5(model.parameters(), lr=1e-3),
+        nn.Linear(HIDDEN, HIDDEN),
+    ).to(device)
+
+
+def _bench_one(name: str, make_opt, device: torch.device) -> dict:
+    model = _make_model(device)
+    opt = make_opt(model)
+
+    torch.manual_seed(SEED + 1)
+    inputs = [
+        torch.randn(BATCH_SIZE, HIDDEN, device=device) for _ in range(N_STEPS)
+    ]
+
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats(device)
+
+    start = time.perf_counter()
+    for x in inputs:
+        opt.zero_grad(set_to_none=True)
+        out = model(x)
+        loss = out.pow(2).mean()
+        loss.backward()
+        opt.step()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    elapsed = time.perf_counter() - start
+
+    peak_mem_mb = (
+        torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+        if device.type == "cuda"
+        else float("nan")
+    )
+    return {
+        "name": name,
+        "elapsed_s": elapsed,
+        "ms_per_step": (elapsed / N_STEPS) * 1000,
+        "peak_mem_mb": peak_mem_mb,
+        "final_loss": float(loss.detach()),
     }
-    
-    for name, opt in opts.items():
-        torch.cuda.synchronize()
-        start = time.perf_counter()
-        for _ in range(100):
-            opt.zero_grad()
-            out = model(torch.randn(128, 2048, device='cuda'))
-            loss = out.sum()
-            loss.backward()
-            opt.step()
-        torch.cuda.synchronize()
-        elapsed = time.perf_counter() - start
-        print(f"{name} Time: {elapsed:.3f}s")
+
+
+def run_benchmark() -> list[dict]:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[benchmark_v5] device={device}, steps={N_STEPS}, "
+          f"batch={BATCH_SIZE}, hidden={HIDDEN}")
+
+    configs = {
+        "AdamW": lambda m: AdamW(m.parameters(), lr=1e-3),
+        "PressureCookerV5": lambda m: PressureCookerV5(m.parameters(), lr=1e-3),
+    }
+
+    results = [_bench_one(name, make_opt, device) for name, make_opt in configs.items()]
+    for r in results:
+        mem = f"{r['peak_mem_mb']:.1f} MB" if device.type == "cuda" else "n/a (CPU)"
+        print(
+            f"{r['name']:18s} total={r['elapsed_s']:.3f}s  "
+            f"per_step={r['ms_per_step']:.3f}ms  peak_mem={mem}  "
+            f"final_loss={r['final_loss']:.4f}"
+        )
+    return results
+
 
 if __name__ == "__main__":
     run_benchmark()

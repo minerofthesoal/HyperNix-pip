@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 import hypernix.map as hmap
+import pytest
 
 
 @pytest.fixture(autouse=True)

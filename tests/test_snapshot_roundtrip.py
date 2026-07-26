@@ -55,9 +55,8 @@ def test_verify_snapshot_missing_weights_raises(tmp_path: Path) -> None:
 def test_seeded_init_is_deterministic(tmp_path: Path) -> None:
     """Same seed -> identical weights; different seed -> different weights."""
     import torch
-    from safetensors.torch import load_file
-
     from hypernix import HyperNixConfig, init_from_scratch
+    from safetensors.torch import load_file
 
     cfg = HyperNixConfig(
         vocab_size=32, hidden_size=8, intermediate_size=16,
@@ -99,7 +98,6 @@ def test_expand_checkpoint_grows_and_roundtrips(tiny_snapshot_dir: Path, tmp_pat
 
 def test_convert_tiny_to_gguf(tiny_snapshot_dir: Path, tmp_path: Path) -> None:
     from gguf import GGUFReader
-
     from hypernix import convert_to_gguf
 
     gguf_path = tmp_path / "tiny.gguf"

@@ -87,7 +87,7 @@ def _get_module_doc(module_name: str) -> dict[str, Any] | None:
                 "methods": [],
             }
             for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                     if item.name.startswith("_") and item.name not in ("__init__", "__call__", "__post_init__"):
                         continue
                     method_doc = {
@@ -98,7 +98,7 @@ def _get_module_doc(module_name: str) -> dict[str, Any] | None:
                     class_doc["methods"].append(method_doc)
             doc["classes"].append(class_doc)
 
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             if node.name.startswith("_"):
                 continue
             func_doc = {

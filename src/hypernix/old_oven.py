@@ -605,7 +605,7 @@ class CodeOven:
 
         # HF ``BatchEncoding`` exposes ``input_ids``; pull that out and recurse.
         input_ids_attr = getattr(ids, "input_ids", None)
-        if input_ids_attr is not None and not isinstance(ids, (list, tuple)):
+        if input_ids_attr is not None and not isinstance(ids, list | tuple):
             return self._coerce_token_ids(input_ids_attr)
 
         # torch.Tensor (any rank).  Flatten + convert to list of ints.
@@ -616,13 +616,13 @@ class CodeOven:
 
         # Sequence — could be list[int], list[list[int]] (batched), or
         # list[str] (the bug we patched).
-        if isinstance(ids, (list, tuple)):
+        if isinstance(ids, list | tuple):
             if not ids:
                 return []
             head = ids[0]
             if isinstance(head, int):
                 return [int(x) for x in ids]
-            if isinstance(head, (list, tuple)):
+            if isinstance(head, list | tuple):
                 # Batched — take the first batch.
                 return [int(x) for x in head]
             if isinstance(head, torch.Tensor):

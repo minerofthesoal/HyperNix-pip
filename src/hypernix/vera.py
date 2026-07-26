@@ -81,7 +81,7 @@ class HyperNixVerifier:
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.ClassDef):
                 self._check_class(node, result)
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 if not node.name.startswith("_"):
                     self._check_function(node, result)
 
@@ -131,7 +131,7 @@ class HyperNixVerifier:
         result.stats["classes"] = result.stats.get("classes", 0) + 1
 
         for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                 if not item.name.startswith("_") or item.name in ("__init__", "__call__"):
                     self._check_function(item, result, prefix=f"{node.name}.")
 

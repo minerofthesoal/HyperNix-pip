@@ -19,7 +19,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from hypernix.tvtop_plus_plus import TVTopPlusPlus, cli_main
 
 
@@ -90,7 +89,7 @@ class TestCrossPlatformCompatibility:
         frame = tvt.latest_frame()
         
         # Should not crash even without GPU
-        assert frame.gpu_util_percent is None or isinstance(frame.gpu_util_percent, (int, float))
+        assert frame.gpu_util_percent is None or isinstance(frame.gpu_util_percent, int | float)
         assert frame.gpu_mem_total_mib is None or isinstance(frame.gpu_mem_total_mib, int)
 
     def test_cpu_reading_fallback(self, tmp_path: Path):
@@ -102,7 +101,7 @@ class TestCrossPlatformCompatibility:
         frame = tvt.latest_frame()
         
         # Should have some CPU value (from psutil or /proc/stat)
-        assert frame.cpu_percent is None or isinstance(frame.cpu_percent, (int, float))
+        assert frame.cpu_percent is None or isinstance(frame.cpu_percent, int | float)
 
 
 class TestLayoutRendering:

@@ -12,9 +12,8 @@ still resolve unchanged.
 """
 from __future__ import annotations
 
-import pytest
-
 import hypernix
+import pytest
 from hypernix import quantize
 from hypernix.quantize import (
     CATALOG,
