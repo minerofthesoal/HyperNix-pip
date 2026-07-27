@@ -143,3 +143,20 @@ timeline
         : bcfb3e2 - Rename 'hyped+' to 'hyped-plus' in pyproject.toml
 ```
 
+## Release v0.71.4b3 (2026-07-27)
+
+```mermaid
+timeline
+    title Release v0.71.4b3 Commits
+    0.71.4b3
+        : 14fad15 - Update package data to include JavaScript files
+        : 5330224 - Add package data configuration for JavaScript files
+        : c73a6c0 - Add debug statements for Node.js and JS file checks
+        : d54048a - Update license from Apache-2.0 to LLU-0.1
+        : ede2f62 - Add LICENSE-betaversionofit file
+        : 0fecb91 - Delete LICENSE
+        : 930578a - Add files via upload
+        : 6c6eb50 - hypernix v0.71.4b2 [skip ci]
+        : bcfb3e2 - Rename 'hyped+' to 'hyped-plus' in pyproject.toml
+```
+
