@@ -14,7 +14,10 @@ from pathlib import Path
 def cli_main(argv: list[str] | None = None) -> int:
     js_path = Path(__file__).parent / "hyped_pro.js"
     node_bin = shutil.which("node")
-
+#DEBUGGER 
+    print(f"DEBUG:CHECKING FOR NODE.JS... found at: {node_bin}", file=sys.stderr)
+    print(f"DEBUG: CHECKING FOR JS FILE at: {js_path}... exists {js_path.exists()}", file=sys.stderr)
+    #PLEASE FOR the love of god work collen_3 cant spell sorry anyway end of debugger
     if node_bin and js_path.exists():
         cmd = [node_bin, str(js_path)] + (argv if argv is not None else sys.argv[1:])
         try:
