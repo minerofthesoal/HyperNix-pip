@@ -160,3 +160,13 @@ timeline
         : bcfb3e2 - Rename 'hyped+' to 'hyped-plus' in pyproject.toml
 ```
 
+## Release v0.71.4b4 (2026-07-27)
+
+```mermaid
+timeline
+    title Release v0.71.4b4 Commits
+    0.71.4b4
+        : 883dd54 - Add files via upload
+        : 46baf40 - Delete src/hypernix/hyped_pro.js
+```
+
