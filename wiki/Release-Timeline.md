@@ -170,3 +170,13 @@ timeline
         : 46baf40 - Delete src/hypernix/hyped_pro.js
 ```
 
+## Release v0.71.4b5 (2026-07-28)
+
+```mermaid
+timeline
+    title Release v0.71.4b5 Commits
+    0.71.4b5
+        : 07c8de7 - 0.71.4b5 - fixes
+        : 6c545a3 - chore- update JSON stats (scheduled)
+```
+
