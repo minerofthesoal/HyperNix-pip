@@ -1,0 +1,16 @@
+{
+  "name": "hyped-pro",
+  "version": "0.71.4",
+  "private": true,
+  "description": "hyped+ / hyped-pro TUI agent CLI for HyperNix. Source of truth is hyped_pro.ts; hyped_pro.js is the compiled artifact hyped_pro.py actually spawns.",
+  "main": "hyped_pro.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "start": "node hyped_pro.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^24.0.0"
+  }
+}

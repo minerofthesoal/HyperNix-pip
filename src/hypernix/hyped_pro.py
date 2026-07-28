@@ -2,6 +2,10 @@
 
 Launches ``src/hypernix/hyped_pro.js`` via Node.js if present, or falls back to
 the Python TUI engine in ``hypernix.hyped``.
+
+NOTE: hyped_pro.js is a *compiled build artifact*, generated from
+hyped_pro.ts via `npm run build` (tsc). Edit hyped_pro.ts, not hyped_pro.js —
+changes made directly to the .js will be overwritten on the next build.
 """
 from __future__ import annotations
 
