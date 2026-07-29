@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
+import { execSync } from 'child_process'; // <-- ADD THIS
 
 const VERSION = "v0.71.4";
 const NL = "\r\n"; // raw mode leaves OPOST alone but we own the terminal, so be explicit
