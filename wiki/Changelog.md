@@ -17,6 +17,22 @@ next release header.
 
 
 
+## 0.71.4b6
+
+✨ **`hyped+`/`hyped-pro` real provider dispatch** — Replaced the mocked chat reply with real dispatch through a shared Python layer (`hypernix.hyped_pro_core`, called from the Node TUI via a persistent `hypernix.hyped_pro_bridge` worker): real Anthropic Messages / OpenAI-compatible HTTP calls for cloud models, real local inference via `hypernix.old_oven` for HuggingFace models, and the real HNX1 Gatekeeper/Keymaster quota layer for T1. A failed call now surfaces a coded error (`HPC-*`/`HPB-*`/`HPT-*`) instead of a fabricated reply.
+
+🛡️ **Provider reclassification** — Qwen (`qwen3.7-plus`) and Kimi K3 (`kimi-k3`) are now correctly classified as `cloud`, routed to Alibaba Cloud Model Studio (DashScope, OpenAI-compatible) and Moonshot AI respectively, each with a real, documented API base URL and auth env var (`DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`). Kimi K2.7 Code stays `local` (open-weight, self-hostable) since only K3 is cloud-only at launch.
+
+✨ **Automatic local model downloads** — Selecting a `local` model (via `/model` or the model picker) or running `/download [model]` now auto-fetches its HuggingFace snapshot through the existing `hypernix.download.download_model` fallback-chain machinery if it isn't cached yet, with live progress on the terminal.
+
+✨ **`/gui` desktop mode** — New `hyped-pro-gui` entry point (also reachable from the TUI via `/gui`) launches a real Qt6 desktop app (`PySide6`, working on both X11 and Wayland from one codebase) with a GTK4 fallback for Qt-less systems. Both backends log coded debug/error info to the terminal (`HPG-*` codes) and neither fabricates a chat reply — they call into the same `hyped_pro_core` dispatch as the TUI.
+
+✨ **Real `/key` persistence** — `/key <vendor> <api-key>` now saves to `~/.hypernix/config.json` (via new `hypernix.config.get_provider_key`/`set_provider_key`) and is usable immediately without a restart; `/key` with no args shows masked status for every configured vendor.
+
+🛡️ **Branding cleanup** — Removed the OpenClaw-inspired naming/theme references from `hyped+`'s banner, system prompt, and footer; it's its own design now. Docs updated to match (historical changelog/roadmap entries describing what actually shipped in `0.71.4b2` are left as-is).
+
+🐛 **Fixes** — Added the `tsconfig.json` that `package.json`'s `build` script referenced but never shipped (the TS build was broken). Removed leftover joke debug comments from `hyped_pro.py`'s launcher in favor of a real `--debug`/`HYPED_PRO_DEBUG` flag. Fixed a broken-pipe traceback when quitting `hyped+` while a bridge request was still in flight.
+
 ## 0.71.4b2
 
 ✨ **`hyped+` (`hyped-pro`) Node.js TUI** — Standalone Node.js interactive CLI (`hyped+` / `hyped-pro`) featuring a locked multi-panel layout inspired by OpenClaw, Qwen Code CLI, Claude Desktop, and Claude CLI. Includes quick 2D pixel art coffee mascot startup animation, 256-color Hyped theme, and instant execution.

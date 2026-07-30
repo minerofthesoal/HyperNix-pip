@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.71.4b5"
+version = "0.71.4b6"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "Apache-2.0" }
@@ -75,6 +75,15 @@ legacy-torch = [
     "tqdm>=4.64",
     "sentencepiece>=0.1.99",
 ]
+# v0.71.4b6: hyped-pro desktop GUI (`hypernix.hyped_pro_gui`, launched via
+# `hyped-pro-gui` or the TUI's /gui command). Qt6 covers both X11 and
+# Wayland from one dependency; GTK4 is an independent fallback for
+# GTK-only systems where PySide6 isn't wanted. Install whichever backend
+# you want — the GUI picks Qt6 first, then GTK4, and prints a clear error
+# if neither is present.
+gui-qt = ["PySide6>=6.6"]
+gui-gtk = ["PyGObject>=3.48"]
+gui = ["hypernix[gui-qt]"]
 
 [project.scripts]
 hypernix = "hypernix.version_launcher:main"
@@ -92,6 +101,8 @@ eth = "hypernix.ethanol:cli_main"
 hyped = "hypernix.hyped:cli_main"
 hyped-pro = "hypernix.hyped_pro:cli_main"
 hyped-plus = "hypernix.hyped_pro:cli_main"
+# v0.71.4b6: hyped-pro's desktop GUI (Qt6 X11/Wayland, GTK4 fallback).
+hyped-pro-gui = "hypernix.hyped_pro_gui:cli_main"
 # v0.71.0: unified Gatekeeper + Keymaster CLI.
 gkey = "hypernix.gkey_cli:main"
 # v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).

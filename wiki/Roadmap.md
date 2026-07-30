@@ -8,6 +8,15 @@
 - Brewer 33.6429M parameter architecture preset (`hypernix0x_v2_33m`) & Vision model support
 - Slash command auto-completion, price estimator, prompt compaction, auto context compaction, and `hyper-Nix.2` warning banner
 
+## 0.71.4b6 (Shipped)
+
+- `hyped+`/`hyped-pro` real provider dispatch (cloud HTTP calls, local inference, T1 Gatekeeper) via `hypernix.hyped_pro_core` + `hyped_pro_bridge`, replacing the old mocked chat reply
+- Qwen and Kimi K3 reclassified as `cloud` with real, documented provider info (DashScope / Moonshot AI)
+- Automatic local-model downloads on `/model` selection and `/download`
+- `/gui` desktop mode: Qt6 (X11 + Wayland) via PySide6, GTK4 fallback, coded terminal logging on both
+- Real `/key` persistence to `~/.hypernix/config.json`
+- Dropped OpenClaw-inspired branding
+
 ## 0.72.0 (Next Milestone)
 
 - Advanced multi-agent orchestration & subagent execution protocols

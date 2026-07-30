@@ -2,34 +2,69 @@
 /**
  * hyped+ (hyped-pro) — TypeScript TUI Agent CLI for HyperNix.
  *
- * Ported from hyped_pro.js to TypeScript. Uses a live status/palette footer,
- * a deterministic startup banner, price estimator, prompt compactor,
- * auto-compaction, a fuzzy slash-command + skill palette, and an
- * alt+y model picker over a curated model catalog.
+ * The TUI itself (footer/palette/keypress engine below) is pure Node and
+ * has no model or provider logic of its own. Every real operation —
+ * cloud API calls, local HuggingFace downloads, local inference, the T1
+ * Gatekeeper quota layer, and the model/provider catalog — is delegated
+ * to a single Python worker process (`python3 -m hypernix.hyped_pro_bridge
+ * serve`, see the Bridge class below) so there is exactly one
+ * implementation of "how hyped-pro talks to a model", shared with the
+ * hyped-pro GUI (`hyped_pro_gui.py`). Nothing here fabricates a reply —
+ * every chat turn is a real bridge round-trip that either returns a real
+ * model response or a real, coded error (see ERROR CODES below).
  *
  * Compiled with `tsc` (see tsconfig.json) to hyped_pro.js, which is what
  * hyped_pro.py actually spawns — edit this file, not the compiled output.
+ *
+ * ERROR CODES (printed to the terminal, never swallowed):
+ *   HPT-BRIDGE-001  could not spawn the Python bridge process
+ *   HPT-BRIDGE-002  the Python bridge process exited unexpectedly
+ *   HPT-BRIDGE-003  malformed JSON from the Python bridge
+ *   HPT-CATALOG-001 could not load the model/provider catalog at startup
+ *   HPT-CATALOG-002 the catalog response was malformed
+ *   HPT-GUI-001     could not launch the hyped-pro GUI
+ *   (HPC-*, HPB-* codes surfacing from a bridge call originate in Python —
+ *    see hypernix/hyped_pro_core.py and hyped_pro_bridge.py.)
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
-import { execSync } from 'child_process'; // <-- ADD THIS
+import { spawn, spawnSync, ChildProcess } from 'child_process';
 
-const VERSION = "v0.71.4";
+const VERSION = "0.71.4b6";
 const NL = "\r\n"; // raw mode leaves OPOST alone but we own the terminal, so be explicit
+const DEBUG = !!process.env.HYPED_PRO_DEBUG;
+
+function pythonBin(): string {
+  return process.env.HYPED_PRO_PYTHON || 'python3';
+}
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type Provider = "local" | "anthropic" | "openai" | "t1";
+type ProviderKind = "local" | "cloud";
+
+interface ProviderInfo {
+  vendor: string;
+  kind: ProviderKind;
+  label: string;
+  api_base?: string | null;
+  chat_path?: string | null;
+  auth_env_var?: string | null;
+  docs_url?: string;
+  notes?: string;
+}
 
 interface ModelDef {
   short: string;
   repo: string;
-  provider: Provider;
+  vendor: string;
+  kind: ProviderKind;
   badge: string;
+  contextWindow: number;
+  notes: string;
 }
 
 interface CommandDef {
@@ -64,7 +99,7 @@ interface HistoryMsg {
 interface PriceEstimate {
   inToks: number;
   outToks: number;
-  cost: string;
+  cost: string | null; // null => no verified rate on file, not "free"
 }
 
 interface PaletteCandidates {
@@ -82,6 +117,14 @@ interface LineQueue {
   next(): Promise<string | null>;
 }
 
+interface BridgeResponse {
+  id: number | null;
+  ok: boolean;
+  data?: any;
+  code?: string;
+  error?: string;
+}
+
 // ---------------------------------------------------------------------------
 // ANSI helpers
 // ---------------------------------------------------------------------------
@@ -97,7 +140,11 @@ function dim(text: string): string { return `${CSI}2m${text}${RESET}`; }
 function stripAnsi(str: string): string { return str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, ''); }
 
 // ---------------------------------------------------------------------------
-// Config persistence (~/.hyped-plus/config.json) — survives restarts
+// Config persistence (~/.hyped-plus/config.json) — survives restarts.
+// Cloud API keys are NOT stored here — those live in ~/.hypernix/config.json
+// via the Python bridge (hypernix.config.set_provider_key), shared with the
+// GUI and the rest of the hypernix CLI so a key set in one place works
+// everywhere.
 // ---------------------------------------------------------------------------
 const CONFIG_DIR = path.join(os.homedir(), '.hyped-plus');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
@@ -121,42 +168,157 @@ function saveConfig(cfg: HypedConfig): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Curated Models Catalog
+// Bridge — one long-lived Python worker (hypernix.hyped_pro_bridge) that
+// owns the real model catalog, real cloud HTTP calls, real HF downloads,
+// real local inference, and the real T1 Gatekeeper. stderr is inherited
+// straight through to this terminal so every download progress bar,
+// [hypernix] log line, and Python traceback is visible unmodified.
 // ---------------------------------------------------------------------------
-const MODELS: ModelDef[] = [
-  { short: "qwen3.7-plus", repo: "Qwen/Qwen3.7-Plus", provider: "local", badge: "\u2605" },
-  { short: "kimi-k3", repo: "MoonshotAI/Kimi-K3", provider: "local", badge: "\u2605" },
-  { short: "claude-sonnet-4.6", repo: "claude-4-6-sonnet", provider: "anthropic", badge: "\u26a1" },
-  { short: "claude-sonnet-5", repo: "claude-5-sonnet", provider: "anthropic", badge: "\u26a1" },
-  { short: "claude-opus-4.8", repo: "claude-4-8-opus", provider: "anthropic", badge: "\u26a1" },
-  { short: "claude-fable-5", repo: "claude-fable-5", provider: "anthropic", badge: "\u2605" },
-  { short: "gpt-4o", repo: "gpt-4o", provider: "openai", badge: "\u26a1" },
-  { short: "gpt-5.6-terra", repo: "gpt-5.6-terra", provider: "openai", badge: "\u26a1" },
-  { short: "gpt-5.6-sol", repo: "gpt-5.6-sol", provider: "openai", badge: "\u26a1" },
-  { short: "gpt-5.5", repo: "gpt-5.5", provider: "openai", badge: "\u26a1" },
-  { short: "deepseek-r1", repo: "deepseek-ai/DeepSeek-R1", provider: "local", badge: "\u2605" },
-  { short: "deekseek-v4flash", repo: "deepseek-ai/DeepSeek-V4-Flash", provider: "local", badge: "\u26a1" },
-  { short: "gemma-4-27b", repo: "google/gemma-4-27b-it", provider: "local", badge: "\u2605" },
-  { short: "hyper-nix.2", repo: "ray0rf1re/hyper-Nix.2", provider: "local", badge: "\u26a0\ufe0f" },
-  // -- extended local catalog --------------------------------------------
-// deleted the extened catalog, all of those models were not real
-  // -- verified real Hugging Face repos (checked live, not fictional) ----
-  { short: "qwable-3.6-27b-mtp", repo: "Mia-AiLab/Qwable-3.6-27b-MTP", provider: "local", badge: "\u2605" },
-  { short: "qwable-9b-fable5", repo: "empero-ai/Qwable-9B-Claude-Fable-5", provider: "local", badge: "\u2605" },
-  { short: "qwopus-3.6-35b-a3b-coder-mtp", repo: "Jackrong/Qwopus3.6-35B-A3B-Coder-MTP-GGUF", provider: "local", badge: "\u2605" },
-  { short: "qwopus-3.6-27b-coder", repo: "Jackrong/Qwopus3.6-27B-Coder", provider: "local", badge: "\u2605" },
-  { short: "qwopus-3.5-9b-v3", repo: "Jackrong/Qwopus3.5-9B-v3", provider: "local", badge: "\u2605" },
-  { short: "qwopus-3.6-35b-a3b-v1-mtp", repo: "Jackrong/Qwopus3.6-35B-A3B-v1-MTP-GGUF", provider: "local", badge: "\u2605" },
-  { short: "kimi-k2.7-code", repo: "moonshotai/Kimi-K2.7-Code", provider: "local", badge: "\u2605" },
-];
+class Bridge {
+  private proc: ChildProcess | null = null;
+  private nextId = 1;
+  private pending = new Map<number, (r: BridgeResponse) => void>();
+  private buf = "";
 
-const CONTEXT_WINDOWS: Record<string, number> = {
-  "qwen3.7-plus": 131072, "kimi-k3": 131072, "claude-sonnet-4.6": 200000,
-  "claude-sonnet-5": 200000, "claude-opus-4.8": 200000, "fable-5": 200000,
-  "gpt-4o": 128000, "gpt-5.6-terra": 200000, "gpt-5.6-sol": 200000, "gpt-5.5": 128000,
-  "deepseek-r1": 128000, "deekseek-v4flash": 128000, "gemma-4-27b": 8192,
-  "hyper-nix.2": 4096,
-  "kimi-k2.7-code": 262144, // verified: 256K per the real model card
+  private ensureStarted(): ChildProcess {
+    if (this.proc) return this.proc;
+    const py = pythonBin();
+    const child = spawn(py, ['-m', 'hypernix.hyped_pro_bridge', 'serve'], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+      env: process.env,
+    });
+    child.stdout!.setEncoding('utf8');
+    child.stdout!.on('data', (chunk: string) => this.onData(chunk));
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      elog('HPT-BRIDGE-001', `failed to start the Python bridge (${py} -m hypernix.hyped_pro_bridge): ${err.message}. Install with 'pip install hypernix', or set HYPED_PRO_PYTHON to a python that has it.`);
+    });
+    child.on('exit', (code, signal) => {
+      if (this.pending.size > 0) {
+        elog('HPT-BRIDGE-002', `Python bridge exited (code=${code}, signal=${signal}) with ${this.pending.size} request(s) still in flight.`);
+      }
+      for (const resolve of this.pending.values()) {
+        resolve({ id: null, ok: false, code: 'HPT-BRIDGE-002', error: 'bridge process exited' });
+      }
+      this.pending.clear();
+      this.proc = null;
+    });
+    this.proc = child;
+    return child;
+  }
+
+  private onData(chunk: string): void {
+    this.buf += chunk;
+    let idx: number;
+    while ((idx = this.buf.indexOf('\n')) >= 0) {
+      const line = this.buf.slice(0, idx);
+      this.buf = this.buf.slice(idx + 1);
+      if (!line.trim()) continue;
+      let resp: BridgeResponse;
+      try {
+        resp = JSON.parse(line);
+      } catch {
+        elog('HPT-BRIDGE-003', `malformed JSON from bridge: ${line.slice(0, 200)}`);
+        continue;
+      }
+      if (typeof resp.id === 'number') {
+        const cb = this.pending.get(resp.id);
+        if (cb) { this.pending.delete(resp.id); cb(resp); }
+      }
+    }
+  }
+
+  async call(cmd: string, params: Record<string, unknown> = {}): Promise<BridgeResponse> {
+    const child = this.ensureStarted();
+    const id = this.nextId++;
+    const req = { id, cmd, ...params };
+    return new Promise<BridgeResponse>((resolve) => {
+      this.pending.set(id, resolve);
+      child.stdin!.write(JSON.stringify(req) + "\n", (err) => {
+        if (err) {
+          this.pending.delete(id);
+          resolve({ id, ok: false, code: 'HPT-BRIDGE-001', error: `write to bridge failed: ${err.message}` });
+        }
+      });
+    });
+  }
+
+  shutdown(): void {
+    if (this.proc) {
+      try { this.proc.stdin!.end(); } catch { /* already gone */ }
+      try { this.proc.kill('SIGTERM'); } catch { /* already gone */ }
+      this.proc = null;
+    }
+  }
+}
+
+const bridge = new Bridge();
+
+// ---------------------------------------------------------------------------
+// Debug/error logging — every failure path prints a grep-able code, per
+// spec, regardless of which backend (cloud vendor, local snapshot, T1,
+// GUI launch) produced it.
+// ---------------------------------------------------------------------------
+function elog(code: string, msg: string): void {
+  log(c256(196, `  [hyped-pro] ERROR ${code}: ${msg}`));
+}
+
+function dlog(msg: string): void {
+  if (!DEBUG) return;
+  log(dim(`  [hyped-pro] DEBUG: ${msg}`));
+}
+
+// ---------------------------------------------------------------------------
+// Catalog — loaded once, synchronously, at startup from the Python bridge
+// (`hypernix.hyped_pro_core.MODELS` / `PROVIDERS`) so there is exactly one
+// place that lists models and their real provider info; hyped_pro.ts never
+// keeps its own duplicate copy that could drift out of sync.
+// ---------------------------------------------------------------------------
+function loadCatalogSync(): { models: ModelDef[]; providers: Record<string, ProviderInfo> } {
+  const py = pythonBin();
+  const result = spawnSync(py, ['-m', 'hypernix.hyped_pro_bridge', 'catalog'], { encoding: 'utf8', timeout: 15000 });
+  const fail = (code: string, detail: string) => {
+    console.error(c256(196, `[hyped-pro] ERROR ${code}: could not load the model catalog from the Python backend (${py} -m hypernix.hyped_pro_bridge catalog).`));
+    console.error(c256(196, `  ${detail}`));
+    console.error(dim(`  Install the hypernix package (pip install hypernix) so '${py} -m hypernix' works, or set HYPED_PRO_PYTHON.`));
+  };
+  if (result.error || result.status !== 0 || !result.stdout) {
+    fail('HPT-CATALOG-001', result.error ? result.error.message : (result.stderr || `exit code ${result.status}`));
+    return { models: [], providers: {} };
+  }
+  try {
+    const lastLine = result.stdout.trim().split('\n').pop() || '{}';
+    const parsed = JSON.parse(lastLine);
+    if (!parsed.ok) throw new Error(parsed.error || 'bridge returned ok=false');
+    const data = parsed.data;
+    const models: ModelDef[] = data.models.map((m: any) => ({
+      short: m.short, repo: m.repo, vendor: m.vendor, kind: m.kind,
+      badge: m.badge, contextWindow: m.context_window, notes: m.notes || "",
+    }));
+    return { models, providers: data.providers as Record<string, ProviderInfo> };
+  } catch (exc) {
+    fail('HPT-CATALOG-002', String(exc));
+    return { models: [], providers: {} };
+  }
+}
+
+const { models: LOADED_MODELS, providers: PROVIDERS } = loadCatalogSync();
+const FALLBACK_MODEL: ModelDef = {
+  short: "(catalog unavailable)", repo: "", vendor: "unavailable", kind: "local",
+  badge: "\u26a0\ufe0f", contextWindow: 0, notes: "The Python catalog failed to load — see the HPT-CATALOG error above.",
+};
+const MODELS: ModelDef[] = LOADED_MODELS.length > 0 ? LOADED_MODELS : [FALLBACK_MODEL];
+
+function providerOf(m: ModelDef): ProviderInfo | undefined {
+  return PROVIDERS[m.vendor];
+}
+
+// Confirmed, vendor-documented per-1M-token rates only. Anthropic/OpenAI
+// pricing changes often enough (and third-party trackers disagree with
+// each other) that guessing here would be exactly the kind of fabricated
+// number this rewrite is meant to remove — /price shows "no verified rate
+// on file" instead of a made-up figure when a vendor isn't listed.
+const PRICE_RATES: Record<string, [number, number]> = {
+  "kimi-k3": [3.00, 15.00], // Moonshot platform docs, cache-miss rate
 };
 
 // HyperNix's own named modules, exposed to the agent as "skills"
@@ -166,12 +328,14 @@ const SKILLS: SkillDef[] = [
   { name: "freezer", desc: "Checkpointing & model storage" },
   { name: "smoke-alarm", desc: "Safety / eval callbacks during training" },
   { name: "tvtop", desc: "Live training status display" },
+  { name: "gui-mode", desc: "Launch the hyped-pro desktop GUI (Qt6 / GTK) — run with /gui" },
 ];
 
 // Slash commands — single source of truth for /help, the live palette, and dispatch
 const COMMANDS: CommandDef[] = [
   { name: "/help", desc: "Show this command list" },
   { name: "/model", desc: "Switch or list model catalog entries" },
+  { name: "/download", desc: "Download a local model's weights from HuggingFace" },
   { name: "/configure", desc: "Interactive setup wizard: model, persona, keys, theme" },
   { name: "/persona", desc: "Set agent persona (coder, reviewer, writer, none)" },
   { name: "/system-prompt", desc: "Set custom system prompt" },
@@ -183,13 +347,14 @@ const COMMANDS: CommandDef[] = [
   { name: "/theme", desc: "Cycle the TUI color theme" },
   { name: "/save", desc: "Save the transcript to a file" },
   { name: "/retry", desc: "Regenerate the last agent reply" },
-  { name: "/key", desc: "Set API key (OpenAI / Anthropic / T1)" },
+  { name: "/key", desc: "Set/view a cloud API key: /key <vendor> [api-key]" },
+  { name: "/gui", desc: "Launch the hyped-pro desktop GUI in a new window" },
   { name: "/clear", desc: "Clear conversation context (scrollback stays)" },
   { name: "/quit", desc: "Exit hyped+ TUI" },
 ];
 
 const THEMES: ThemeDef[] = [
-  { name: "openclaw", border: 135, title: 220, accent: 33 },
+  { name: "classic", border: 135, title: 220, accent: 33 },
   { name: "ocean", border: 33, title: 51, accent: 39 },
   { name: "forest", border: 34, title: 82, accent: 29 },
   { name: "sunset", border: 202, title: 214, accent: 208 },
@@ -208,14 +373,15 @@ const PERSONAS: Record<string, string> = {
 const cfg: HypedConfig = loadConfig();
 let currentModel: ModelDef = MODELS.find(m => m.short === cfg.model) || MODELS[0];
 let persona: string = cfg.persona && PERSONAS[cfg.persona] !== undefined ? cfg.persona : "coder";
-let systemPrompt = "You are Hyped+ OpenClaw Agent, a world-class autonomous TUI coding assistant.";
+let systemPrompt = "You are Hyped+, an autonomous TUI coding assistant for HyperNix.";
 let history: HistoryMsg[] = [];
 let toolCallCount = 0;
 let autoCompact: boolean = cfg.autoCompact !== undefined ? cfg.autoCompact : true;
-let apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || "";
-let t1Key = process.env.HNX_T1_KEY || "";
 let themeIdx: number = typeof cfg.themeIdx === 'number' && Number.isInteger(cfg.themeIdx) ? cfg.themeIdx : 0;
 const startTime = Date.now();
+// Models already confirmed present on disk this session, so we don't
+// re-check/re-download on every turn.
+const downloadedThisSession = new Set<string>();
 
 function theme(): ThemeDef { return THEMES[themeIdx]; }
 
@@ -237,20 +403,12 @@ function renderBox(title: string, lines: string[], width = 80, borderCol = 135, 
   return [top, ...body, bottom];
 }
 
-function estimatePrice(modelShort: string, historyList: HistoryMsg[]): PriceEstimate {
+function estimatePrice(model: ModelDef, historyList: HistoryMsg[]): PriceEstimate {
   const inToks = historyList.reduce((acc, m) => acc + (m.content ? m.content.length / 4 : 0), 0);
   const outToks = toolCallCount * 120 + historyList.length * 40;
-  const rates: Record<string, [number, number]> = {
-    "gpt-4o": [2.50, 10.00],
-    "gpt-5.6-terra": [5.00, 15.00],
-    "gpt-5.6-sol": [3.00, 10.00],
-    "gpt-5.5": [4.00, 12.00],
-    "claude-sonnet-4.6": [3.00, 15.00],
-    "claude-sonnet-5": [3.50, 17.50],
-    "claude-opus-4.8": [15.00, 75.00],
-    "deepseek-r1": [0.55, 2.19],
-  };
-  const [inR, outR] = rates[modelShort] || [0.0, 0.0];
+  const rate = PRICE_RATES[model.short];
+  if (!rate) return { inToks: Math.round(inToks), outToks: Math.round(outToks), cost: null };
+  const [inR, outR] = rate;
   const cost = (inToks / 1e6) * inR + (outToks / 1e6) * outR;
   return { inToks: Math.round(inToks), outToks: Math.round(outToks), cost: cost.toFixed(6) };
 }
@@ -326,7 +484,7 @@ function renderModelPicker(): string[] {
     const m = MODELS[i];
     const selected = i === modelPickerIndex;
     const marker = selected ? c256(t.accent, "\u25b8 ") : "  ";
-    const line = `${marker}${m.badge} ${m.short.padEnd(24)} ${dim(`(${m.provider})`)}`;
+    const line = `${marker}${m.badge} ${m.short.padEnd(24)} ${dim(`(${m.kind}/${m.vendor})`)}`;
     rows.push(selected ? bold(line) : line);
   }
   if (end < total) rows.push(dim(`   \u25bc ${total - end} more below`));
@@ -338,17 +496,19 @@ function buildFooterLines(): string[] {
   const width = Math.min(100, Math.max(70, process.stdout.columns || 80));
   const t = theme();
   const elapsedMin = Math.floor((Date.now() - startTime) / 60000);
-  const providerLabel = currentModel.provider.toUpperCase();
+  const providerLabel = currentModel.vendor.toUpperCase();
 
+  const price = estimatePrice(currentModel, history);
+  const costStr = price.cost === null ? "n/a" : `$${price.cost}`;
   const statusLines: string[] = [
     ` Model:  ${c256(36, currentModel.short)} (${providerLabel}) ${currentModel.badge}   Persona: ${c256(t.accent, persona)}   Theme: ${c256(t.accent, t.name)}`,
     ` Status: ${c256(82, 'ACTIVE')}  Auto-Compact: ${c256(220, autoCompact ? 'ON' : 'OFF')}  Skills: ${c256(51, String(SKILLS.length))}  Commands: ${c256(51, String(COMMANDS.length))}`,
-    ` Usage:  Turns: ${history.length / 2}  Calls: ${toolCallCount}  Est. Cost: $${estimatePrice(currentModel.short, history).cost}  cwd: ${c256(90, path.basename(process.cwd()))}  up: ${elapsedMin}m`,
+    ` Usage:  Turns: ${history.length / 2}  Calls: ${toolCallCount}  Est. Cost: ${costStr}  cwd: ${c256(90, path.basename(process.cwd()))}  up: ${elapsedMin}m`,
   ];
   if (currentModel.short.includes("hyper-nix.2")) {
-    statusLines.push(c256(196, " \u26a0\ufe0f  hyper-Nix.2 is INSANELY UNDERTRAINED — expect weird output"));
+    statusLines.push(c256(196, " \u26a0\ufe0f  hyper-Nix.2 is severely undertrained — expect weird output"));
   }
-  const lines = renderBox(`HYPED+ OPENCLAW TUI (${VERSION})`, statusLines, width, t.border, t.title);
+  const lines = renderBox(`HYPED+ TUI (v${VERSION})`, statusLines, width, t.border, t.title);
 
   if (modelPickerOpen) {
     lines.push(...renderModelPicker());
@@ -426,10 +586,7 @@ function log(text: string): void {
 
 // ---------------------------------------------------------------------------
 // "HYPED+" gradient block wordmark — printed once, deterministically, before
-// anything else. The old version cleared the screen 4x in a timed loop to
-// animate a mascot; on a real terminal that timing is exactly what let
-// later output race ahead of the banner. A single synchronous print can't
-// race with anything.
+// anything else. A single synchronous print can't race with later output.
 // ---------------------------------------------------------------------------
 const HYPED_BANNER_GLYPHS: Record<string, string[]> = {
   H: ["\u2588   \u2588", "\u2588   \u2588", "\u2588\u2588\u2588\u2588\u2588", "\u2588   \u2588", "\u2588   \u2588"],
@@ -457,9 +614,12 @@ function buildHypedBanner(): string[] {
 function printBanner(): void {
   console.log("");
   buildHypedBanner().forEach(line => console.log(line));
-  console.log(dim("  hyped-pro \u00b7 openclaw tui edition"));
+  console.log(dim("  hyped-pro \u00b7 TUI agent for HyperNix"));
   console.log("");
   console.log(dim("Tips: /  for commands & skills \u00b7 alt+y to switch models \u00b7 /configure to set up \u00b7 /help for everything."));
+  if (LOADED_MODELS.length === 0) {
+    console.log(c256(196, "  Model catalog failed to load — /model, /download, and chat are unavailable until the HPT-CATALOG error above is fixed."));
+  }
   console.log("");
 }
 
@@ -467,13 +627,58 @@ function printBanner(): void {
 // Slash commands
 // ---------------------------------------------------------------------------
 function renderContextBar(): string {
-  const p = estimatePrice(currentModel.short, history);
-  const win = CONTEXT_WINDOWS[currentModel.short] || 128000;
+  const p = estimatePrice(currentModel, history);
+  const win = currentModel.contextWindow || 128000;
   const used = Math.min(1, p.inToks / win);
   const barWidth = 30;
   const filled = Math.round(used * barWidth);
   const bar = c256(used > 0.85 ? 196 : used > 0.6 ? 220 : 82, "\u2588".repeat(filled)) + dim("\u2591".repeat(barWidth - filled));
   return `  [${bar}] ${p.inToks}/${win} tok (${(used * 100).toFixed(1)}%)`;
+}
+
+// Ensure a local model's weights are on disk, downloading if necessary.
+// Hands the terminal fully over to the Python child while it runs (erases
+// the footer and doesn't redraw it) so huggingface_hub's own progress bars
+// and [hypernix] log lines scroll normally instead of fighting the footer's
+// cursor-positioned redraws.
+async function ensureLocalModelReady(model: ModelDef): Promise<boolean> {
+  if (model.kind !== "local" || model.vendor !== "huggingface") return true;
+  if (downloadedThisSession.has(model.short)) return true;
+
+  const checkResp = await bridge.call('is_downloaded', { model: model.short });
+  if (!checkResp.ok) {
+    elog(checkResp.code || 'HPT-BRIDGE-002', checkResp.error || 'could not check download status');
+    return false;
+  }
+  if (checkResp.data.downloaded) {
+    downloadedThisSession.add(model.short);
+    return true;
+  }
+
+  eraseFooter();
+  process.stdout.write(dim(`\n  ${model.short} isn't downloaded yet — fetching ${model.repo} from HuggingFace...\n`) + NL);
+  const dlResp = await bridge.call('download', { model: model.short });
+  if (!dlResp.ok) {
+    process.stdout.write(NL);
+    drawFooter();
+    elog(dlResp.code || 'HPC-LOCAL-001', dlResp.error || 'download failed');
+    return false;
+  }
+  process.stdout.write(c256(82, `  Downloaded -> ${dlResp.data.path}\n`) + NL);
+  drawFooter();
+  downloadedThisSession.add(model.short);
+  return true;
+}
+
+async function switchModel(target: ModelDef): Promise<void> {
+  currentModel = target;
+  persistConfig();
+  log(c256(82, `  Switched to model: ${target.short} (${target.kind}/${target.vendor})`));
+  if (target.kind === "local") {
+    // Auto-download local models the moment they're selected, per spec —
+    // don't wait for the first chat turn to discover the weights are missing.
+    void ensureLocalModelReady(target);
+  }
 }
 
 async function handleSlashCommand(cmdStr: string): Promise<void> {
@@ -494,18 +699,33 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
     case "/model": {
       if (!argText) {
         const out = [c256(96, "\n  Available Models:")];
-        MODELS.forEach((m, i) => out.push(`  ${i + 1}. ${m.badge} ${m.short} (${m.provider})`));
+        MODELS.forEach((m, i) => out.push(`  ${i + 1}. ${m.badge} ${m.short} (${m.kind}/${m.vendor})`));
         log(out.join(NL));
       } else {
         const found = MODELS.find(m => m.short.toLowerCase() === argText.toLowerCase());
         if (found) {
-          currentModel = found;
-          persistConfig();
-          log(c256(82, `  Switched to model: ${found.short}`));
+          await switchModel(found);
         } else {
           log(c256(196, `  Unknown model '${argText}'. Try /model with no args to list.`));
         }
       }
+      break;
+    }
+
+    case "/download": {
+      const target = argText
+        ? MODELS.find(m => m.short.toLowerCase() === argText.toLowerCase())
+        : currentModel;
+      if (!target) {
+        log(c256(196, `  Unknown model '${argText}'. Try /model with no args to list.`));
+        break;
+      }
+      if (target.kind !== "local") {
+        log(c256(220, `  ${target.short} is a ${target.kind} model (${target.vendor}) — nothing to download, it's called over the network. Set a key with /key ${target.vendor} <api-key>.`));
+        break;
+      }
+      const ok = await ensureLocalModelReady(target);
+      if (ok) log(c256(82, `  ${target.short} is ready.`));
       break;
     }
 
@@ -559,8 +779,11 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
       break;
 
     case "/price": {
-      const p = estimatePrice(currentModel.short, history);
-      log(c256(96, `\n  Est. Input Tokens: ${p.inToks} | Est. Output Tokens: ${p.outToks} | Cost: $${p.cost}`));
+      const p = estimatePrice(currentModel, history);
+      const costStr = p.cost === null
+        ? `no verified rate on file${providerOf(currentModel)?.docs_url ? ` — see ${providerOf(currentModel)!.docs_url}` : ''}`
+        : `$${p.cost}`;
+      log(c256(96, `\n  Est. Input Tokens: ${p.inToks} | Est. Output Tokens: ${p.outToks} | Cost: ${costStr}`));
       break;
     }
 
@@ -599,14 +822,59 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
       return;
     }
 
-    case "/key":
-      if (argText) {
-        apiKey = argText;
-        log(c256(82, `  Key saved (${argText.slice(0, 8)}...)`));
+    case "/key": {
+      const validVendors = Object.keys(PROVIDERS).filter(v => PROVIDERS[v].kind === "cloud" || v === "t1");
+      if (!argText) {
+        const out = [c256(96, "\n  Cloud API keys:")];
+        for (const v of validVendors) {
+          const r = await bridge.call('key_get', { vendor: v });
+          const status = r.ok && r.data.set ? c256(82, r.data.masked) : dim("not set");
+          out.push(`  ${c256(33, v.padEnd(12))} ${status}  ${dim(PROVIDERS[v]?.auth_env_var || "")}`);
+        }
+        out.push(dim("\n  Usage: /key <vendor> <api-key>   e.g. /key anthropic sk-ant-..."));
+        log(out.join(NL));
+        break;
+      }
+      const [vendor, ...keyParts] = args;
+      const key = keyParts.join(" ");
+      if (!validVendors.includes(vendor.toLowerCase())) {
+        log(c256(196, `  Unknown vendor '${vendor}'. Options: ${validVendors.join(", ")}`));
+        break;
+      }
+      if (!key) {
+        log(c256(96, `  Usage: /key ${vendor} <api-key>`));
+        break;
+      }
+      const setResp = await bridge.call('key_set', { vendor: vendor.toLowerCase(), key });
+      if (setResp.ok) {
+        // usable immediately in this process too, without a restart
+        const envVar = PROVIDERS[vendor.toLowerCase()]?.auth_env_var;
+        if (envVar) process.env[envVar] = key;
+        log(c256(82, `  Key saved for ${vendor} (${key.slice(0, 8)}...)`));
       } else {
-        log(c256(96, "  Usage: /key <api-key>"));
+        elog(setResp.code || 'HPT-BRIDGE-002', setResp.error || 'could not save key');
       }
       break;
+    }
+
+    case "/gui": {
+      const py = pythonBin();
+      log(dim(`  Launching hyped-pro GUI (${py} -m hypernix.hyped_pro_gui) — its logs print to this terminal...`));
+      try {
+        const child = spawn(py, ['-m', 'hypernix.hyped_pro_gui'], {
+          detached: true,
+          stdio: ['ignore', 'inherit', 'inherit'],
+          env: process.env,
+        });
+        child.on('error', (err: NodeJS.ErrnoException) => {
+          elog('HPT-GUI-001', `failed to launch the GUI (${py} -m hypernix.hyped_pro_gui): ${err.message}`);
+        });
+        child.unref();
+      } catch (exc) {
+        elog('HPT-GUI-001', `failed to launch the GUI: ${exc}`);
+      }
+      break;
+    }
 
     case "/clear":
     case "/reset":
@@ -702,7 +970,7 @@ async function runConfigureWizard(): Promise<void> {
   console.log(c256(96, "\n  hyped+ configure \u2014 press Enter to keep the current value\n"));
 
   console.log(c256(90, "  Models:"));
-  MODELS.forEach((m, i) => console.log(`    ${i + 1}. ${m.badge} ${m.short} (${m.provider})`));
+  MODELS.forEach((m, i) => console.log(`    ${i + 1}. ${m.badge} ${m.short} (${m.kind}/${m.vendor})`));
   const modelAns = await askLine(q, `  choose [1-${MODELS.length}, blank=keep "${currentModel.short}"]: `);
   if (modelAns) {
     const idx = parseInt(modelAns, 10);
@@ -713,12 +981,19 @@ async function runConfigureWizard(): Promise<void> {
   const personaAns = await askLine(q, `  persona [${personaNames.join("/")}, blank=keep "${persona}"]: `);
   if (personaAns && personaNames.includes(personaAns.toLowerCase())) persona = personaAns.toLowerCase();
 
-  if (currentModel.provider === "openai" || currentModel.provider === "anthropic") {
-    const keyAns = await askLine(q, `  API key for ${currentModel.provider} [blank=keep existing]: `);
-    if (keyAns) apiKey = keyAns;
-  } else if (currentModel.provider === "t1") {
+  const provider = providerOf(currentModel);
+  if (provider && provider.kind === "cloud") {
+    const existing = await bridge.call('key_get', { vendor: currentModel.vendor });
+    const hint = existing.ok && existing.data.set ? ` [blank=keep ${existing.data.masked}]` : "";
+    const keyAns = await askLine(q, `  API key for ${currentModel.vendor}${hint}: `);
+    if (keyAns) {
+      const setResp = await bridge.call('key_set', { vendor: currentModel.vendor, key: keyAns });
+      if (setResp.ok && provider.auth_env_var) process.env[provider.auth_env_var] = keyAns;
+      if (!setResp.ok) console.log(c256(196, `  Could not save key: ${setResp.error}`));
+    }
+  } else if (currentModel.vendor === "t1") {
     const keyAns = await askLine(q, "  HNX T1 key [blank=keep existing]: ");
-    if (keyAns) t1Key = keyAns;
+    if (keyAns) await bridge.call('key_set', { vendor: 't1', key: keyAns });
   }
 
   const compactAns = await askLine(q, `  auto-compact on/off [blank=keep "${autoCompact ? 'on' : 'off'}"]: `);
@@ -734,6 +1009,11 @@ async function runConfigureWizard(): Promise<void> {
   persistConfig();
   console.log(c256(82, "\n  Configuration saved -> ~/.hyped-plus/config.json\n"));
 
+  if (currentModel.kind === "local") {
+    console.log(dim(`  Checking local weights for ${currentModel.short}...`));
+    await ensureLocalModelReady(currentModel);
+  }
+
   if (ownRL && rl) {
     rl.close();
     await new Promise(r => setTimeout(r, 600));
@@ -743,19 +1023,39 @@ async function runConfigureWizard(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Chat turn (simulated — hyped+ does not wire real inference here yet;
-// this mirrors the previous mock behaviour, now rendered through log()
-// so replies persist instead of being wiped by the next redraw)
+// Chat turn — a real round-trip through the Python bridge to whichever
+// backend the current model's provider maps to (cloud HTTP API, local
+// HyperNix/transformers inference, or the T1 Gatekeeper). No branch here
+// fabricates a reply: a failed call surfaces its real HPC-*/HPB-* error
+// code instead.
 // ---------------------------------------------------------------------------
 let cancelRequested = false;
 
 async function runChatTurn(line: string, record = true): Promise<void> {
   if (record) history.push({ role: 'user', content: line });
 
+  if (currentModel.vendor === "unavailable") {
+    elog('HPT-CATALOG-001', "no model catalog loaded — nothing to chat with. See the startup error above.");
+    return;
+  }
+
+  if (currentModel.kind === "local") {
+    const ready = await ensureLocalModelReady(currentModel);
+    if (!ready) { if (record) history.pop(); return; }
+  }
+
   pending = true;
   cancelRequested = false;
   const spin = setInterval(() => { spinnerFrame++; redrawFooter(); }, 90);
-  await new Promise(r => setTimeout(r, 500));
+
+  const personaText = PERSONAS[persona] || "";
+  const fullSystem = [systemPrompt, personaText].filter(Boolean).join("\n\n");
+  const resp = await bridge.call('chat', {
+    model: currentModel.short,
+    messages: history.map(m => ({ role: m.role, content: m.content })),
+    system: fullSystem,
+  });
+
   clearInterval(spin);
   pending = false;
 
@@ -765,9 +1065,16 @@ async function runChatTurn(line: string, record = true): Promise<void> {
     return;
   }
 
-  const reply = `Hyped+ Agent [${currentModel.short}]: Processed request "${line.slice(0, 40)}${line.length > 40 ? '...' : ''}". All OpenClaw systems operational.`;
-  history.push({ role: 'assistant', content: reply });
+  if (!resp.ok) {
+    if (record) history.pop(); // don't leave a dangling user turn with no reply
+    elog(resp.code || 'HPB-INTERNAL-001', resp.error || 'chat request failed');
+    redrawFooter();
+    return;
+  }
 
+  toolCallCount++;
+  const reply: string = resp.data.reply;
+  history.push({ role: 'assistant', content: reply });
   log(`${c256(33, 'agent>')} ${reply}`);
 
   if (autoCompact && history.length > 20) {
@@ -781,6 +1088,7 @@ async function runChatTurn(line: string, record = true): Promise<void> {
 function cleanupAndExit(code = 0): never {
   eraseFooter();
   process.stdout.write(SHOW_CURSOR + NL);
+  bridge.shutdown();
   process.exit(code);
 }
 
@@ -848,10 +1156,8 @@ function onKeypress(str: string | undefined, key: readline.Key): void {
     if (key.name === 'up') { modelPickerIndex = (modelPickerIndex - 1 + MODELS.length) % MODELS.length; redrawFooter(); return; }
     if (key.name === 'down') { modelPickerIndex = (modelPickerIndex + 1) % MODELS.length; redrawFooter(); return; }
     if (key.name === 'right' || key.name === 'return') {
-      currentModel = MODELS[modelPickerIndex];
-      persistConfig();
       modelPickerOpen = false;
-      log(c256(82, `  Switched to model: ${currentModel.short}`));
+      void switchModel(MODELS[modelPickerIndex]);
       return;
     }
     if (key.name === 'escape' || key.name === 'left') {
@@ -976,7 +1282,7 @@ function runSimpleTUI(): void {
 async function main(argv?: string[]): Promise<void> {
   const args = argv || process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
-    console.log(`hyped+ ${VERSION}\nUsage: hyped+ [--model <short>] [--no-color]\n`);
+    console.log(`hyped+ v${VERSION}\nUsage: hyped+ [--model <short>] [--no-color]\n`);
     return;
   }
   const modelFlagIdx = args.indexOf('--model');
@@ -1008,4 +1314,4 @@ if (require.main === module) {
   });
 }
 
-export { main, MODELS, SKILLS, COMMANDS, THEMES, estimatePrice, compactPrompt, letterFilter };
+export { main, MODELS, PROVIDERS, SKILLS, COMMANDS, THEMES, estimatePrice, compactPrompt, letterFilter };

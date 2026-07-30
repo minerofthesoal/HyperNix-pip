@@ -51,6 +51,21 @@ _DEFAULTS: dict[str, Any] = {
     "preferred_quant":     None,
     "auto_update":         True,
     "telemetry":           False,
+    # v0.71.4b6: per-vendor cloud API keys, used by hyped_pro's real
+    # provider dispatch (anthropic / openai / moonshot / dashscope) and by
+    # the hyped-pro-gui settings dialog. Keyed by vendor id (see
+    # ``hypernix.hyped_pro_core.PROVIDERS``). Never logged in full.
+    "provider_keys":       {},
+}
+
+# Vendor -> env var name, used by /key, hyped_pro_core.py, and the GUI
+# settings dialog so they never disagree about which env var wins.
+PROVIDER_ENV_VARS: dict[str, str] = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+    "moonshot":  "MOONSHOT_API_KEY",
+    "dashscope": "DASHSCOPE_API_KEY",
+    "t1":        "HNX_T1_KEY",
 }
 
 # ---------------------------------------------------------------------------
@@ -151,6 +166,47 @@ def get_hf_token() -> str | None:
     if env_tok:
         return env_tok
     return _load_config().get("hf_token")
+
+
+def get_provider_key(vendor: str) -> str | None:
+    """Public API: return the API key for a cloud vendor.
+
+    Resolution order: the vendor's environment variable (see
+    ``PROVIDER_ENV_VARS``) first, then the persisted ``provider_keys`` entry
+    in ``~/.hypernix/config.json``. Returns ``None`` if neither is set —
+    callers must not fabricate a key or pretend a call succeeded.
+    """
+    import os
+    env_var = PROVIDER_ENV_VARS.get(vendor)
+    if env_var:
+        env_val = os.getenv(env_var)
+        if env_val:
+            return env_val
+    keys = _load_config().get("provider_keys") or {}
+    return keys.get(vendor) or None
+
+
+def set_provider_key(vendor: str, key: str) -> None:
+    """Public API: persist an API key for a cloud vendor to disk.
+
+    Stored under ``provider_keys.<vendor>`` in ``~/.hypernix/config.json``.
+    Does not touch the process environment — callers that want the key
+    usable immediately in-process should also set ``os.environ`` themselves.
+    """
+    cfg = _load_config()
+    keys = dict(cfg.get("provider_keys") or {})
+    keys[vendor] = key
+    cfg["provider_keys"] = keys
+    _save_config(cfg)
+
+
+def clear_provider_key(vendor: str) -> None:
+    """Public API: remove a persisted provider key (env var is untouched)."""
+    cfg = _load_config()
+    keys = dict(cfg.get("provider_keys") or {})
+    keys.pop(vendor, None)
+    cfg["provider_keys"] = keys
+    _save_config(cfg)
 
 
 
