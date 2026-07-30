@@ -180,3 +180,16 @@ timeline
         : 6c545a3 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4b6 (2026-07-30)
+
+```mermaid
+timeline
+    title Release v0.71.4b6 Commits
+    0.71.4b6
+        : f983974 - 0.71.4b6 - major hyped improvements, actual model downloading, hyped gui, and more
+        : 247c1a2 - chore- update JSON stats (scheduled)
+        : abb8efe - Add execSync import from child_process
+        : 41d04f1 - Remove non-existent models from local catalog
+        : cc9322f - chore- update JSON stats (scheduled)
+```
+
