@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 # hyped-pro-gui binary launcher — desktop GUI (Qt6 X11/Wayland, GTK4 fallback)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHONPATH="${SCRIPT_DIR}/../src:${PYTHONPATH}" python3 -m hypernix.hyped_pro_gui "$@"
+source "${SCRIPT_DIR}/_hypernix_python.sh"
+PY="$(_hypernix_resolve_python)"
+export HYPED_PRO_PYTHON="$PY"
+PYTHONPATH="${SCRIPT_DIR}/../src:${PYTHONPATH}" "$PY" -m hypernix.hyped_pro_gui "$@"

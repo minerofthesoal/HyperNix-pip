@@ -78,6 +78,15 @@ class HyperNixConfig:
             rp = d["rope_parameters"]
             if "rope_theta" in rp and "rope_theta" not in d:
                 d["rope_theta"] = rp["rope_theta"]
+        # Some multimodal/wrapped configs nest the actual LM config under a
+        # "text_config" key instead of putting it at the top level. If the
+        # top level is missing every shape-defining field but a nested
+        # dict has them, unwrap it rather than silently defaulting.
+        _SHAPE_FIELDS = ("vocab_size", "hidden_size", "num_hidden_layers", "num_attention_heads")
+        if not any(f in d for f in _SHAPE_FIELDS) and isinstance(d.get("text_config"), dict):
+            nested = d["text_config"]
+            if any(f in nested for f in _SHAPE_FIELDS):
+                d = {**d, **nested}
         # Infer rope_style from model_type when the caller didn't supply one.
         if "rope_style" not in d:
             d["rope_style"] = _default_rope_style(d.get("model_type", "hypernix"))
@@ -448,6 +457,45 @@ def _try_hf_automodel(model_dir: Path, model_type: str) -> tuple[Any, Any] | Non
     return wrapped, wrapped.config
 
 
+_SHAPE_FIELDS = ("vocab_size", "hidden_size", "num_hidden_layers", "num_attention_heads")
+
+
+def _check_real_shape_fields(cfg_raw: dict[str, Any], model_dir: Path) -> None:
+    """Guard against silently building a wrong-shaped model from a real
+    downloaded checkpoint.
+
+    ``HyperNixConfig.from_dict`` is a general-purpose classmethod other
+    callers legitimately invoke with intentionally-partial dicts (tests,
+    fresh-config construction) where falling back to its dataclass
+    defaults is exactly what's wanted — so the check can't live there. But
+    here in ``load_snapshot``, ``cfg_raw`` is always a real downloaded
+    ``config.json`` that's supposed to describe the real checkpoint about
+    to be loaded; if literally none of the shape-defining fields resolved
+    (e.g. a non-standard config schema — GGUF/llama.cpp-style
+    "n_embd"/"n_vocab" naming, or a shape this loader hasn't seen yet),
+    silently defaulting produces a model whose dimensions don't match the
+    weights, which used to surface 1000+ lines later as a cryptic
+    ``load_state_dict`` size-mismatch instead of here, at the actual point
+    where the mismatch was introduced.
+    """
+    text_config = cfg_raw.get("text_config")
+    present_top = any(f in cfg_raw for f in _SHAPE_FIELDS)
+    present_nested = isinstance(text_config, dict) and any(f in text_config for f in _SHAPE_FIELDS)
+    if present_top or present_nested:
+        return
+    raise ValueError(
+        f"load_snapshot({model_dir}): none of the expected shape fields "
+        f"({', '.join(_SHAPE_FIELDS)}) were found in config.json (or its "
+        f"text_config) — refusing to silently build a model at "
+        f"HyperNixConfig's bare defaults (vocab_size={HyperNixConfig.vocab_size}, "
+        f"hidden_size={HyperNixConfig.hidden_size}) for a real checkpoint, since "
+        f"that would load successfully but produce a wrong-shaped model. "
+        f"model_type={cfg_raw.get('model_type')!r}. Raw config.json top-level keys: "
+        f"{sorted(cfg_raw.keys())}. If this model uses a renamed/non-standard config "
+        f"schema, HyperNixConfig.from_dict needs an alias for it."
+    )
+
+
 def load_snapshot(model_dir: Path | str):
     """Load any supported snapshot from ``model_dir``.
 
@@ -483,6 +531,7 @@ def load_snapshot(model_dir: Path | str):
         return model, cfg
 
     if model_type in _NATIVE_MODEL_TYPES:
+        _check_real_shape_fields(cfg_raw, model_dir)
         cfg = HyperNixConfig.from_dict(cfg_raw)
         model = HyperNixModel(cfg)
         state = _strip_hf_prefix(_load_state_dict(model_dir))
@@ -509,6 +558,7 @@ def load_snapshot(model_dir: Path | str):
         "garbage if the weights aren't Llama-shaped.",
         file=_sys.stderr,
     )
+    _check_real_shape_fields(cfg_raw, model_dir)
     cfg = HyperNixConfig.from_dict(cfg_raw)
     model = HyperNixModel(cfg)
     state = _strip_hf_prefix(_load_state_dict(model_dir))

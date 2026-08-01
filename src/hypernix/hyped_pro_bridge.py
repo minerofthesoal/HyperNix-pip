@@ -42,7 +42,7 @@ from typing import Any
 
 from . import hyped_pro_core as core
 
-BRIDGE_VERSION = "0.71.4b6"
+BRIDGE_VERSION = "0.71.4b8"
 
 
 def _err(id_: Any, code: str, message: str) -> dict[str, Any]:
@@ -82,6 +82,10 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
                 messages=req["messages"],
                 system=req.get("system"),
                 api_key=req.get("api_key"),
+                max_tokens=req.get("max_tokens"),
+                max_thinking_tokens=req.get("max_thinking_tokens"),
+                hide_thinking=req.get("hide_thinking", True),
+                enable_tools=req.get("enable_tools", True),
             )
             return _ok(id_, {"reply": reply})
 

@@ -71,11 +71,72 @@ const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const readline = __importStar(require("readline"));
 const child_process_1 = require("child_process");
-const VERSION = "0.71.4b6";
+const VERSION = "0.71.4b8";
 const NL = "\r\n"; // raw mode leaves OPOST alone but we own the terminal, so be explicit
 const DEBUG = !!process.env.HYPED_PRO_DEBUG;
+// Preferred interpreters, in order, before falling back to a PATH scan —
+// mirrors hypernix.hyped_pro.resolve_python_for_subprocess() and
+// bin/_hypernix_python.sh so all three entry points agree. This only
+// matters when hyped_pro.js is run directly (bypassing both the bash
+// launcher and the Python launcher, neither of which leaves this to
+// guess — they set HYPED_PRO_PYTHON explicitly).
+const PREFERRED_PYTHONS = ["python3.12", "python3.14"];
+let _resolvedPythonBin = null;
+function probeInterpreter(candidate) {
+    try {
+        const result = (0, child_process_1.spawnSync)(candidate, ['-c', 'import hypernix'], { stdio: 'ignore', timeout: 8000 });
+        return !result.error && result.status === 0;
+    }
+    catch {
+        return false;
+    }
+}
+function findOtherPython3sOnPath(exclude) {
+    const pathDirs = (process.env.PATH || '').split(path.delimiter);
+    const found = [];
+    const seen = new Set();
+    for (const dir of pathDirs) {
+        let names;
+        try {
+            names = fs.readdirSync(dir);
+        }
+        catch {
+            continue;
+        }
+        for (const name of names) {
+            if (exclude.has(name) || seen.has(name))
+                continue;
+            if (name === 'python3' || /^python3\.\d+$/.test(name)) {
+                seen.add(name);
+                found.push(path.join(dir, name));
+            }
+        }
+    }
+    return found;
+}
 function pythonBin() {
-    return process.env.HYPED_PRO_PYTHON || 'python3';
+    if (_resolvedPythonBin)
+        return _resolvedPythonBin;
+    const envOverride = process.env.HYPED_PRO_PYTHON;
+    if (envOverride) {
+        _resolvedPythonBin = envOverride;
+        return envOverride;
+    }
+    for (const cand of PREFERRED_PYTHONS) {
+        if (probeInterpreter(cand)) {
+            _resolvedPythonBin = cand;
+            return cand;
+        }
+    }
+    const exclude = new Set(PREFERRED_PYTHONS);
+    for (const cand of findOtherPython3sOnPath(exclude)) {
+        if (probeInterpreter(cand)) {
+            _resolvedPythonBin = cand;
+            return cand;
+        }
+    }
+    _resolvedPythonBin = 'python3';
+    return _resolvedPythonBin;
 }
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -302,6 +363,8 @@ const COMMANDS = [
     { name: "/save", desc: "Save the transcript to a file" },
     { name: "/retry", desc: "Regenerate the last agent reply" },
     { name: "/key", desc: "Set/view a cloud API key: /key <vendor> [api-key]" },
+    { name: "/settings", desc: "View/change max input, output, and thinking tokens" },
+    { name: "/tools", desc: "Toggle file create/edit/read/search tools on or off" },
     { name: "/gui", desc: "Launch the hyped-pro desktop GUI in a new window" },
     { name: "/clear", desc: "Clear conversation context (scrollback stays)" },
     { name: "/quit", desc: "Exit hyped+ TUI" },
@@ -331,13 +394,28 @@ let history = [];
 let toolCallCount = 0;
 let autoCompact = cfg.autoCompact !== undefined ? cfg.autoCompact : true;
 let themeIdx = typeof cfg.themeIdx === 'number' && Number.isInteger(cfg.themeIdx) ? cfg.themeIdx : 0;
+// /settings — max input tokens trims the oldest history before a turn is
+// sent (rough len/4 estimate, same heuristic as the price estimator); max
+// output tokens maps straight to the real max_tokens param on every
+// backend; max thinking tokens only has a real native effect on Anthropic
+// (extended thinking's budget_tokens) — see hyped_pro_core.send_cloud_chat.
+let maxInputTokens = typeof cfg.maxInputTokens === 'number' ? cfg.maxInputTokens : 100000;
+let maxOutputTokens = typeof cfg.maxOutputTokens === 'number' ? cfg.maxOutputTokens : 1024;
+let maxThinkingTokens = cfg.maxThinkingTokens ?? null;
+let hideThinking = cfg.hideThinking !== undefined ? cfg.hideThinking : true;
+// File create/edit/read/search tools (hypernix.hyped_pro_tools), scoped to
+// the workspace hyped-pro was launched from (HYPED_PRO_WORKSPACE, default
+// cwd). On by default for cloud models and GGUF models whose chat template
+// supports tool calling; hypernix.old_oven (the plain safetensors path)
+// has no tool-calling support to enable regardless of this setting.
+let toolsEnabled = cfg.toolsEnabled !== undefined ? cfg.toolsEnabled : true;
 const startTime = Date.now();
 // Models already confirmed present on disk this session, so we don't
 // re-check/re-download on every turn.
 const downloadedThisSession = new Set();
 function theme() { return THEMES[themeIdx]; }
 function persistConfig() {
-    saveConfig({ model: currentModel.short, persona, autoCompact, themeIdx });
+    saveConfig({ model: currentModel.short, persona, autoCompact, themeIdx, maxInputTokens, maxOutputTokens, maxThinkingTokens, hideThinking, toolsEnabled });
 }
 // ---------------------------------------------------------------------------
 // Box rendering
@@ -361,6 +439,22 @@ function estimatePrice(model, historyList) {
     const [inR, outR] = rate;
     const cost = (inToks / 1e6) * inR + (outToks / 1e6) * outR;
     return { inToks: Math.round(inToks), outToks: Math.round(outToks), cost: cost.toFixed(6) };
+}
+// Drops the oldest turns once the estimated token count (same len/4
+// heuristic as the price estimator — no tokenizer dependency needed for
+// an approximation) exceeds the /settings max-input-tokens budget. Always
+// keeps at least the most recent turn, even if that alone exceeds budget —
+// trimming it away entirely would silently drop what the person just typed.
+function trimToInputBudget(historyList, budget) {
+    let total = historyList.reduce((acc, m) => acc + (m.content ? m.content.length / 4 : 0), 0);
+    if (total <= budget || historyList.length <= 1)
+        return historyList;
+    const trimmed = [...historyList];
+    while (trimmed.length > 1 && total > budget) {
+        const removed = trimmed.shift();
+        total -= removed.content ? removed.content.length / 4 : 0;
+    }
+    return trimmed;
 }
 function compactPrompt(raw) {
     const directives = raw.split("\n")
@@ -445,7 +539,7 @@ function buildFooterLines() {
     const costStr = price.cost === null ? "n/a" : `$${price.cost}`;
     const statusLines = [
         ` Model:  ${c256(36, currentModel.short)} (${providerLabel}) ${currentModel.badge}   Persona: ${c256(t.accent, persona)}   Theme: ${c256(t.accent, t.name)}`,
-        ` Status: ${c256(82, 'ACTIVE')}  Auto-Compact: ${c256(220, autoCompact ? 'ON' : 'OFF')}  Skills: ${c256(51, String(SKILLS.length))}  Commands: ${c256(51, String(COMMANDS.length))}`,
+        ` Status: ${c256(82, 'ACTIVE')}  Auto-Compact: ${c256(220, autoCompact ? 'ON' : 'OFF')}  Tools: ${toolsEnabled ? c256(82, 'ON') : dim('OFF')}  Skills: ${c256(51, String(SKILLS.length))}  Commands: ${c256(51, String(COMMANDS.length))}`,
         ` Usage:  Turns: ${history.length / 2}  Calls: ${toolCallCount}  Est. Cost: ${costStr}  cwd: ${c256(90, path.basename(process.cwd()))}  up: ${elapsedMin}m`,
     ];
     if (currentModel.short.includes("hyper-nix.2")) {
@@ -577,33 +671,51 @@ function renderContextBar() {
 // the footer and doesn't redraw it) so huggingface_hub's own progress bars
 // and [hypernix] log lines scroll normally instead of fighting the footer's
 // cursor-positioned redraws.
+//
+// De-duped per model: switching to a local model auto-triggers this as a
+// fire-and-forget call, and an explicit /download run right after would
+// otherwise race it — two concurrent bridge downloads, everything logged
+// twice. Concurrent callers for the same model share one in-flight promise.
+const _inFlightDownloads = new Map();
 async function ensureLocalModelReady(model) {
     if (model.kind !== "local" || model.vendor !== "huggingface")
         return true;
     if (downloadedThisSession.has(model.short))
         return true;
-    const checkResp = await bridge.call('is_downloaded', { model: model.short });
-    if (!checkResp.ok) {
-        elog(checkResp.code || 'HPT-BRIDGE-002', checkResp.error || 'could not check download status');
-        return false;
-    }
-    if (checkResp.data.downloaded) {
+    const existing = _inFlightDownloads.get(model.short);
+    if (existing)
+        return existing;
+    const work = (async () => {
+        const checkResp = await bridge.call('is_downloaded', { model: model.short });
+        if (!checkResp.ok) {
+            elog(checkResp.code || 'HPT-BRIDGE-002', checkResp.error || 'could not check download status');
+            return false;
+        }
+        if (checkResp.data.downloaded) {
+            downloadedThisSession.add(model.short);
+            return true;
+        }
+        eraseFooter();
+        process.stdout.write(dim(`\n  ${model.short} isn't downloaded yet — fetching ${model.repo} from HuggingFace...\n`) + NL);
+        const dlResp = await bridge.call('download', { model: model.short });
+        if (!dlResp.ok) {
+            process.stdout.write(NL);
+            drawFooter();
+            elog(dlResp.code || 'HPC-LOCAL-001', dlResp.error || 'download failed');
+            return false;
+        }
+        process.stdout.write(c256(82, `  Downloaded -> ${dlResp.data.path}\n`) + NL);
+        drawFooter();
         downloadedThisSession.add(model.short);
         return true;
+    })();
+    _inFlightDownloads.set(model.short, work);
+    try {
+        return await work;
     }
-    eraseFooter();
-    process.stdout.write(dim(`\n  ${model.short} isn't downloaded yet — fetching ${model.repo} from HuggingFace...\n`) + NL);
-    const dlResp = await bridge.call('download', { model: model.short });
-    if (!dlResp.ok) {
-        process.stdout.write(NL);
-        drawFooter();
-        elog(dlResp.code || 'HPC-LOCAL-001', dlResp.error || 'download failed');
-        return false;
+    finally {
+        _inFlightDownloads.delete(model.short);
     }
-    process.stdout.write(c256(82, `  Downloaded -> ${dlResp.data.path}\n`) + NL);
-    drawFooter();
-    downloadedThisSession.add(model.short);
-    return true;
 }
 async function switchModel(target) {
     currentModel = target;
@@ -783,6 +895,106 @@ async function handleSlashCommand(cmdStr) {
             else {
                 elog(setResp.code || 'HPT-BRIDGE-002', setResp.error || 'could not save key');
             }
+            break;
+        }
+        case "/settings": {
+            const SETTINGS_KEYS = ["max-input-tokens", "max-output-tokens", "max-thinking-tokens", "hide-thinking"];
+            if (!argText) {
+                const thinkingSupport = providerOf(currentModel)?.vendor === "anthropic"
+                    ? "native (Anthropic extended thinking)"
+                    : "not natively supported by this model's backend — thinking output is still hidden by stripping <think> tags, but generation isn't capped early";
+                log([
+                    c256(96, "\n  Settings:"),
+                    `  ${c256(33, "max-input-tokens".padEnd(20))} ${maxInputTokens}  ${dim("(oldest turns trimmed before sending once exceeded)")}`,
+                    `  ${c256(33, "max-output-tokens".padEnd(20))} ${maxOutputTokens}  ${dim("(real max_tokens on every backend)")}`,
+                    `  ${c256(33, "max-thinking-tokens".padEnd(20))} ${maxThinkingTokens === null ? "(unset)" : maxThinkingTokens}  ${dim(`(${thinkingSupport})`)}`,
+                    `  ${c256(33, "hide-thinking".padEnd(20))} ${hideThinking}  ${dim("(strip <think>/<thinking>/<reasoning> blocks from replies)")}`,
+                    dim(`\n  Usage: /settings <key> <value>   keys: ${SETTINGS_KEYS.join(", ")}`),
+                ].join(NL));
+                break;
+            }
+            const [key, ...valueParts] = args;
+            const value = valueParts.join(" ");
+            const asInt = (s) => {
+                const n = parseInt(s, 10);
+                return Number.isFinite(n) && n > 0 ? n : null;
+            };
+            switch (key.toLowerCase()) {
+                case "max-input-tokens": {
+                    const n = asInt(value);
+                    if (n === null) {
+                        log(c256(196, "  Usage: /settings max-input-tokens <positive integer>"));
+                        break;
+                    }
+                    maxInputTokens = n;
+                    persistConfig();
+                    log(c256(82, `  max-input-tokens set to ${n}`));
+                    break;
+                }
+                case "max-output-tokens": {
+                    const n = asInt(value);
+                    if (n === null) {
+                        log(c256(196, "  Usage: /settings max-output-tokens <positive integer>"));
+                        break;
+                    }
+                    maxOutputTokens = n;
+                    persistConfig();
+                    log(c256(82, `  max-output-tokens set to ${n}`));
+                    break;
+                }
+                case "max-thinking-tokens": {
+                    if (value.toLowerCase() === "off" || value.toLowerCase() === "unset" || value === "0") {
+                        maxThinkingTokens = null;
+                        persistConfig();
+                        log(c256(82, "  max-thinking-tokens unset"));
+                        break;
+                    }
+                    const n = asInt(value);
+                    if (n === null) {
+                        log(c256(196, "  Usage: /settings max-thinking-tokens <positive integer>|off"));
+                        break;
+                    }
+                    maxThinkingTokens = n;
+                    persistConfig();
+                    log(c256(82, `  max-thinking-tokens set to ${n} ${providerOf(currentModel)?.vendor === "anthropic" ? "" : dim("(no effect on this model's backend — Anthropic-only for now)")}`));
+                    break;
+                }
+                case "hide-thinking": {
+                    const v = value.toLowerCase();
+                    if (!["on", "off", "true", "false"].includes(v)) {
+                        log(c256(196, "  Usage: /settings hide-thinking on|off"));
+                        break;
+                    }
+                    hideThinking = v === "on" || v === "true";
+                    persistConfig();
+                    log(c256(82, `  hide-thinking set to ${hideThinking}`));
+                    break;
+                }
+                default:
+                    log(c256(196, `  Unknown setting '${key}'. Keys: ${SETTINGS_KEYS.join(", ")}`));
+            }
+            break;
+        }
+        case "/tools": {
+            if (!argText) {
+                const workspace = process.env.HYPED_PRO_WORKSPACE || process.cwd();
+                log([
+                    c256(96, "\n  File tools (create_file, edit_file, read_file, list_directory, search_files):"),
+                    `  Status: ${toolsEnabled ? c256(82, 'ON') : c256(220, 'OFF')}`,
+                    `  Workspace: ${dim(workspace)}`,
+                    dim("  Every tool call and its result prints to this terminal as it happens."),
+                    dim("\n  Usage: /tools on|off"),
+                ].join(NL));
+                break;
+            }
+            const v = argText.toLowerCase();
+            if (!["on", "off"].includes(v)) {
+                log(c256(196, "  Usage: /tools on|off"));
+                break;
+            }
+            toolsEnabled = v === "on";
+            persistConfig();
+            log(c256(82, `  Tools ${toolsEnabled ? 'enabled' : 'disabled'}`));
             break;
         }
         case "/gui": {
@@ -973,16 +1185,46 @@ async function runChatTurn(line, record = true) {
     }
     pending = true;
     cancelRequested = false;
-    const spin = setInterval(() => { spinnerFrame++; redrawFooter(); }, 90);
+    // Cloud calls are a single awaited HTTP request with nothing else writing
+    // to the terminal in the meantime, so the live spinner (an interval that
+    // erases+redraws the footer every 90ms) is safe there. Local/T1 turns can
+    // involve the Python bridge loading a model in-process for the first time
+    // — transformers/torch/safetensors routinely print their own warnings
+    // and progress straight to the bridge's inherited stderr, uncoordinated
+    // with our footer's cursor math, so racing a periodic redraw against that
+    // corrupts the screen (stacked/duplicated boxes). For those, erase once,
+    // show a static message, and don't touch the footer again until the
+    // reply (or error) comes back — the same pattern ensureLocalModelReady
+    // already uses for downloads.
+    const maybeNoisyBackend = currentModel.kind === "local" || currentModel.vendor === "t1" || toolsEnabled;
+    let spin = null;
+    if (maybeNoisyBackend) {
+        eraseFooter();
+        const reason = currentModel.kind === "local" ? "local model — any backend logs print below" : "any tool calls print below";
+        process.stdout.write(dim(`\n  ${SPINNER[0]} agent thinking (${reason})...\n`) + NL);
+    }
+    else {
+        spin = setInterval(() => { spinnerFrame++; redrawFooter(); }, 90);
+    }
     const personaText = PERSONAS[persona] || "";
     const fullSystem = [systemPrompt, personaText].filter(Boolean).join("\n\n");
+    const sendHistory = trimToInputBudget(history, maxInputTokens);
     const resp = await bridge.call('chat', {
         model: currentModel.short,
-        messages: history.map(m => ({ role: m.role, content: m.content })),
+        messages: sendHistory.map(m => ({ role: m.role, content: m.content })),
         system: fullSystem,
+        max_tokens: maxOutputTokens,
+        max_thinking_tokens: maxThinkingTokens,
+        hide_thinking: hideThinking,
+        enable_tools: toolsEnabled,
     });
-    clearInterval(spin);
+    if (spin)
+        clearInterval(spin);
     pending = false;
+    if (maybeNoisyBackend) {
+        process.stdout.write(NL);
+        drawFooter();
+    }
     if (cancelRequested) {
         log(dim("  (cancelled)"));
         redrawFooter();
