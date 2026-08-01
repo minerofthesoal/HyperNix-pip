@@ -180,3 +180,14 @@ timeline
         : 6c545a3 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4b7 (2026-08-01)
+
+```mermaid
+timeline
+    title Release v0.71.4b7 Commits
+    0.71.4b7
+        : afb17c1 - next beta- major improveve ments to hyped-pro, miltilama
+        : 98344cd - chore- update JSON stats (scheduled)
+        : 050a5de - chore- update JSON stats (scheduled)
+```
+
