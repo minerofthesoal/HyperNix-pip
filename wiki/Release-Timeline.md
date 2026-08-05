@@ -180,3 +180,16 @@ timeline
         : 6c545a3 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4rc1 (2026-08-05)
+
+```mermaid
+timeline
+    title Release v0.71.4rc1 Commits
+    0.71.4rc1
+        : feb773e - took a bit to do the following- 1 fix hyped, 2- imprvoe it 3- add api's, 4- take a break
+        : bbec0c4 - chore- update JSON stats (scheduled)
+        : e8219d4 - chore- update JSON stats (scheduled)
+        : e8b1b73 - chore- update JSON stats (scheduled)
+        : 2d0693a - chore- update JSON stats (scheduled)
+```
+
