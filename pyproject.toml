@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.71.4b7"
+version = "0.71.4b10"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "Apache-2.0" }
@@ -103,6 +103,9 @@ hyped-pro = "hypernix.hyped_pro:cli_main"
 hyped-plus = "hypernix.hyped_pro:cli_main"
 # v0.71.4b6: hyped-pro's desktop GUI (Qt6 X11/Wayland, GTK4 fallback).
 hyped-pro-gui = "hypernix.hyped_pro_gui:cli_main"
+# v0.71.4b7: unified interface over multiple llama.cpp variants (vanilla,
+# ik_llama.cpp, PrismML fork, KoboldCpp) for broader GGUF model support.
+multilama = "hypernix.multilama:cli_main"
 # v0.71.0: unified Gatekeeper + Keymaster CLI.
 gkey = "hypernix.gkey_cli:main"
 # v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).

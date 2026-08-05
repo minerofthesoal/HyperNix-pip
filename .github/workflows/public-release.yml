@@ -171,17 +171,49 @@ jobs:
       - name: Twine check
         run: twine check --strict dist/*
 
+      - name: Determine changelog baseline
+        id: baseline
+        run: |
+          if [ '${{ steps.classify.outputs.prerelease }}' = "false" ]; then
+            # Cutting a stable release: compare against the last STABLE tag,
+            # skipping over any prereleases in between (e.g. v0.71.4b6,
+            # v0.71.4b7, v0.71.4b8 between two stable cuts) — otherwise
+            # "commits since the last release" would only show the diff
+            # from the most recent beta, not everything that actually
+            # shipped since the last stable version. --sort=-v:refname is
+            # version-aware (not creation-date-aware), so re-tagging an
+            # older commit later can't put it ahead of a newer version.
+            baseline=""
+            for t in $(git tag --list 'v*' --sort=-v:refname); do
+              if ! [[ "$t" =~ (rc|pre|alpha|beta|a|b|postr)[0-9]*$ ]]; then
+                baseline="$t"
+                break
+              fi
+            done
+          else
+            # Prereleases keep the simple "since the immediately preceding
+            # tag" behavior — an incremental changelog per beta iteration,
+            # not a re-diff against the last stable release each time.
+            baseline=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          fi
+          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+          echo "::notice::changelog baseline: ${baseline:-<none, first release>}"
+
       - name: Generate CHANGELOG fragment
         id: changelog
         run: |
-          last=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          last='${{ steps.baseline.outputs.baseline }}'
           {
             echo "## Changelog"
             echo "![PyPI - Downloads](https://img.shields.io/pypi/dm/hypernix)"
             echo "![PyPI - Version](https://img.shields.io/pypi/v/hypernix)"
             echo ""
             if [ -n "$last" ]; then
-              echo "Commits since \`$last\`:"
+              if [ '${{ steps.classify.outputs.prerelease }}' = "false" ]; then
+                echo "Commits since the last stable release (\`$last\`):"
+              else
+                echo "Commits since \`$last\`:"
+              fi
               echo ""
               git log "$last..HEAD" --pretty='- %s (%h)' --no-merges
             else
@@ -205,8 +237,12 @@ jobs:
           version = "${{ inputs.version }}"
           timeline_path = Path("wiki/Release-Timeline.md")
           
-          last_tag_cmd = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], capture_output=True, text=True)
-          last_tag = last_tag_cmd.stdout.strip()
+          # Same baseline the changelog fragment used (last STABLE tag when
+          # this release itself is stable, skipping over any prereleases in
+          # between; last tag period when this release is itself a
+          # prerelease) — computed once in the "Determine changelog
+          # baseline" step so the two never disagree.
+          last_tag = "${{ steps.baseline.outputs.baseline }}"
           
           if last_tag:
               log_cmd = subprocess.run(["git", "log", f"{last_tag}..HEAD", "--pretty=%h - %s", "--no-merges"], capture_output=True, text=True)

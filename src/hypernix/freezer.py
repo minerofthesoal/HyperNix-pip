@@ -618,6 +618,48 @@ CPU_PRESETS.update({
                               "Meteor Lake top SKU"),
 })
 
+# ---------------------------------------------------------------------------
+# AMD Ryzen desktop, Zen 3 / 4 / 5 (5000 / 7000 / 9000 series). The module
+# docstring/README referenced "Ryzen" support before any Ryzen entries
+# actually existed here — this closes that gap. Zen 3 is AVX2-only; Zen 4
+# added full-width AVX-512 with none of the heavy frequency throttling
+# Intel's earlier AVX-512 implementations show under sustained load (see
+# the Zen 4/5 gflops_per_thread values below relative to same-clock AVX-512
+# Intel entries above), and Zen 5 adds a further real IPC uplift on top of
+# that at comparable clocks. recommended_threads = physical core count for
+# all of these (Ryzen desktop has no hybrid P/E-core split to account for,
+# unlike the Alder-Lake-and-later Intel entries above).
+# ---------------------------------------------------------------------------
+CPU_PRESETS.update({
+    # ---- Ryzen 5000 series (Zen 3, AM4, AVX2 only) ----
+    "ryzen-5-5600x": _cpu("AMD Ryzen 5 5600X", 6, 12, 3.7, ["AVX", "AVX2"], 6,
+                          22.0, "65W desktop"),
+    "ryzen-7-5800x": _cpu("AMD Ryzen 7 5800X", 8, 16, 3.8, ["AVX", "AVX2"], 8,
+                          26.0, "105W desktop"),
+    "ryzen-9-5900x": _cpu("AMD Ryzen 9 5900X", 12, 24, 3.7, ["AVX", "AVX2"], 12,
+                          28.0, "105W desktop, 2 CCDs"),
+    "ryzen-9-5950x": _cpu("AMD Ryzen 9 5950X", 16, 32, 3.4, ["AVX", "AVX2"], 16,
+                          30.0, "105W desktop flagship, 2 CCDs"),
+    # ---- Ryzen 7000 series (Zen 4, AM5, AVX-512) ----
+    "ryzen-5-7600x": _cpu("AMD Ryzen 5 7600X", 6, 12, 4.7, ["AVX2", "AVX-512"], 6,
+                          30.0, "105W desktop"),
+    "ryzen-7-7700x": _cpu("AMD Ryzen 7 7700X", 8, 16, 4.5, ["AVX2", "AVX-512"], 8,
+                          34.0, "105W desktop"),
+    "ryzen-9-7900x": _cpu("AMD Ryzen 9 7900X", 12, 24, 4.7, ["AVX2", "AVX-512"], 12,
+                          38.0, "170W desktop, 2 CCDs"),
+    "ryzen-9-7950x": _cpu("AMD Ryzen 9 7950X", 16, 32, 4.5, ["AVX2", "AVX-512"], 16,
+                          40.0, "170W desktop flagship, 2 CCDs"),
+    # ---- Ryzen 9000 series (Zen 5, AM5, AVX-512) ----
+    "ryzen-5-9600x": _cpu("AMD Ryzen 5 9600X", 6, 12, 3.9, ["AVX2", "AVX-512"], 6,
+                          32.0, "65W desktop"),
+    "ryzen-7-9700x": _cpu("AMD Ryzen 7 9700X", 8, 16, 3.8, ["AVX2", "AVX-512"], 8,
+                          36.0, "65W desktop"),
+    "ryzen-9-9900x": _cpu("AMD Ryzen 9 9900X", 12, 24, 4.4, ["AVX2", "AVX-512"], 12,
+                          40.0, "120W desktop, 2 CCDs"),
+    "ryzen-9-9950x": _cpu("AMD Ryzen 9 9950X", 16, 32, 4.3, ["AVX2", "AVX-512"], 16,
+                          42.0, "170W desktop flagship, 2 CCDs"),
+})
+
 
 def _cpu_key(name: str) -> str:
     return name.lower().replace("_", "-").replace(" ", "-")
@@ -653,6 +695,20 @@ _CPU_GENERATIONAL_ALIASES: dict[str, str] = {
     "core-ultra": "core-ultra-7-155h",
     "core-ultra-1": "core-ultra-7-155h",
     "core-ultra-2": "core-ultra-7-265k",
+    # Ryzen 5 / 7 / 9 by series (desktop flagship-adjacent SKU per series,
+    # mirroring the i7/i9 "Nth-gen" aliases above)
+    "ryzen-5000": "ryzen-9-5900x",
+    "ryzen-7000": "ryzen-9-7900x",
+    "ryzen-9000": "ryzen-9-9900x",
+    "ryzen-5-5000": "ryzen-5-5600x",
+    "ryzen-7-5000": "ryzen-7-5800x",
+    "ryzen-9-5000": "ryzen-9-5900x",
+    "ryzen-5-7000": "ryzen-5-7600x",
+    "ryzen-7-7000": "ryzen-7-7700x",
+    "ryzen-9-7000": "ryzen-9-7900x",
+    "ryzen-5-9000": "ryzen-5-9600x",
+    "ryzen-7-9000": "ryzen-7-9700x",
+    "ryzen-9-9000": "ryzen-9-9900x",
 }
 
 

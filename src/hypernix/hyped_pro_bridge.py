@@ -42,7 +42,7 @@ from typing import Any
 
 from . import hyped_pro_core as core
 
-BRIDGE_VERSION = "0.71.4b8"
+BRIDGE_VERSION = "0.71.4b10"
 
 
 def _err(id_: Any, code: str, message: str) -> dict[str, Any]:
@@ -77,7 +77,7 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
             return _ok(id_, {"path": str(path)})
 
         if cmd == "chat":
-            reply = core.send_chat_message(
+            result = core.send_chat_message(
                 model_short=req["model"],
                 messages=req["messages"],
                 system=req.get("system"),
@@ -87,7 +87,7 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
                 hide_thinking=req.get("hide_thinking", True),
                 enable_tools=req.get("enable_tools", True),
             )
-            return _ok(id_, {"reply": reply})
+            return _ok(id_, {"reply": result["content"], "thinking": result["thinking"]})
 
         if cmd == "key_get":
             from .config import get_provider_key

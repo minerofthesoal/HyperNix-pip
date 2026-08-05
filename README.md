@@ -45,12 +45,13 @@ Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
 Click a category below to expand it.
 
 <details>
-<summary><strong>Models & Training</strong> &nbsp;(11 modules)</summary>
+<summary><strong>Models & Training</strong> &nbsp;(12 modules)</summary>
 
 | Subsystem | What it does |
 |---|---|
 | `hypernix.download` | Pull snapshots from the Hub (short-name resolution, gated repos, offline cache). |
 | `hypernix.train` | `HyperNixConfig`, `HyperNixModel`, `init_from_scratch`, `expand_checkpoint`, `train`. Non-HyperNix archs route through `AutoModelForCausalLM`. |
+| `hypernix.brewer` | `hyperNix0x-v2` architecture preset family — `Brewer(config).build()` for a from-scratch `BrewerModel`. GPU-oriented presets `33m` / `micro` / `small` / `medium` / `large` (33.6M-3.5B params), plus `cpu-nano` / `cpu-tiny` / `cpu-small` (2.1M/9.2M/26.5M params) sized for CPU-only training and inference. `custom_arch(**kwargs)` for a fully bespoke config. Also available as `hypernix brew new --preset <name>`. |
 | `hypernix.instant_pot` | `brew(recipe)` — one-shot end-to-end pipeline. Also available as `hypernix brew recipe.json`. |
 | `hypernix.coffee_maker` | 3 tiers (drip / french-press / percolator) + `cold_brew` type for long checkpointed runs. |
 | `hypernix.deep_fryer` | 2-tier model-weight perturbation: `LightFry` (regulariser) / `HeavyFry` (severe, for bad-model negatives). In-place, reversible via snapshot. |
@@ -80,7 +81,7 @@ Click a category below to expand it.
 | Subsystem | What it does |
 |---|---|
 | `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
-| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB, conservative batches, bf16/fp16), `NewFreezer` (11 GB+, fp32-preferred), `FlashFreezer` (OOM-safe retry wrapper around either). Pascal (sm_61 / CUDA 6.1) helpers + 16 CPU presets (i7 7th-14th gen, Core Ultra, Ryzen) via `auto_freezer()`. |
+| `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB, conservative batches, bf16/fp16), `NewFreezer` (11 GB+, fp32-preferred), `FlashFreezer` (OOM-safe retry wrapper around either). Pascal (sm_61 / CUDA 6.1) helpers + 60 CPU presets (Intel i5/i7/i9 7th-14th gen, Core Ultra Series 1/2, AMD Ryzen 5000/7000/9000 series) via `auto_freezer()`. |
 | `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
 | `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. The `STML` context manager folds long sequences into batch segments to keep the *untrained* context length bounded during training. |
 

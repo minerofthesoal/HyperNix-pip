@@ -207,8 +207,28 @@ MODELS: list[ModelDef] = [
              notes="Severely undertrained — see hypernix.utils.warn_hyper_nix_2."),
     # K2-family Kimi models are open-weight and self-hostable (unlike K3).
     ModelDef("kimi-k2.7-code", "moonshotai/Kimi-K2.7-Code", "huggingface", "\u2605", 262144),
-    ModelDef("qwable-3.6-27b-mtp", "Mia-AiLab/Qwable-3.6-27b-MTP", "huggingface", "\u2605", 32768),
-    ModelDef("qwable-9b-fable5", "empero-ai/Qwable-9B-Claude-Fable-5", "huggingface", "\u2605", 32768),
+    # Was Mia-AiLab/Qwable-3.6-27b-MTP (format defaulted to safetensors,
+    # wrong — it's GGUF-only). Swapped off that repo entirely rather than
+    # just fixing the format: the community has reported llama.cpp failing
+    # to load it ("missing tensor 'blk.64.attn_norm.weight'"), and the
+    # repo owner's own comment ("I am aware, will be fixed today!") means
+    # it was mid-fix, not stable. The same publisher's plain (non-MTP)
+    # Qwable-3.6-27b is a single clean GGUF file with no such reports.
+    ModelDef("qwable-3.6-27b", "Mia-AiLab/Qwable-3.6-27b", "huggingface", "\u2605", 32768,
+             format="gguf", gguf_filename="Qwable-27b_Q4_K_M.gguf",
+             notes="16.5GB — the -MTP sibling repo has community-reported tensor-loading "
+                   "failures and was mid-fix per the owner; this plain version doesn't have that report."),
+    # Was empero-ai/Qwable-9B-Claude-Fable-5 (safetensors). Its base,
+    # Qwen3.5-9B, uses a hybrid Gated-DeltaNet/full-attention stack that's
+    # neither in HyperNixModel's _NATIVE_MODEL_TYPES nor recognized by the
+    # installed transformers (model_type='qwen3_5') — the same "falls back
+    # to HyperNixModel, may produce garbage" trap confirmed live on
+    # qwopus-3.5-9b-v3. Swapped to the same publisher's official GGUF,
+    # which llama.cpp has real native support for.
+    ModelDef("qwable-9b-fable5", "empero-ai/Qwable-9B-Claude-Fable-5-GGUF", "huggingface", "\u2605", 32768,
+             format="gguf", gguf_filename="Qwable-9B-Claude-Fable-5-Q4_K_M.gguf",
+             notes="Text-only quant (the repo also ships a vision mmproj hyped-pro doesn't use, "
+                   "since there's no image-input path here)."),
     # -- local: GGUF repos, loaded via llama-cpp-python (llama_cpp.Llama),
     # not the safetensors/old_oven path. These two were previously listed
     # without format="gguf" — they're GGUF-only repos (no safetensors),
@@ -221,8 +241,27 @@ MODELS: list[ModelDef] = [
              format="gguf", gguf_filename="Qwopus3.6-35B-A3B-Coder-MTP-Q3_K_M.gguf", gguf_default_ngl=20,
              notes="35B-A3B MoE, 17.2GB at its smallest quant — won't fully fit on an 8GB card; "
                    "partial CPU offload by default (see gguf_default_ngl)."),
-    ModelDef("qwopus-3.6-27b-coder", "Jackrong/Qwopus3.6-27B-Coder", "huggingface", "\u2605", 32768),
-    ModelDef("qwopus-3.5-9b-v3", "Jackrong/Qwopus3.5-9B-v3", "huggingface", "\u2605", 32768),
+    # Confirmed genuinely safetensors (not broken/fake), but tagged
+    # model_type='qwen3_6' — like qwopus-3.5-9b-v3 below, neither
+    # HyperNixModel nor the installed transformers recognizes that, so
+    # load_snapshot's fallback path is likely to warn and may produce
+    # degraded output rather than a clean failure. A Coder-MTP-GGUF
+    # sibling exists but wasn't verified enough to swap to with
+    # confidence (MTP-in-GGUF adds its own real complexity — see the
+    # Qwopus 35B-A3B MTP entries above needing partial offload even
+    # before that) — flagging honestly here instead of guessing.
+    ModelDef("qwopus-3.6-27b-coder", "Jackrong/Qwopus3.6-27B-Coder", "huggingface", "\u2605", 32768,
+             notes="model_type='qwen3_6' isn't recognized by HyperNixModel or transformers here — "
+                   "expect a 'falling back to HyperNixModel, may produce garbage' warning, same as "
+                   "qwopus-3.5-9b-v3."),
+    # Confirmed live: model_type='qwen3_5' isn't recognized by
+    # HyperNixModel or the installed transformers — load_snapshot falls
+    # back with an explicit "may produce garbage" warning rather than a
+    # clean failure. Left in the catalog (it's a real, honest option) but
+    # flagged rather than presented as equivalent to a fully-supported entry.
+    ModelDef("qwopus-3.5-9b-v3", "Jackrong/Qwopus3.5-9B-v3", "huggingface", "\u2605", 32768,
+             notes="model_type='qwen3_5' isn't recognized by HyperNixModel or transformers here — "
+                   "confirmed to fall back with a 'may produce garbage' warning, not a clean load."),
     ModelDef("qwopus-3.6-35b-a3b-v1-mtp", "Jackrong/Qwopus3.6-35B-A3B-v1-MTP-GGUF", "huggingface", "\u2605", 32768,
              format="gguf", gguf_filename="Qwopus3.6-35B-A3B-v1-MTP-Q3_K_M.gguf", gguf_default_ngl=20,
              notes="35B-A3B MoE, 17.2GB at its smallest quant — won't fully fit on an 8GB card; "
@@ -649,11 +688,12 @@ def _get_multilama(model: ModelDef):
             n_ctx=DEFAULT_GGUF_CTX,
         )
     except ml.MultiLlamaError as exc:
+        detail = exc.message.rstrip(". ")
+        note = f" {model.notes}" if model.notes else ""
         raise HypedProError(
             exc.code,
             f"failed to load GGUF {model.gguf_filename!r} from {model.repo!r} for "
-            f"{model.short!r} via multilama backend {backend_name!r}: {exc.message}. "
-            + (model.notes if model.notes else ""),
+            f"{model.short!r} via multilama backend {backend_name!r}: {detail}.{note}",
         ) from exc
     _MULTILAMA_CACHE[cache_key] = llm
     return llm
@@ -779,8 +819,33 @@ def send_t1_chat(
 # only ever read the plain content/message text, never that field.
 # ---------------------------------------------------------------------------
 
-_THINK_BLOCK_RE = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.IGNORECASE | re.DOTALL)
-_THINK_UNCLOSED_RE = re.compile(r"<(think|thinking|reasoning)>.*\Z", re.IGNORECASE | re.DOTALL)
+_THINK_BLOCK_CAPTURE_RE = re.compile(r"<(think|thinking|reasoning)>(.*?)</\1>", re.IGNORECASE | re.DOTALL)
+_THINK_UNCLOSED_CAPTURE_RE = re.compile(r"<(think|thinking|reasoning)>(.*)\Z", re.IGNORECASE | re.DOTALL)
+
+
+def extract_thinking(text: str) -> tuple[str, str | None]:
+    """Split a reply into (visible_text, thinking_text_or_None).
+
+    Same tag handling as strip_thinking (including the truncated/unclosed
+    case — an opening tag with no closing one because max_tokens cut
+    generation off mid-thought), but keeps the thinking content instead of
+    discarding it, so a caller that wants to *show* thinking (in its own
+    style, e.g. /settings thinking-display) can, instead of it just being
+    gone.
+    """
+    thinking_parts: list[str] = []
+
+    def collect(m: re.Match) -> str:
+        thinking_parts.append(m.group(2).strip())
+        return ""
+
+    cleaned = _THINK_BLOCK_CAPTURE_RE.sub(collect, text)
+    cleaned = _THINK_UNCLOSED_CAPTURE_RE.sub(collect, cleaned)
+    cleaned = cleaned.strip()
+    thinking = "\n\n".join(p for p in thinking_parts if p) or None
+    if not cleaned and text.strip():
+        cleaned = "(model was still thinking when it ran out of output tokens — raise max output tokens with /settings)"
+    return cleaned, thinking
 
 
 def strip_thinking(text: str) -> str:
@@ -792,11 +857,7 @@ def strip_thinking(text: str) -> str:
     person, and a short note takes its place so an empty-looking reply
     doesn't look like a silent failure.
     """
-    cleaned = _THINK_BLOCK_RE.sub("", text)
-    cleaned = _THINK_UNCLOSED_RE.sub("", cleaned)
-    cleaned = cleaned.strip()
-    if not cleaned and text.strip():
-        return "(model was still thinking when it ran out of output tokens — raise max output tokens with /settings)"
+    cleaned, _ = extract_thinking(text)
     return cleaned
 
 
@@ -809,7 +870,14 @@ def send_chat_message(
     max_thinking_tokens: int | None = None,
     hide_thinking: bool = True,
     enable_tools: bool = True,
-) -> str:
+) -> dict[str, str | None]:
+    """Returns {"content": <visible reply>, "thinking": <extracted thinking
+    or None>}. When hide_thinking is True, thinking is always None (and
+    simply removed from content, same as before) — when False, it's
+    extracted rather than discarded, so a caller that wants to *show*
+    thinking (e.g. hyped_pro.ts's /settings thinking-display, in its own
+    color) has real content to render, not just a flag.
+    """
     model = get_model(model_short)
     provider = PROVIDERS[model.vendor]
     kwargs: dict[str, Any] = {}
@@ -835,7 +903,10 @@ def send_chat_message(
             # here for a uniform call signature but has no effect.
             reply = send_local_chat(model, messages, system=system, **{"max_new_tokens": max_tokens} if max_tokens is not None else {})
 
-    return strip_thinking(reply) if hide_thinking else reply
+    if hide_thinking:
+        return {"content": strip_thinking(reply), "thinking": None}
+    content, thinking = extract_thinking(reply)
+    return {"content": content, "thinking": thinking}
 
 
 def catalog_json() -> dict[str, Any]:

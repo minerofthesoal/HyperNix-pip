@@ -172,13 +172,20 @@ case-insensitive and treat `-` / `_` / spaces as equivalent.
 
 | Family | Names |
 |---|---|
-| **7th gen Kaby Lake** | `i7-7660u` (2C/4T ULV), `i7-7700hq` (4C/8T mobile), `i7-7700k` (4C/8T desktop) |
-| **11th gen Rocket Lake / Tiger Lake-H** | `i7-11700k`, `i7-11800h` |
-| **12th gen Alder Lake** | `i7-12700k`, `i7-12700h` |
-| **13th gen Raptor Lake** | `i7-13700k`, `i7-13700h` |
-| **14th gen Raptor Lake-R** | `i7-14700k`, `i7-14700hx` |
-| **Core Ultra Series 1** (Meteor / Lunar Lake) | `core-ultra-7-155h`, `core-ultra-7-165h`, `core-ultra-7-258v` |
-| **Core Ultra Series 2** (Arrow Lake, AVX10) | `core-ultra-7-265k`, `core-ultra-9-285k` |
+| **Intel 7th gen (Kaby Lake)** | `i5-7200u`, `i5-7300hq`, `i5-7400`, `i5-7600k`, `i7-7660u`, `i7-7700hq`, `i7-7700k`, `i9-7900x`, `i9-7980xe` |
+| **Intel 11th gen (Rocket Lake / Tiger Lake-H)** | `i5-11400`, `i5-11600k`, `i5-11320h`, `i7-11700k`, `i7-11800h`, `i9-11900k` |
+| **Intel 12th gen (Alder Lake)** | `i5-12400`, `i5-12500`, `i5-12600k`, `i7-12700k`, `i7-12700h`, `i9-12900k`, `i9-12900hx` |
+| **Intel 13th gen (Raptor Lake)** | `i5-13400`, `i5-13500`, `i5-13600k`, `i7-13700k`, `i7-13700h`, `i9-13900k`, `i9-13900hx` |
+| **Intel 14th gen (Raptor Lake-R)** | `i5-14400`, `i5-14500`, `i5-14600k`, `i7-14700k`, `i7-14700hx`, `i9-14900k`, `i9-14900ks`, `i9-14900hx` |
+| **Core Ultra Series 1** (Meteor / Lunar Lake) | `core-ultra-5-125h`, `core-ultra-5-135h`, `core-ultra-5-228v`, `core-ultra-7-155h`, `core-ultra-7-165h`, `core-ultra-7-258v`, `core-ultra-9-185h` |
+| **Core Ultra Series 2** (Arrow Lake, AVX10) | `core-ultra-5-225k`, `core-ultra-5-235k`, `core-ultra-7-265k`, `core-ultra-9-285k` |
+| **Ryzen 5000 series** (Zen 3, AM4, AVX2 only) | `ryzen-5-5600x`, `ryzen-7-5800x`, `ryzen-9-5900x`, `ryzen-9-5950x` |
+| **Ryzen 7000 series** (Zen 4, AM5, AVX-512) | `ryzen-5-7600x`, `ryzen-7-7700x`, `ryzen-9-7900x`, `ryzen-9-7950x` |
+| **Ryzen 9000 series** (Zen 5, AM5, AVX-512) | `ryzen-5-9600x`, `ryzen-7-9700x`, `ryzen-9-9900x`, `ryzen-9-9950x` |
+
+Generational-family aliases resolve to a representative SKU when you
+don't need the exact model — e.g. `i7-12th-gen`, `ultra-9`,
+`ryzen-9000`, `ryzen-7-7000`.
 
 Each preset carries: `cores`, `threads`, `base_clock_ghz`, `avx_levels`
 tuple (e.g. `("AVX2", "AVX-VNNI", "AVX10")`), `recommended_threads`

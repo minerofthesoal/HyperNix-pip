@@ -196,8 +196,8 @@ def _make_main_window_class():
 
         def run(self) -> None:
             try:
-                reply = core.send_chat_message(self.model_short, self.messages, system=self.system)
-                self.signals.finished.emit(reply)
+                result = core.send_chat_message(self.model_short, self.messages, system=self.system)
+                self.signals.finished.emit(result["content"] or "")
             except core.HypedProError as exc:
                 self.signals.failed.emit(exc.code, exc.message)
             except Exception as exc:  # noqa: BLE001
@@ -487,7 +487,8 @@ def try_launch_gtk() -> bool:
 
             def worker() -> None:
                 try:
-                    reply = core.send_chat_message(model_short, hist_copy)
+                    result = core.send_chat_message(model_short, hist_copy)
+                    reply = result["content"] or ""
                     self.history.append({"role": "assistant", "content": reply})
                     GLib.idle_add(self._append, f"agent> {reply}")
                 except core.HypedProError as exc:

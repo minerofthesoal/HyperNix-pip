@@ -5,6 +5,7 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAqUAAAFxCAYAAABK
 const SUBSYSTEMS = [
   { name: 'hypernix.download', desc: 'Hub snapshot downloads with short-name resolution, gated repo support, and offline cache' },
   { name: 'hypernix.train', desc: 'HyperNixConfig, HyperNixModel, init_from_scratch, expand_checkpoint, and full training loop' },
+  { name: 'hypernix.brewer', desc: 'hyperNix0x-v2 architecture presets: 33m/micro/small/medium/large (GPU) + cpu-nano/cpu-tiny/cpu-small (CPU-only). custom_arch() for a bespoke config' },
   { name: 'hypernix.old_oven', desc: 'CodeOven wrapper with .complete() / .chat() / .fill() / .save_pt(). new_oven() for parametric models' },
   { name: 'hypernix.old_fridge', desc: 'Memory housekeeping: freeze, unfreeze, parameter_stats, offload_to_cpu, chill_cache' },
   { name: 'hypernix.mediocre_fridge', desc: 'Judge-training dataset generation: synthesize_judge_corpus, collect_responses_from' },
@@ -12,7 +13,7 @@ const SUBSYSTEMS = [
   { name: 'hypernix.new_range', desc: 'Zero-dep first-fail labeling rubric — lightest scoring tier' },
   { name: 'hypernix.old_range', desc: 'Scored rubric with per-criterion scores and explainability strings' },
   { name: 'hypernix.industrial_range', desc: 'LLM-as-judge wrapper routing through a CodeOven for scoring' },
-  { name: 'hypernix.freezer', desc: 'OldFreezer (8-10 GB) / NewFreezer (11 GB+) / FlashFreezer (OOM-safe retry). 20 GPU presets + 16 CPU presets' },
+  { name: 'hypernix.freezer', desc: 'OldFreezer (8-10 GB) / NewFreezer (11 GB+) / FlashFreezer (OOM-safe retry). 20 GPU presets + 60 CPU presets (Intel + AMD Ryzen)' },
   { name: 'hypernix.smoke_alarm', desc: 'Training-step planner & monitor: RadsAlarm / GasAlarm / ModernAlarm / AutoAlarm + NaN check' },
   { name: 'hypernix.pans', desc: '5-tier data preprocessing: FryingPan → SaucePan → Skillet → GrillPan → Wok' },
   { name: 'hypernix.microwave', desc: '5-tier throwaway inference: defrost → low_zap → zap → high_zap → chat_zap, plus reheat' },
@@ -37,6 +38,11 @@ const SUBSYSTEMS = [
   { name: 'hypernix.whisk', desc: 'Checkpoint averaging and EMA (Exponential Moving Average) utilities' },
   { name: 'hypernix.cutting_board', desc: 'Train / val / test dataset splitting with stratified and k-fold support' },
   { name: 'hypernix.countertop', desc: 'Stateful chat session management — Countertop creates sessions, bell rings the model, flour applies templates' },
+  { name: 'hypernix.hyped_pro_core', desc: 'hyped-pro/hyped+ TUI\'s provider+model registry and real dispatch: cloud APIs (Anthropic/OpenAI-compatible), local safetensors, GGUF via multilama, and an agentic tool-calling loop' },
+  { name: 'hypernix.multilama', desc: 'One interface over several llama.cpp variants (vanilla, ik_llama.cpp, PrismML fork, KoboldCpp, Nanbeige fork) for GGUF models a single backend can\'t all load' },
+  { name: 'hypernix.hyped_pro_tools', desc: 'Real, workspace-scoped file create/edit/read/search tools for hyped-pro\'s agentic chat loop' },
+  { name: 'hypernix.hyped_pro_bridge', desc: 'Line-delimited JSON stdio worker the Node hyped-pro TUI shells out to for every real operation' },
+  { name: 'hypernix.hyped_pro_gui', desc: 'hyped-pro desktop GUI: Qt6 (X11 + Wayland) via PySide6, GTK4 fallback' },
 ]
 
 const FEATURES = [

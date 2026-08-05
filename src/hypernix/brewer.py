@@ -550,6 +550,92 @@ def hypernix0x_v2_large() -> BrewerConfig:
     )
 
 
+# ---------------------------------------------------------------------------
+# CPU-oriented presets — noticeably smaller than hypernix0x-v2-33m (the
+# smallest of the presets above, itself pitched at "lightweight edge
+# devices" rather than CPU specifically). Plain MHA (no GQA) and no
+# sliding window on all three: at these sizes and context lengths neither
+# buys real speed, just extra code paths — simplicity was prioritized over
+# squeezing out marginal throughput a CPU won't meaningfully benefit from
+# anyway. Parameter counts below are measured (BrewerModel(cfg).num_params()),
+# not estimated, matching how hypernix0x_v2_33m documents its own count.
+# ---------------------------------------------------------------------------
+
+def hypernix0x_v2_cpu_nano() -> BrewerConfig:
+    """``hyperNix0x-v2-cpu-nano`` — 4 layers, ~2.0737M params (2,073,728 parameters), ctx=512.
+
+    Smallest preset in the family. Sized for CPU-only training and
+    inference — smoke tests, quick architecture prototyping, low-power
+    devices — not production output quality.
+    """
+    return BrewerConfig(
+        name="hypernix0x-v2-cpu-nano",
+        vocab_size=8_000,
+        n_layers=4,
+        n_heads=4,
+        n_kv_heads=4,
+        d_model=128,
+        d_ff=0,            # auto: 512
+        max_seq_len=512,
+        rope_theta=10_000.0,
+        norm_eps=1e-5,
+        dropout=0.0,
+        tie_embeddings=True,
+        use_sliding_window=False,
+        attention_type="mha",
+    )
+
+
+def hypernix0x_v2_cpu_tiny() -> BrewerConfig:
+    """``hyperNix0x-v2-cpu-tiny`` — 6 layers, ~9.2111M params (9,211,136 parameters), ctx=1024.
+
+    A step up from cpu-nano — still comfortably trainable on CPU, with
+    more capacity and context than a pure smoke test needs.
+    """
+    return BrewerConfig(
+        name="hypernix0x-v2-cpu-tiny",
+        vocab_size=16_000,
+        n_layers=6,
+        n_heads=8,
+        n_kv_heads=8,
+        d_model=256,
+        d_ff=0,            # auto: 768
+        max_seq_len=1024,
+        rope_theta=10_000.0,
+        norm_eps=1e-5,
+        dropout=0.0,
+        tie_embeddings=True,
+        use_sliding_window=False,
+        attention_type="mha",
+    )
+
+
+def hypernix0x_v2_cpu_small() -> BrewerConfig:
+    """``hyperNix0x-v2-cpu-small`` — 8 layers, ~26.4503M params (26,450,304 parameters), ctx=2048.
+
+    The largest CPU-oriented preset — still noticeably smaller than
+    ``hypernix0x-v2-33m``/``micro`` (the smallest GPU-oriented preset above)
+    so CPU training stays practical, while having enough capacity for more
+    than a smoke test.
+    """
+    return BrewerConfig(
+        name="hypernix0x-v2-cpu-small",
+        vocab_size=32_000,
+        n_layers=8,
+        n_heads=8,
+        n_kv_heads=8,
+        d_model=384,
+        d_ff=0,            # auto: 1024
+        max_seq_len=2048,
+        rope_theta=10_000.0,
+        norm_eps=1e-5,
+        dropout=0.0,
+        tie_embeddings=True,
+        use_sliding_window=False,
+        attention_type="mha",
+    )
+
+
 def custom_arch(**kwargs) -> BrewerConfig:
     """Create a fully user-defined :class:`BrewerConfig` by keyword argument.
 
@@ -1000,6 +1086,9 @@ class Brewer:
 # ---------------------------------------------------------------------------
 
 _PRESET_MAP: dict[str, Callable[[], BrewerConfig]] = {
+    "cpu-nano":  hypernix0x_v2_cpu_nano,
+    "cpu-tiny":  hypernix0x_v2_cpu_tiny,
+    "cpu-small": hypernix0x_v2_cpu_small,
     "33m":    hypernix0x_v2_33m,
     "micro":  hypernix0x_v2_micro,
     "small":  hypernix0x_v2_small,
@@ -1094,7 +1183,7 @@ def cli_main(argv: list[str] | None = None) -> None:
     p_new.add_argument(
         "--preset", required=True,
         choices=list(_PRESET_MAP.keys()),
-        help="Architecture preset: small | medium | large",
+        help="Architecture preset: cpu-nano | cpu-tiny | cpu-small | 33m | micro | small | medium | large",
     )
     p_new.add_argument("--name", default=None, help="Model name (overrides preset name).")
     p_new.add_argument("--save-dir", default=None, help="Root directory to save model files.")

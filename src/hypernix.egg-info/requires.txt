@@ -13,6 +13,15 @@ ruff>=0.5
 build>=1.2
 twine>=5
 
+[gui]
+hypernix[gui-qt]
+
+[gui-gtk]
+PyGObject>=3.48
+
+[gui-qt]
+PySide6>=6.6
+
 [legacy-torch]
 numpy<2,>=1.21
 safetensors>=0.3.1

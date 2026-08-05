@@ -33,7 +33,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 
-const VERSION = "0.71.4b8";
+const VERSION = "0.71.4b10";
 const NL = "\r\n"; // raw mode leaves OPOST alone but we own the terminal, so be explicit
 const DEBUG = !!process.env.HYPED_PRO_DEBUG;
 
@@ -105,6 +105,7 @@ function pythonBin(): string {
 // Types
 // ---------------------------------------------------------------------------
 type ProviderKind = "local" | "cloud";
+type ThinkingDisplay = "hidden" | "grayed" | "normal" | "red" | "theme";
 
 interface ProviderInfo {
   vendor: string;
@@ -152,7 +153,7 @@ interface HypedConfig {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   maxThinkingTokens?: number | null;
-  hideThinking?: boolean;
+  thinkingDisplay?: string;
   toolsEnabled?: boolean;
 }
 
@@ -453,7 +454,10 @@ let themeIdx: number = typeof cfg.themeIdx === 'number' && Number.isInteger(cfg.
 let maxInputTokens: number = typeof cfg.maxInputTokens === 'number' ? cfg.maxInputTokens : 100000;
 let maxOutputTokens: number = typeof cfg.maxOutputTokens === 'number' ? cfg.maxOutputTokens : 1024;
 let maxThinkingTokens: number | null = cfg.maxThinkingTokens ?? null;
-let hideThinking: boolean = cfg.hideThinking !== undefined ? cfg.hideThinking : true;
+const THINKING_DISPLAY_MODES: ThinkingDisplay[] = ["hidden", "grayed", "normal", "red", "theme"];
+let thinkingDisplay: ThinkingDisplay = (THINKING_DISPLAY_MODES as string[]).includes(cfg.thinkingDisplay || "")
+  ? (cfg.thinkingDisplay as ThinkingDisplay)
+  : "hidden";
 // File create/edit/read/search tools (hypernix.hyped_pro_tools), scoped to
 // the workspace hyped-pro was launched from (HYPED_PRO_WORKSPACE, default
 // cwd). On by default for cloud models and GGUF models whose chat template
@@ -467,8 +471,21 @@ const downloadedThisSession = new Set<string>();
 
 function theme(): ThemeDef { return THEMES[themeIdx]; }
 
+// Styles extracted thinking content per /settings thinking-display. Only
+// called when thinkingDisplay !== "hidden" (the bridge already omits
+// thinking entirely in that case), so "hidden" isn't handled here.
+function renderThinking(text: string): string {
+  switch (thinkingDisplay) {
+    case "grayed": return dim(text);
+    case "red": return c256(196, text);
+    case "theme": return c256(theme().accent, text);
+    case "normal":
+    default: return text;
+  }
+}
+
 function persistConfig(): void {
-  saveConfig({ model: currentModel.short, persona, autoCompact, themeIdx, maxInputTokens, maxOutputTokens, maxThinkingTokens, hideThinking, toolsEnabled });
+  saveConfig({ model: currentModel.short, persona, autoCompact, themeIdx, maxInputTokens, maxOutputTokens, maxThinkingTokens, thinkingDisplay, toolsEnabled });
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +578,6 @@ let paletteIndex = 0;
 let pending = false;
 let modelPickerOpen = false;
 let modelPickerIndex = 0;
-let spinnerFrame = 0;
 const SPINNER = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"];
 
 function isPaletteOpen(): boolean {
@@ -610,8 +626,6 @@ function buildFooterLines(): string[] {
 
   if (modelPickerOpen) {
     lines.push(...renderModelPicker());
-  } else if (pending) {
-    lines.push(` ${c256(t.title, SPINNER[spinnerFrame % SPINNER.length])} ${dim("agent thinking\u2026  (esc to cancel)")}`);
   } else if (isPaletteOpen()) {
     const query = buffer.slice(1);
     const { cmds, skills } = paletteCandidates(query);
@@ -655,6 +669,22 @@ function eraseFooter(): void {
   footerLineCount = 0;
 }
 
+// Leaves the footer box visibly on screen — never erases it — and moves
+// the cursor to just past it, so whatever prints next (a local model's
+// load logs, tool-call output, anything not going through our own
+// eraseFooter/drawFooter coordination) appends below it and scrolls
+// normally, the same as any other terminal output. Used instead of
+// eraseFooter() before a "noisy" operation: erasing first was the actual
+// cause of the box appearing to vanish the instant a download/load
+// started — it wasn't scrolling away, it was being wiped to blank space.
+function settleFooter(): void {
+  if (!process.stdout.isTTY) return;
+  if (footerLineCount > 0) {
+    process.stdout.write(`${CSI}1B${CSI}1G`);
+  }
+  footerLineCount = 0; // now ordinary scrollback — nothing left to erase/redraw
+}
+
 function drawFooter(): void {
   if (!process.stdout.isTTY) return;
   const lines = buildFooterLines();
@@ -683,9 +713,56 @@ function log(text: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// "HYPED+" gradient block wordmark — printed once, deterministically, before
-// anything else. A single synchronous print can't race with later output.
+// Spinner — a small, self-contained animated "thinking" indicator.
+// Deliberately simple: touches only its own current line, always via \r
+// (carriage return) + erase-to-end-of-line — never the footer engine's
+// multi-line cursor math. That's what makes it safe to run during a
+// "noisy" operation (local model load, tool-call execution) where the
+// Python bridge's inherited stderr is also printing real output on other
+// lines at the same time; redrawFooter() can't be used for that (see
+// settleFooter above), but a single \r-updated line can.
 // ---------------------------------------------------------------------------
+class Spinner {
+  private frameIdx = 0;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private label: string;
+  private running = false;
+
+  constructor(label: string) {
+    this.label = label;
+  }
+
+  start(): void {
+    if (!process.stdout.isTTY || this.running) return;
+    this.running = true;
+    // No leading newline here: callers are expected to already be on a
+    // fresh line (e.g. via settleFooter()) before calling start() — adding
+    // one unconditionally would leave a stray blank line between whatever
+    // was printed before and the spinner.
+    this.render();
+    this.timer = setInterval(() => this.render(), 90);
+  }
+
+  setLabel(label: string): void {
+    this.label = label;
+  }
+
+  private render(): void {
+    const frame = SPINNER[this.frameIdx % SPINNER.length];
+    this.frameIdx++;
+    process.stdout.write(`\r${c256(theme().title, frame)} ${dim(this.label)}${CSI}0K`);
+  }
+
+  stop(): void {
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.running && process.stdout.isTTY) {
+      process.stdout.write(`\r${CSI}0K`); // clear the spinner line rather than leave a stale frame
+    }
+    this.running = false;
+  }
+}
+
+
 const HYPED_BANNER_GLYPHS: Record<string, string[]> = {
   H: ["\u2588   \u2588", "\u2588   \u2588", "\u2588\u2588\u2588\u2588\u2588", "\u2588   \u2588", "\u2588   \u2588"],
   Y: ["\u2588   \u2588", " \u2588 \u2588 ", "  \u2588  ", "  \u2588  ", "  \u2588  "],
@@ -754,7 +831,11 @@ async function ensureLocalModelReady(model: ModelDef): Promise<boolean> {
   if (existing) return existing;
 
   const work = (async (): Promise<boolean> => {
+    settleFooter();
+    const checkSpinner = new Spinner(`checking ${model.short}...`);
+    checkSpinner.start();
     const checkResp = await bridge.call('is_downloaded', { model: model.short });
+    checkSpinner.stop();
     if (!checkResp.ok) {
       elog(checkResp.code || 'HPT-BRIDGE-002', checkResp.error || 'could not check download status');
       return false;
@@ -764,7 +845,11 @@ async function ensureLocalModelReady(model: ModelDef): Promise<boolean> {
       return true;
     }
 
-    eraseFooter();
+    // No Spinner here, deliberately: huggingface_hub already prints its own
+    // \r-updated tqdm progress bars for the actual download, straight to
+    // the bridge's inherited stderr. Running a second independent \r-based
+    // updater (ours) at the same time would fight it for the same line —
+    // both would garble. hf_hub's own bars are the "spinner" for this part.
     process.stdout.write(dim(`\n  ${model.short} isn't downloaded yet — fetching ${model.repo} from HuggingFace...\n`) + NL);
     const dlResp = await bridge.call('download', { model: model.short });
     if (!dlResp.ok) {
@@ -975,17 +1060,17 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
     }
 
     case "/settings": {
-      const SETTINGS_KEYS = ["max-input-tokens", "max-output-tokens", "max-thinking-tokens", "hide-thinking"];
+      const SETTINGS_KEYS = ["max-input-tokens", "max-output-tokens", "max-thinking-tokens", "thinking-display"];
       if (!argText) {
         const thinkingSupport = providerOf(currentModel)?.vendor === "anthropic"
           ? "native (Anthropic extended thinking)"
-          : "not natively supported by this model's backend — thinking output is still hidden by stripping <think> tags, but generation isn't capped early";
+          : "not natively supported by this model's backend — thinking is still extracted from <think> tags, but generation isn't capped early";
         log([
           c256(96, "\n  Settings:"),
           `  ${c256(33, "max-input-tokens".padEnd(20))} ${maxInputTokens}  ${dim("(oldest turns trimmed before sending once exceeded)")}`,
           `  ${c256(33, "max-output-tokens".padEnd(20))} ${maxOutputTokens}  ${dim("(real max_tokens on every backend)")}`,
           `  ${c256(33, "max-thinking-tokens".padEnd(20))} ${maxThinkingTokens === null ? "(unset)" : maxThinkingTokens}  ${dim(`(${thinkingSupport})`)}`,
-          `  ${c256(33, "hide-thinking".padEnd(20))} ${hideThinking}  ${dim("(strip <think>/<thinking>/<reasoning> blocks from replies)")}`,
+          `  ${c256(33, "thinking-display".padEnd(20))} ${thinkingDisplay === "hidden" ? thinkingDisplay : renderThinking(thinkingDisplay)}  ${dim(`(modes: ${THINKING_DISPLAY_MODES.join(", ")})`)}`,
           dim(`\n  Usage: /settings <key> <value>   keys: ${SETTINGS_KEYS.join(", ")}`),
         ].join(NL));
         break;
@@ -1023,11 +1108,14 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
           log(c256(82, `  max-thinking-tokens set to ${n} ${providerOf(currentModel)?.vendor === "anthropic" ? "" : dim("(no effect on this model's backend — Anthropic-only for now)")}`));
           break;
         }
-        case "hide-thinking": {
+        case "thinking-display": {
           const v = value.toLowerCase();
-          if (!["on", "off", "true", "false"].includes(v)) { log(c256(196, "  Usage: /settings hide-thinking on|off")); break; }
-          hideThinking = v === "on" || v === "true"; persistConfig();
-          log(c256(82, `  hide-thinking set to ${hideThinking}`));
+          if (!(THINKING_DISPLAY_MODES as string[]).includes(v)) {
+            log(c256(196, `  Usage: /settings thinking-display <${THINKING_DISPLAY_MODES.join("|")}>`));
+            break;
+          }
+          thinkingDisplay = v as ThinkingDisplay; persistConfig();
+          log(c256(82, `  thinking-display set to ${thinkingDisplay === "hidden" ? thinkingDisplay : renderThinking(thinkingDisplay)}`));
           break;
         }
         default:
@@ -1155,7 +1243,7 @@ async function askLine(queue: LineQueue, promptText: string): Promise<string> {
 }
 
 async function runConfigureWizard(): Promise<void> {
-  eraseFooter();
+  settleFooter();
   const ownRL = !activeQueue;
   let rl = activeRL;
   let queue = activeQueue;
@@ -1245,26 +1333,20 @@ async function runChatTurn(line: string, record = true): Promise<void> {
 
   pending = true;
   cancelRequested = false;
-  // Cloud calls are a single awaited HTTP request with nothing else writing
-  // to the terminal in the meantime, so the live spinner (an interval that
-  // erases+redraws the footer every 90ms) is safe there. Local/T1 turns can
-  // involve the Python bridge loading a model in-process for the first time
-  // — transformers/torch/safetensors routinely print their own warnings
-  // and progress straight to the bridge's inherited stderr, uncoordinated
-  // with our footer's cursor math, so racing a periodic redraw against that
-  // corrupts the screen (stacked/duplicated boxes). For those, erase once,
-  // show a static message, and don't touch the footer again until the
-  // reply (or error) comes back — the same pattern ensureLocalModelReady
-  // already uses for downloads.
-  const maybeNoisyBackend = currentModel.kind === "local" || currentModel.vendor === "t1" || toolsEnabled;
-  let spin: ReturnType<typeof setInterval> | null = null;
-  if (maybeNoisyBackend) {
-    eraseFooter();
-    const reason = currentModel.kind === "local" ? "local model — any backend logs print below" : "any tool calls print below";
-    process.stdout.write(dim(`\n  ${SPINNER[0]} agent thinking (${reason})...\n`) + NL);
-  } else {
-    spin = setInterval(() => { spinnerFrame++; redrawFooter(); }, 90);
-  }
+  // The footer is settled (left visible, not erased) rather than touched
+  // with a live multi-line redraw for the whole turn — a local/T1 turn, or
+  // any turn with tools enabled, can have the Python bridge printing real
+  // output (model load progress, tool-call results) straight to its
+  // inherited stderr at any point, uncoordinated with our own cursor math;
+  // racing a full-box redraw against that is what used to corrupt the
+  // screen. The Spinner is safe here regardless, since it only ever
+  // touches its own single line via \r.
+  settleFooter();
+  const spinnerLabel = currentModel.kind === "local"
+    ? "agent thinking (local model — any backend logs print above)"
+    : toolsEnabled ? "agent thinking (any tool calls print above)" : "agent thinking";
+  const spinner = new Spinner(spinnerLabel);
+  spinner.start();
 
   const personaText = PERSONAS[persona] || "";
   const fullSystem = [systemPrompt, personaText].filter(Boolean).join("\n\n");
@@ -1275,17 +1357,12 @@ async function runChatTurn(line: string, record = true): Promise<void> {
     system: fullSystem,
     max_tokens: maxOutputTokens,
     max_thinking_tokens: maxThinkingTokens,
-    hide_thinking: hideThinking,
+    hide_thinking: thinkingDisplay === "hidden",
     enable_tools: toolsEnabled,
   });
 
-  if (spin) clearInterval(spin);
+  spinner.stop();
   pending = false;
-
-  if (maybeNoisyBackend) {
-    process.stdout.write(NL);
-    drawFooter();
-  }
 
   if (cancelRequested) {
     log(dim("  (cancelled)"));
@@ -1301,6 +1378,9 @@ async function runChatTurn(line: string, record = true): Promise<void> {
   }
 
   toolCallCount++;
+  if (resp.data.thinking && thinkingDisplay !== "hidden") {
+    log(`${c256(90, 'thinking>')} ${renderThinking(resp.data.thinking)}`);
+  }
   const reply: string = resp.data.reply;
   history.push({ role: 'assistant', content: reply });
   log(`${c256(33, 'agent>')} ${reply}`);
