@@ -193,3 +193,26 @@ timeline
         : 2d0693a - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4 (2026-08-05)
+
+```mermaid
+timeline
+    title Release v0.71.4 Commits
+    0.71.4
+        : af8b224 - cli fixes
+        : dc6cbc9 - Update README with fixes and new resources
+        : 26d1135 - chore- update JSON stats (manual run)
+        : dd5cfc2 - hypernix v0.71.4rc1 [skip ci]
+        : feb773e - took a bit to do the following- 1 fix hyped, 2- imprvoe it 3- add api's, 4- take a break
+        : bbec0c4 - chore- update JSON stats (scheduled)
+        : e8219d4 - chore- update JSON stats (scheduled)
+        : e8b1b73 - chore- update JSON stats (scheduled)
+        : 2d0693a - chore- update JSON stats (scheduled)
+        : b307034 - hypernix v0.71.4b7 [skip ci]
+        : afb17c1 - next beta- major improveve ments to hyped-pro, miltilama
+        : 98344cd - chore- update JSON stats (scheduled)
+        : 050a5de - chore- update JSON stats (scheduled)
+        : cc3811d - hypernix v0.71.4b6 [skip ci]
+        : f983974 - 0.71.4b6 - major hyped improvements, actual model downloading, hyped gui, and more
+```
+
