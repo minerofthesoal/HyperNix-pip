@@ -11,13 +11,7 @@
 **End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
 
 ## What's fixed in this update
-
-- **`hyped` TUI crash on every prompt** — submitting *any* prompt in the `hyped` chat TUI raised `AttributeError: 'OvenRunner' object has no attribute '_format_chat'` immediately after pressing Enter, on every provider (local/openai/anthropic/rest/t1). Root cause: `ChatScreen` wired a low-level `Bell` streamer into `Countertop`, but `Bell.stream_chat()` needs an oven exposing `.model` / `.tokenizer` / `._format_chat` directly, and `OvenRunner` (the multi-provider wrapper) only exposes a high-level `.chat()`. Fixed in `hyped.py`; regression test added in `tests/test_v0712_hyped_countertop.py`.
-- **`scripts/benchmark_v5.py` / `benchmark_v5s.py`** — both hard-coded `.cuda()` (crashed with no GPU) and trained all optimizers *sequentially on one shared model instance*, so later optimizers in the loop started from already-mutated weights instead of a fair, identical starting point. Rewritten to be device-safe, give each optimizer its own seeded model copy, and report peak memory alongside step time.
-- **`wiki/Pressure-Cooker-V5.md`** — corrected a factually wrong "6-bit quantized momentum" / "stochastic rounding" claim (the real implementation is int8 with standard rounding; see `_quantize_momentum` in `pressure_cooker_v5.py`), fixed an example that called `PressureCookerV5(..., peak_lr=..., quantize_momentum=...)` — neither kwarg exists, so it raised `TypeError` as written — and replaced a fabricated `hnx pressure-cooker-v5 --tier ...` CLI example with the actual supported entry points. Added the missing V5S section.
-- **This README** — roughly 30 lines across the module table and changelog sections were truncated mid-sentence with a literal `[...]` and a missing closing `|` (from an earlier editing pass), breaking the module table's markdown rendering. All 30 have been completed with accurate text checked against the current source, and the same "6-bit" inaccuracy above is fixed everywhere it appeared here too.
-- **New**: [`pressure_cooker_v5_v5s_paper.md`](pressure_cooker_v5_v5s_paper.md) — a from-source-measured efficiency writeup for `PressureCookerV5` / `V5S`, and `scripts/measure_optimizer_memory.py`, a new script that measures exact (not estimated) optimizer-state memory per parameter tensor.
-
+See changlog.md
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
