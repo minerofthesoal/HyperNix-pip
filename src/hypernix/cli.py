@@ -81,6 +81,8 @@ _SUBCOMMANDS = {
     # v0.71.1
     "map",
     "websearch",
+    "cctvtop",
+    "fiz",
 }
 
 
@@ -100,7 +102,7 @@ def _print_usage() -> None:
         table.add_column("Command")
         table.add_column("Description")
         
-        table.add_row("[green]all[/]", "download -> convert -> [quantize] (classic pipeline)")
+        table.add_row("[green]all[/]", "download -> convert -> \\[quantize] (classic pipeline)")
         table.add_row("[green]download[/]", "fetch a HuggingFace model snapshot to disk")
         table.add_row("[green]convert[/]", "produce fp32 / fp16 GGUF from a local snapshot")
         table.add_row("[green]quantize[/]", "run llama-quantize on an fp16/fp32 GGUF")
@@ -891,18 +893,18 @@ def main(argv: list[str] | None = None) -> int:
         return _run_assistant(rest)
     if cmd == "webui":
         return _run_webui(rest)
-    if cmd == "fizzle":
+    if cmd in ("fizzle", "fiz"):
         return _run_fizzle(rest)
     if cmd in ("camo", "camouflage"):
         return _run_camo(rest)
     if cmd == "tvtop":
         return _run_tvtop(rest)
+    if cmd == "cctvtop":
+        return _run_cctvtop(rest)
     if cmd == "cli":
         return _run_cli(rest)
     if cmd == "stml":
         return _run_stml(rest)
-    if cmd in ("fizzle", "fiz"):
-        return _run_fizzle(rest)
     if cmd in ("prot", "protect"):
         return _run_protect(rest)
     if cmd == "net":
@@ -975,6 +977,12 @@ def _run_tvtop(raw: list[str]) -> int:
     """`hypernix tvtop` — live training dashboard."""
     from .tv import cli_main as tvtop_main
     return tvtop_main(raw)
+
+
+def _run_cctvtop(raw: list[str]) -> int:
+    """`hypernix cctvtop` — Python training dashboard with hardware metrics and VNC."""
+    from .cctvtop import cli_main as cctvtop_main
+    return cctvtop_main(raw)
 
 
 def _run_brew(raw: list[str]) -> int:
