@@ -216,3 +216,15 @@ timeline
         : f983974 - 0.71.4b6 - major hyped improvements, actual model downloading, hyped gui, and more
 ```
 
+## Release v0.71.4-1 (2026-08-06)
+
+```mermaid
+timeline
+    title Release v0.71.4-1 Commits
+    0.71.4-1
+        : 565db59 - Fix license text in pyproject.toml
+        : 516b315 - Update license in pyproject.toml
+        : 092824a - Update LICENSE file
+        : 22c3fbe - chore- update JSON stats (scheduled)
+```
+
