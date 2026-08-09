@@ -242,3 +242,12 @@ timeline
         : 9ff15c8 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.4-3 (2026-08-09)
+
+```mermaid
+timeline
+    title Release v0.71.4-3 Commits
+    0.71.4-3
+        : 46a3e59 - Remove webui command from HyperNix CLI
+```
+
