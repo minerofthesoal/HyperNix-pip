@@ -637,7 +637,7 @@ class HyperNixQuantizer:
         return written
 
     def format_catalog(self, *, category: str | None = None) -> str:
-        """Return a human-readable catalog table for CLI / webui display."""
+        """Return a human-readable catalog table for CLI display."""
         specs = by_category(category) if category else sorted(CATALOG.values(), key=lambda s: s.name)
         lines = [f"HyperNix quantize catalog (hypernix {_HYPERNIX_VERSION})", "-" * 56]
         for spec in specs:

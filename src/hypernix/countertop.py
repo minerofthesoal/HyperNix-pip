@@ -106,8 +106,6 @@ def interactive_cli(use_rich: bool = True) -> int:
                 elif choice == "7":
                     console.print("[yellow]Assistant - use: hypernix assistant --help[/yellow]")
                 elif choice == "8":
-                    console.print("[yellow]Web UI - use: hypernix webui --help[/yellow]")
-                elif choice == "9":
                     console.print("[yellow]Info - use: hypernix info[/yellow]")
                     
         except ImportError:
@@ -135,8 +133,7 @@ def _simple_cli() -> int:
         print("  5. Chat")
         print("  6. ASR/TTS Pipeline")
         print("  7. AI Assistant")
-        print("  8. Web UI")
-        print("  9. System Info")
+        print("  8. System Info")
         print("  q. Quit")
         
         choice = input("\nSelect option: ").strip().lower()
@@ -144,7 +141,7 @@ def _simple_cli() -> int:
         if choice == "q":
             print("Goodbye!")
             return 0
-        elif choice in ("1", "2", "3", "4", "5", "6", "7", "8", "9"):
+        elif choice in ("1", "2", "3", "4", "5", "6", "7", "8"):
             commands = {
                 "1": "hypernix download --help",
                 "2": "hypernix convert --help",
@@ -153,8 +150,7 @@ def _simple_cli() -> int:
                 "5": "hypernix chat --help",
                 "6": "hypernix pipeline --help",
                 "7": "hypernix assistant --help",
-                "8": "hypernix webui --help",
-                "9": "hypernix info",
+                "8": "hypernix info",
             }
             print(f"\nRun: {commands[choice]}")
         else:

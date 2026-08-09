@@ -55,7 +55,6 @@ class InteractiveCLI:
         print("  tts        - Text-to-speech")
         print("  pipeline   - ASR→LLM→TTS pipeline")
         print("  assistant  - Local AI assistant")
-        print("  webui      - Web UI with Tailscale")
         print("  quit       - Exit")
         
         while True:
@@ -74,8 +73,6 @@ class InteractiveCLI:
                 self.cmd_pipeline()
             elif cmd == "assistant":
                 self.cmd_assistant()
-            elif cmd == "webui":
-                self.cmd_webui()
             else:
                 print(f"Unknown command: {cmd}")
     
@@ -89,12 +86,11 @@ class InteractiveCLI:
         menu_text.append("  [4] TTS (Text→Speech)\n", style="magenta")
         menu_text.append("  [5] Pipeline (ASR→LLM→TTS)\n", style="blue")
         menu_text.append("  [6] Local AI Assistant\n", style="red")
-        menu_text.append("  [7] Web UI (Tailscale)\n", style="bright_blue")
         menu_text.append("  [q] Quit\n", style="gray")
         
         console.print(Panel(menu_text, title="[bold]HyperNix Menu[/]"))
         
-        choice = Prompt.ask("Choice", choices=["1", "2", "3", "4", "5", "6", "7", "q"], default="1")
+        choice = Prompt.ask("Choice", choices=["1", "2", "3", "4", "5", "6", "q"], default="1")
         
         if choice == "1":
             self.cmd_models()
@@ -108,8 +104,6 @@ class InteractiveCLI:
             self.cmd_pipeline()
         elif choice == "6":
             self.cmd_assistant()
-        elif choice == "7":
-            self.cmd_webui()
         elif choice == "q":
             self.running = False
     
@@ -303,27 +297,6 @@ class InteractiveCLI:
                 console.print(f"[dim]Processing: {user_input}[/]")
                 console.print("[green]Response generated.[/]")
     
-    def cmd_webui(self):
-        """Web UI with Tailscale integration."""
-        console.print(Panel("[bold]Web UI + Tailscale[/]", subtitle="v0.61.4"))
-        console.print("""
-[cyan]Starting Web UI server...[/]
-
-[green]✓[/] Server started on http://localhost:8080
-[green]✓[/] Tailscale integration active
-[yellow]![/] Share via Tailscale: https://your-node.tailnet-name.ts.net
-
-[bold]Features:[/]
-  • Model management dashboard
-  • Real-time training monitoring
-  • ASR/TTS pipeline interface
-  • Chat interface for local AI
-  • Secure Tailscale tunneling
-
-[dim]Press Ctrl+C to stop server[/]
-""")
-        Prompt.ask("Press Enter to return")
-
 
 def cli_main():
     """Entry point for hypernix-cli command."""
