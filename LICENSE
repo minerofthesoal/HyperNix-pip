@@ -1,4 +1,29 @@
-# HyperNix OpenCode Light Limited Use License v0.1 (LLU-0.1)
+================================================================================
+                        HYPERNIX DUAL LICENSE
+================================================================================
+
+Copyright 2026 HyperNix contributors
+
+This software ("the Software") is made available to You under the terms of
+either of the following licenses, at Your option:
+
+  (A) HyperNix OpenCode Light Limited Use License, Version 0.1 (LLU-0.1)
+      — a source-available license with transparency and use-restriction
+        conditions; or
+
+  (B) HyperNix Open Source License, Version 1.0 (HOS-1.0)
+      — an OSI-compliant open-source license without field-of-use restrictions.
+
+You must elect one license and comply with its terms. You may not combine,
+merge, or cherry-pick terms from both licenses. If You do not make an active
+choice, the default license that applies to You is (A) LLU-0.1.
+
+Contributions submitted to the project are accepted under both licenses
+unless the Contributor explicitly states otherwise.
+
+================================================================================
+OPTION (A): HYPERNIX OPENCODE LIGHT LIMITED USE LICENSE v0.1 (LLU-0.1)
+================================================================================
 
 Copyright 2026 HyperNix contributors
 
@@ -7,15 +32,15 @@ This License is a heavily modified version of the Apache License, Version
 this document is self-contained: nothing in it is incorporated by
 reference from any other license, and it should be read on its own terms.
 
-**Note on open-source status.** Despite the name "OpenCode," this License
-does not meet the Open Source Initiative's Open Source Definition or the
-Free Software Foundation's Free Software Definition, because §12
-restricts specific fields of use. "OpenCode" refers to the public
-availability of the Software's source code, not to certification as
-"open source" or "free software" in that formal sense. This License is
-more accurately described as a source-available license with use
-restrictions, and should not be represented as OSI-approved or FSF-free
-software.
+**Note on open-source status.** This License does not meet the Open
+Source Initiative's Open Source Definition or the Free Software
+Foundation's Free Software Definition, because §12 restricts specific
+fields of use. "OpenCode" refers to the public availability of the
+Software's source code, not to certification as "open source" or "free
+software" in that formal sense. This License is more accurately described
+as a source-available license with use restrictions. However, because
+this Software is offered under a dual-license framework, You may instead
+choose Option (B) above if You require OSI-approved open-source terms.
 
 ## 1. Definitions
 
@@ -356,10 +381,9 @@ built for one of the purposes described in §12(a)-(c) or (e); a mention
 that is only buried in a Terms of Service document, End User License
 Agreement, or a page the user must separately navigate to does not
 satisfy this requirement; and (iii) that specific use is otherwise
-lawful. This exemption never
-applies to §12(d) or §12(f): no degree of openness, disclosure, or
-claimed legality permits content that sexualizes or exploits minors, or
-sexual content of any kind.
+lawful. This exemption never applies to §12(d) or §12(f): no degree of
+openness, disclosure, or claimed legality permits content that
+sexualizes or exploits minors, or sexual content of any kind.
 
 This section restricts how the Software and any resulting Trained Model
 may be used; it does not, by itself, expand or limit the licenses
@@ -446,27 +470,242 @@ contractual obligation that You undertake by exercising any right this
 License grants, enforceable as an ordinary contract term regardless of
 its enforceability as a license condition.
 
----
+================================================================================
+OPTION (B): HYPERNIX OPEN SOURCE LICENSE v1.0 (HOS-1.0)
+================================================================================
 
-## APPENDIX: How to Apply This License
+Copyright 2026 HyperNix contributors
 
-To apply the HyperNix OpenCode Light Limited Use License v0.1 to a work,
-attach the following notice, replacing the bracketed fields with your
-own identifying information:
+This license is derived from the Apache License, Version 2.0. It is
+intended to conform to the Open Source Definition as published by the
+Open Source Initiative (OSI).
 
-```
-Copyright [yyyy] [name of copyright owner]
+## 1. Definitions
 
-Licensed under the HyperNix OpenCode Light Limited Use License,
-Version 0.1 (LLU-0.1) (the "License"); you may not use this file
-except in compliance with the License. You may obtain a copy of
-the License at:
+"License" means the terms and conditions set out in this document.
 
-    [URL to this license text]
+"Licensor" means the copyright owner(s) of the Software.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-implied. See the License for the specific language governing
-permissions and limitations under the License.
-```
+"You" ("Your") means an individual or Legal Entity exercising permissions
+granted by this License.
+
+"Legal Entity" means an entity, together with all other entities that
+control, are controlled by, or are under common control with that entity
+(its "Affiliates"), where "control" means direct or indirect ownership
+of more than fifty percent (50%) of the entity's outstanding equity or
+voting interests, or the contractual right to direct its management.
+Actions taken by, or sharing among, Affiliates of the same Legal Entity
+are treated as actions of a single Legal Entity under this License.
+
+"Software" ("Work") means the HyperNix source code, scripts,
+documentation, and associated files made available under this License,
+in either Source or Object form.
+
+"Source" form means the preferred form for making modifications,
+including source code, configuration files, and documentation source.
+
+"Object" form means any form resulting from mechanical transformation
+or translation of a Source form, including compiled object code,
+generated documentation, and conversions to other media types.
+
+"Derivative Works" means any work, in Source or Object form, that is
+based on or derived from the Software, including modified copies,
+editorial revisions, annotations, elaborations, and works into which
+the Software has been incorporated, in whole or in part.
+
+"Contribution" means any work of authorship, including the original
+version of the Software and any modifications or additions to it, that
+is intentionally submitted to the Licensor for inclusion in the Software
+by the copyright owner or by an individual or Legal Entity authorized
+to submit on their behalf.
+
+"Contributor" means the Licensor and any individual or Legal Entity on
+whose behalf a Contribution has been received by the Licensor and
+subsequently incorporated within the Software.
+
+## 2. Grant of Copyright License
+
+Subject to the terms of this License, each Contributor grants You a
+perpetual, worldwide, non-exclusive, royalty-free, irrevocable copyright
+license to reproduce, prepare Derivative Works of, publicly display,
+publicly perform, sublicense, and distribute the Software and such
+Derivative Works, in Source or Object form.
+
+## 3. Grant of Patent License
+
+Subject to the terms of this License, each Contributor grants You a
+perpetual, worldwide, non-exclusive, royalty-free, irrevocable (except
+as stated in this section) patent license to make, have made, use, offer
+to sell, sell, import, and otherwise transfer the Software, where such
+license applies only to patent claims licensable by that Contributor that
+are necessarily infringed by their Contribution(s) alone or in
+combination with the Software. If You institute patent litigation
+against any entity (including a cross-claim or counterclaim in a lawsuit)
+alleging that the Software or a Contribution incorporated within the
+Software constitutes direct or contributory patent infringement, then
+any patent licenses granted to You under this License for that Software
+shall terminate as of the date such litigation is filed.
+
+## 4. Redistribution
+
+You may reproduce and distribute copies of the Software or Derivative
+Works thereof in any medium, with or without modifications, and in
+Source or Object form, provided that You meet the following conditions:
+
+(a) You must give any other recipients of the Software or Derivative
+    Works a copy of this License; and
+
+(b) You must cause any modified files to carry prominent notices stating
+    that You changed the files; and
+
+(c) You must retain, in the Source form of any Derivative Works that You
+    distribute, all copyright, patent, trademark, and attribution notices
+    from the Source form of the Software, excluding those notices that do
+    not pertain to any part of the Derivative Works; and
+
+(d) If the Software includes a "NOTICE" text file, then any Derivative
+    Works that You distribute must include a readable copy of the
+    attribution notices contained within such NOTICE file, in at least one
+    of the following places: within a NOTICE text file distributed as
+    part of the Derivative Works; within the Source form or
+    documentation, if provided along with the Derivative Works; or,
+    within a display generated by the Derivative Works, if and wherever
+    such third-party notices normally appear. The contents of the NOTICE
+    file are for informational purposes only and do not modify the
+    License. You may add Your own attribution notices within Derivative
+    Works that You distribute, alongside or as an addendum to the NOTICE
+    text from the Software, provided that such additional attribution
+    notices cannot be construed as modifying the License.
+
+You may add Your own copyright statement to Your modifications and may
+provide additional or different license terms and conditions for use,
+reproduction, or distribution of Your modifications, or for any such
+Derivative Works as a whole, provided Your use, reproduction, and
+distribution of the Software otherwise complies with the conditions
+stated in this License.
+
+## 5. Submission of Contributions
+
+Unless You explicitly state otherwise, any Contribution intentionally
+submitted for inclusion in the Software by You to the Licensor shall be
+under the terms and conditions of this License, without any additional
+terms or conditions. Notwithstanding the above, nothing herein shall
+supersede or modify the terms of any separate license agreement you may
+have executed with Licensor regarding such Contributions.
+
+## 6. Trademarks
+
+This License does not grant permission to use the trade names,
+trademarks, service marks, or product names of the Licensor (including
+"HyperNix", "hyped", "hyped+", "hyped-pro", "hyped-plus", and associated
+logos), except as required for reasonable and customary use in
+describing the origin of the Software and reproducing the content of the
+NOTICE file.
+
+A Derivative Work may not describe itself as "HyperNix," or use a name
+confusingly similar to it, in a way that implies official origin,
+endorsement, or affiliation, unless clearly distinguished (e.g.
+"MyProject, a fork of HyperNix").
+
+## 7. No Endorsement
+
+You may not state or imply that the Licensor or HyperNix contributors
+sponsor, endorse, fund, or are affiliated with Your Derivative Work,
+product, or service, beyond the factual attribution required by §4,
+without separate written permission.
+
+## 8. Termination
+
+Your rights under this License terminate automatically if You fail to
+comply with any of its terms and do not cure such breach within 30 days
+of becoming aware of it. Sections 7, 9, 10, 11, and 12 survive any
+termination of this License. Termination does not affect the rights of
+any third party who received the Software or a Derivative Work from You
+in compliance with this License prior to such termination.
+
+## 9. Disclaimer of Warranty
+
+Unless required by applicable law or agreed to in writing, the Licensor
+provides the Software on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied, including, without
+limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT,
+MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely
+responsible for determining the appropriateness of using or
+redistributing the Software and assume any risks associated with Your
+exercise of permissions under this License.
+
+## 10. Limitation of Liability
+
+In no event and under no legal theory, whether in tort (including
+negligence), contract, or otherwise, unless required by applicable law
+(such as deliberate and grossly negligent acts) or agreed to in
+writing, shall any Contributor be liable to You for damages, including
+any direct, indirect, special, incidental, or consequential damages of
+any character arising as a result of this License or out of the use or
+inability to use the Software (including but not limited to damages for
+loss of goodwill, work stoppage, computer failure or malfunction, or any
+and all other commercial damages or losses), even if such Contributor
+has been advised of the possibility of such damages.
+
+## 11. Accepting Warranty or Additional Liability
+
+While redistributing the Software or Derivative Works thereof, You may
+choose to offer, and charge a fee for, acceptance of support, warranty,
+indemnity, or other liability obligations and/or rights consistent with
+this License. However, in accepting such obligations, You may act only
+on Your own behalf and on Your sole responsibility, not on behalf of
+any other Contributor, and only if You agree to indemnify, defend, and
+hold each Contributor harmless for any liability incurred by, or claims
+asserted against, such Contributor by reason of Your accepting any such
+warranty or additional liability.
+
+## 12. Miscellaneous
+
+(a) Severability. If any provision of this License is held to be
+    unenforceable, such provision shall be reformed only to the extent
+    necessary to make it enforceable, and the remaining provisions shall
+    remain in full force and effect.
+
+(b) No Waiver. The failure of any party to enforce any provision of this
+    License shall not constitute a waiver of future enforcement of that
+    or any other provision.
+
+(c) Versioning. This is version 1.0 of the HyperNix Open Source License.
+    The Licensor may publish revised versions from time to time. Each
+    version will be given a distinguishing version number. Software
+    already distributed under HOS-1.0 continues to be governed by
+    HOS-1.0 unless the Licensor explicitly relicenses that specific
+    release under a newer version.
+
+(d) Not Legal Advice. This License is a software license, not a legal
+    services agreement. The Licensor recommends having it reviewed by
+    qualified counsel before relying on it for a public release.
+
+================================================================================
+APPENDIX: How to Apply This Dual License
+================================================================================
+
+To apply the HyperNix Dual License to a work, attach the following notice,
+replacing the bracketed fields with your own identifying information:
+
+    Copyright [yyyy] [name of copyright owner]
+
+    This software is available under your choice of:
+
+      (A) the HyperNix OpenCode Light Limited Use License, Version 0.1
+          (LLU-0.1); or
+
+      (B) the HyperNix Open Source License, Version 1.0 (HOS-1.0).
+
+    You must elect one license and comply with its terms. You may not
+    combine terms from both licenses.
+
+    You may obtain a copy of both licenses at:
+
+        [URL to this license text]
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under either license is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+    implied. See the applicable License for the specific language
+    governing permissions and limitations.
