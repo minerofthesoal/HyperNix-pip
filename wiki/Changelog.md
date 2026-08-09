@@ -14,8 +14,12 @@ next release header.
 - 🛡️ UX / error-message polish
 - 📚 documentation
 - 🔧 internal / plumbing
+- ✂️ cut / remove
+- 🛜 website update / pages update
+- 🔁 refactor / update
 
-
+## 0.71.4-3
+✂️ removed the web ui due to it being full of lies and incomplete information and features 
 
 ## 0.71.4b10
 
