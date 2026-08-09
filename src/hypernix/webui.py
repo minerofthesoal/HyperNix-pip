@@ -208,8 +208,6 @@ def _discover_modules() -> list[str]:
 
 def _get_tvtop_data() -> dict[str, Any]:
     """Get process list and GPU stats for tvtop monitor."""
-    import os
-    import signal as sig
 
     try:
         import psutil
