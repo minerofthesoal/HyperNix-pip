@@ -62,7 +62,6 @@ _SUBCOMMANDS = {
     "brew",
     "pipeline",
     "assistant",
-    "webui",
     "cli",
     "tvtop",
     "fizzle",
@@ -118,7 +117,6 @@ def _print_usage() -> None:
         table.add_row("[green]brew[/]", "custom architecture builder & model training suite (brewer)")
         table.add_row("[green]pipeline[/]", "ASR -> LLM -> TTS pipeline")
         table.add_row("[green]assistant[/]", "Linux local AI assistant with voice commands")
-        table.add_row("[green]webui[/]", "Web dashboard with Tailscale integration")
         table.add_row("[green]cli[/]", "Interactive TUI/CLI menu for all operations")
         table.add_row("[green]stml[/]", "VRAM trained context length calculator")
         table.add_row("[green]fizzle[/]", "Fuzed Architecture module: fuse models and LoRAs (CLI: fiz)")
@@ -164,7 +162,6 @@ def _print_usage() -> None:
             "  brew                   custom architecture builder & training suite\n"
             "  pipeline               ASR -> LLM -> TTS pipeline (speech-to-speech or speech-to-text-to-speech)\n"
             "  assistant              Linux local AI assistant with voice commands (ASR + LLM + TTS)\n"
-            "  webui                  Web dashboard with Tailscale integration for remote access\n"
             "  cli                    Interactive TUI/CLI menu for all HyperNix operations\n"
             "  stml                   VRAM trained context length calculator\n"
             "  fizzle                 Fuzed Architecture module: fuse models and LoRAs\n"
@@ -891,8 +888,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_pipeline(rest)
     if cmd == "assistant":
         return _run_assistant(rest)
-    if cmd == "webui":
-        return _run_webui(rest)
     if cmd in ("fizzle", "fiz"):
         return _run_fizzle(rest)
     if cmd in ("camo", "camouflage"):
@@ -1046,31 +1041,9 @@ def _run_brew(raw: list[str]) -> int:
         return e.code if isinstance(e.code, int) else 1
 
 
-def _run_webui(raw: list[str]) -> int:
-    """`hypernix webui` — Launch web dashboard with Tailscale integration."""
-    from .webui import run_webui
 
-    p = argparse.ArgumentParser(
-        prog="hypernix webui",
-        description="Launch web dashboard with optional Tailscale tunneling.",
-    )
-    p.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
-    p.add_argument("--port", type=int, default=8080, help="Port to bind to (default: 8080)")
-    p.add_argument("-T", "--tailscale", action="store_true",
-                   help="Enable Tailscale remote access (opt-in; local-only by default)")
-    p.add_argument("--static", default=None, help="Directory to serve static files from")
-    ns = p.parse_args(raw)
 
-    print(f"[hypernix webui] Starting dashboard on http://{ns.host}:{ns.port}")
-    if ns.tailscale:
-        print("[hypernix webui] Tailscale tunneling enabled")
-    
-    return run_webui(
-        host=ns.host,
-        port=ns.port,
-        enable_tailscale=ns.tailscale,
-        static_dir=ns.static,
-    )
+
 
 
 def _run_cli(raw: list[str]) -> int:
