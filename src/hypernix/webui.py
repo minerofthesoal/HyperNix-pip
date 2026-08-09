@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import os
 import signal
-import socket
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +26,8 @@ def _find_and_kill_webui_on_port(port: int) -> bool:
     Returns True if we found and killed a hypernix webui process.
     Returns False if port is free or occupied by non-hypernix process.
     """
+    import os
+    
     try:
         # Use lsof to find process using this port
         result = subprocess.run(
@@ -70,6 +70,8 @@ def _find_and_kill_webui_on_port(port: int) -> bool:
 
 def _is_port_available(port: int) -> bool:
     """Check if a port is available for binding."""
+    import socket
+    
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -91,6 +93,8 @@ def _find_available_port(start_ports: list[int]) -> int:
     Raises:
         OSError: If no ports are available after exhausting all options
     """
+    import time
+    
     tried_ports = set()
     port_index = 0
     
@@ -110,7 +114,6 @@ def _find_available_port(start_ports: list[int]) -> int:
         # Port is occupied, check if it's a hypernix webui
         if _find_and_kill_webui_on_port(port):
             # Wait a moment for the port to be released
-            import time
             time.sleep(0.3)
             if _is_port_available(port):
                 return port
@@ -205,7 +208,19 @@ def _discover_modules() -> list[str]:
 
 def _get_tvtop_data() -> dict[str, Any]:
     """Get process list and GPU stats for tvtop monitor."""
-    import psutil
+    import os
+    import signal as sig
+
+    try:
+        import psutil
+    except ImportError:
+        return {
+            'processes': [],
+            'gpus': [],
+            'cpu_load': 0,
+            'ram_usage': 0,
+            'disk_io': 'N/A'
+        }
     
     processes = []
     try:
@@ -239,8 +254,8 @@ def _get_tvtop_data() -> dict[str, Any]:
         pass
     
     # System stats
-    cpu_load = round(psutil.cpu_percent(interval=0.1), 1) if psutil else 0
-    ram_usage = round(psutil.virtual_memory().percent, 1) if psutil else 0
+    cpu_load = round(psutil.cpu_percent(interval=0.1), 1)
+    ram_usage = round(psutil.virtual_memory().percent, 1)
     
     return {
         'processes': processes,
@@ -255,23 +270,28 @@ def _get_network_data() -> dict[str, Any]:
     """Get network/Tailscale status."""
     import socket
     
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+    
     hostname = socket.gethostname()
     ts_info = _tailscale_info()
     
     interfaces = []
-    try:
-        import psutil
-        addrs = psutil.net_if_addrs()
-        for iface_name, addrs_list in addrs.items():
-            for addr in addrs_list:
-                if addr.family == socket.AF_INET:
-                    interfaces.append({
-                        'name': iface_name,
-                        'ip': addr.address,
-                        'up': True
-                    })
-    except Exception:
-        pass
+    if psutil:
+        try:
+            addrs = psutil.net_if_addrs()
+            for iface_name, addrs_list in addrs.items():
+                for addr in addrs_list:
+                    if addr.family == socket.AF_INET:
+                        interfaces.append({
+                            'name': iface_name,
+                            'ip': addr.address,
+                            'up': True
+                        })
+        except Exception:
+            pass
     
     return {
         'hostname': hostname,
@@ -402,8 +422,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
             try:
                 pid = int(route.split("/")[-1])
                 import os
-                import signal
-                os.kill(pid, signal.SIGTERM)
+                import signal as sig
+                os.kill(pid, sig.SIGTERM)
                 self._send_json({"success": True, "killed": pid})
             except Exception as e:
                 self._send_json({"success": False, "error": str(e)}, 500)
