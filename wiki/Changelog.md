@@ -16,7 +16,7 @@ next release header.
 - 🔧 internal / plumbing
 - ✂️ cut / remove
 - 🛜 website update / pages update
-- 🔁 refactor / update
+- 🔁 refactor / integration improvement 
 
 ## 0.71.4-3
 ✂️ removed the web ui due to it being full of lies and incomplete information and features 
