@@ -512,4 +512,20 @@ python scripts/measure_optimizer_memory.py  # exact optimizer-state bytes per pa
 
 ## License
 
-LLU-0.1
+HyperNix is **dual-licensed** — recipients choose one of the two options
+below (see the full text in [`LICENSE`](LICENSE)):
+
+- **LLU-0.1** — the HyperNix OpenCode Light Limited Use License, Version
+  0.1. Source-available, with a same-license requirement for forks and a
+  §12 field-of-use restriction (it does not meet the OSI Open Source
+  Definition because of that restriction). This is the **default** if
+  you don't make an active choice.
+- **HOS-1.0** — the HyperNix Open Source License, Version 1.0. An
+  OSI-compliant open-source license with no field-of-use restrictions.
+
+You must pick one license and follow its terms — you can't mix terms
+from both. Large trained models (29.1B+ parameters) that are shared
+publicly carry a transparency requirement (disclosing training-data
+sources or a data composition summary) under either license; see
+`LICENSE` §7–8 (LLU-0.1) / the equivalent HOS-1.0 sections for specifics.
+`hypernix` is **not** Apache-2.0, MIT, or any other stock license.

@@ -5,28 +5,107 @@ see the [top-level README](../README.md).
 
 ## Topic guides
 
+Every page in this wiki, grouped by theme. (Previously this table only
+indexed 19 of the 55+ pages that actually exist — the rest were only
+reachable if you already knew the filename. Fixed.)
+
+**Start here / whole-system**
+
 | Guide | Covers |
 |---|---|
-| [Ovens](Ovens.md) | `CodeOven`, `old_oven.preheat`, `new_oven`, `bake_code`, `fill_middle`, `save_pt` / `load_pt`. |
-| [Fridges](Fridges.md) | `old_fridge` (memory housekeeping), `mediocre_fridge` (judge-data synthesis), `new_fridge` (graphing). |
-| [Ranges](Ranges.md) | `new_range` / `old_range` / `industrial_range` — labeling rubrics from cheap heuristics up to LLM-as-judge. |
-| [Freezer](Freezer.md) | VRAM manager — `OldFreezer`, `NewFreezer`, `FlashFreezer`, `auto_freezer`, `probe_vram`, plus CPU / GPU preset registries. |
-| [Alarms](Alarms.md) | Smoke alarms — `RadsAlarm` (lightest), `GasAlarm` (mid), `ModernAlarm` (warmup-measured), `AutoAlarm`. CPU + GPU preset tables. |
+| [CLI](CLI.md) | Every subcommand (all 34), every flag, typical invocations. |
 | [Kitchen](Kitchen.md) | pans / microwave / table / sink / instant_pot / coffee_maker / pressure_cooker / pressure_cooker_v3. |
-| [Pascal](Pascal.md) | GTX 1080 / CUDA 6.1 / sm_61 training playbook. |
 | [Architectures](Architectures.md) | `ARCH_PRESETS` seed registry and `KNOWN_MODELS` short-name registry. |
-| [Training](Training.md) | `init_from_scratch`, `expand_checkpoint`, `train`, AutoModel fallback, `compute_framework` for multi-device, `abbicus` for curriculum tuning. |
-| [Pressure Cooker v3](Pressure-Cooker-V3.md) | `PressureCookerV3`, V3Plus QAT, `StovetopV3CookerPlus`, `CookerLite`. |
-| [Abbicus](Abbicus.md) | Automatic token regulation and curriculum tuning by model size / step. `Abbicus` (linear) and `TurboAbbicus` (exponential + sine oscillation at cap, VRAM safeguard). |
-| [STML](STML.md) | Short Term Memory Loss — `STML` context manager (segment folding, untrained cap) and `calculate_vram_context` VRAM calculator. |
-| [Frameworks](Frameworks.md) | `ComputeFramework` multi-device training and `workshop` TTS/ASR pipelines. |
-| [Tupperware](Tupperware.md) | Automated dataset round splitting with optimal LR and optional eval. |
-| [Quantization](Quantization.md) | GGUF pipeline, k-quants, `HyperNixQuantizer`, `pressure_cooker_v3` QAT. |
-| [CLI](CLI.md) | Every subcommand, every flag, typical invocations. |
-| [Roadmap](Roadmap.md) | Planned releases (0.70.4 → 0.70.6 → 0.71.2). |
-| [macOS-legacy](macOS-legacy.md) | Running on old Intel Macs with torch 1.13 via `hypernix.torch_compat`. |
+| [HuggingFace Models](HuggingFace-Models.md) | Every model currently published under the `ray0rf1re` HF account. |
+| [Roadmap](Roadmap.md) | Planned features and releases. |
 | [Changelog](Changelog.md) | Full per-release notes — features, fixes, UX papercuts. |
-| [Workshop](Workshop.md) | Model frameworks for TTS/ASR/LLM/Vision, nano-nano collection, 30+ architectures, `TTSEngine`, `ASREngine`, speech-to-speech pipelines. |
+| [Release Timeline](Release-Timeline.md) | Auto-updated commit-by-commit timeline of public releases. |
+
+**Downloading, converting, quantizing**
+
+| Guide | Covers |
+|---|---|
+| [Download](Download.md) | `download_model`, short-name resolution, offline cache, gated repos. |
+| [Convert](Convert.md) | Safetensors/PyTorch checkpoint → GGUF (fp32/fp16), architecture-agnostic tensor naming. |
+| [Quantization](Quantization.md) | GGUF pipeline, k-quants, `HyperNixQuantizer`, `pressure_cooker_v3` QAT. |
+| [PipelineMechanics](PipelineMechanics.md) | The small support modules gluing download → convert → quantize together. |
+
+**Training core**
+
+| Guide | Covers |
+|---|---|
+| [Training](Training.md) | `init_from_scratch`, `expand_checkpoint`, `train`, AutoModel fallback, `compute_framework`, `abbicus`. |
+| [Abbicus](Abbicus.md) | Automatic token regulation and curriculum tuning by model size / step. |
+| [Optimizers](Optimizers.md) | The custom AdamW-family optimizer modules (`pressure_cooker` and relatives). |
+| [Pressure Cooker v3](Pressure-Cooker-V3.md) | `PressureCookerV3`, V3Plus QAT, `StovetopV3CookerPlus`, `CookerLite`. |
+| [Pressure Cooker v4](Pressure-Cooker-V4.md) | Optimized quantization-aware training mechanism and optimizer wrapper. |
+| [Pressure Cooker v5](Pressure-Cooker-V5.md) | Flagship ORCP optimizer — quantized momentum, QAT, MTP support, V5+/V5S variants. |
+| [MTP](MTP.md) | Multi-Token Prediction — predict several future tokens at once for sample efficiency + speculative decoding. |
+| [STML](STML.md) | Short Term Memory Loss — `STML` context manager and `calculate_vram_context` VRAM calculator. |
+| [Frameworks](Frameworks.md) | `ComputeFramework` multi-device training and `workshop` TTS/ASR pipelines. |
+| [Freezer](Freezer.md) | VRAM manager — `OldFreezer`, `NewFreezer`, `FlashFreezer`, `auto_freezer`, CPU/GPU preset registries. |
+| [Alarms](Alarms.md) | Smoke alarms — step planners from lightest heuristic up to hardware-calibrated. |
+| [Pascal](Pascal.md) | GTX 1080 / CUDA 6.1 / sm_61 training playbook. |
+| [macOS-legacy](macOS-legacy.md) | Running on old Intel Macs with torch 1.13 via `hypernix.torch_compat`. |
+
+**Data**
+
+| Guide | Covers |
+|---|---|
+| [Scavenger](Scavenger.md) | Dataset discovery engine — searches the HF Hub under storage/quality/recency constraints. |
+| [Lunchbox](Lunchbox.md) | Dataset packager — fixes HF-Hub `CastError` column-mismatch issues. |
+| [Tupperware](Tupperware.md) | Automated dataset round splitting with optimal LR and optional eval. |
+| [CuttingBoard](CuttingBoard.md) | Train/val/test dataset splitting, deterministic + stratified. |
+| [Shakers](Shakers.md) | `salt_shaker` / `pepper_shaker` — training-example perturbation/augmentation. |
+
+**Evaluation & labeling**
+
+| Guide | Covers |
+|---|---|
+| [Ranges](Ranges.md) | `new_range` / `old_range` / `industrial_range` — labeling rubrics from cheap heuristics up to LLM-as-judge. |
+| [EspressoMaker](EspressoMaker.md) | Prompt-battery evaluation tiers (Ristretto/SingleShot/DoubleShot/Lungo). |
+| [Fridges](Fridges.md) | `old_fridge` (memory housekeeping), `mediocre_fridge` (judge-data synthesis), `new_fridge` (graphing). |
+| [Dashboards](Dashboards.md) | The three live btop++-style terminal training dashboards (`tvtop`/`cctvtop`/`tvtop++`). |
+| [HyperLog](HyperLog.md) | Premium training TUI logger, compatible with tvtop. |
+
+**Inference, chat, and serving**
+
+| Guide | Covers |
+|---|---|
+| [Ovens](Ovens.md) | `CodeOven`, `old_oven.preheat`, `new_oven`, `bake_code`, `fill_middle`, `save_pt`/`load_pt`. |
+| [Cookbook](Cookbook.md) | Chat-template registry (chatml / hyper-nix.2 / llama3 / llama2 / alpaca / vicuna / plain). |
+| [Countertop](Countertop.md) | Multi-turn chat session management with persisted history and auto-trim. |
+| [Menu](Menu.md) | System-prompt presets (default / code-helper / judge / creative / chef / hyper-nix). |
+| [Bell](Bell.md) | Streaming-token callback + done notification for chat/completion loops. |
+| [Flour](Flour.md) | Chat-quality logits processor — repetition penalty, no-repeat n-gram, stop-sequence detection. |
+| [Vera](Vera.md) | The AI assistant built into HyperNix, and its `hypernix vera` CLI. |
+| [Camouflage](Camouflage.md) | RLHF/RLAF alignment scaffolding, optional AI-assisted evaluator scoring. |
+
+**Post-training model utilities**
+
+| Guide | Covers |
+|---|---|
+| [Whisk](Whisk.md) | Checkpoint averaging — SWA / EMA / geometric-mean over N saved snapshots. |
+| [RecipeBook](RecipeBook.md) | Named-config registry (`cook(name, **overrides)`), the backing store for `hypernix brew`. |
+| [DeepFryer](DeepFryer.md) | Reversible weight-noise perturbation — a regularizer or a severe stress-test. |
+| [CakePan](CakePan.md) | Hybrid CPU+GPU training guard — NaN/Inf detection, wall-time watchdog, memory-pressure rollback. |
+| [Apron](Apron.md) | RNG-state snapshot/restore context manager. |
+
+**Data-tier processing (the "kitchen appliance" family)**
+
+| Guide | Covers |
+|---|---|
+| [Pans](Pans.md) | Five-tier data preprocessing, from `FryingPan` up to `Wok`. |
+| [Microwave](Microwave.md) | Five-tier throwaway inference — quick zaps without keeping an oven preheated. |
+| [FoodProcessor](FoodProcessor.md) | Bulk chunking of ingredients/data into ready-to-use pieces, four blade tiers. |
+| [Toaster](Toaster.md) | Per-line formatting, four toaster tiers. |
+| [Smoker](Smoker.md) | Slow, high-quality training — the opposite tradeoff from `Microwave`. |
+
+**Reference / meta**
+
+| Guide | Covers |
+|---|---|
+| [Workshop](Workshop.md) | Model frameworks for TTS/ASR/LLM/Vision, nano-nano collection, 30+ architectures. |
 
 ## The subsystem map
 

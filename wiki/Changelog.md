@@ -18,6 +18,64 @@ next release header.
 - 🛜 website update / pages update
 - 🔁 refactor / integration improvement 
 
+## Unreleased
+
+📚 **Wiki / CLI reference / docs-site accuracy pass** — an audit found the
+documentation had drifted substantially from the actual code, not just
+gone slightly stale:
+
+- `wiki/CLI.md` documented 13 of the CLI's 34 real subcommands and
+  claimed that was the complete set. Added full sections for `brew`,
+  `pipeline`, `assistant`, `cli`, `tvtop`, `cctvtop`, `fizzle`/`fiz`,
+  `camo`/`camouflage`, `prot`/`protect`, `net`, `wiki`, `vera`,
+  `scavenger`, `config`, `gkey`, `map`, `websearch`, `stml`. Fixed the
+  companion-scripts list (was missing `multilama`, `gkey`, `hnx-map`,
+  `tvtop-old`, `tvtop-older`, `hypernix-quantize`).
+- 🐛 The docs site's (`docs/src/App.tsx`) "API Reference" tab was worse
+  than stale — cross-checking it against the real source with an AST
+  parser showed most of the listed functions (`download_snapshot`,
+  `resolve_short_name`, `Session.add`, `EMA.update`, etc.) don't exist
+  anywhere in the codebase, and only 36 of ~100 real modules were listed
+  at all. Regenerated the whole `MODULES` array from real AST-parsed
+  source instead of by hand — 99 modules, ~880 real signatures, so
+  everything on the page now traces to an actual function. Also caught
+  and fixed a splice bug of my own during that regen that had deleted
+  the `WIKI_PAGES` fallback array entirely — caught by running a real
+  `vite build` before calling it done, not just eyeballing the diff.
+- 🐛 The docs site's `CLI_COMMANDS` array listed `hypernix complete` and
+  `hypernix eval`, neither of which exist, and had wrong flags for
+  `convert`/`quantize` (invented `--repo-id`/`--quants` args that don't
+  match the real argparse definitions). Rebuilt from the real subcommand
+  set; added the previously-undocumented "Companion console scripts"
+  section.
+- 🐛 **License was misrepresented on the docs site** — two hardcoded
+  "Licensed under Apache-2.0" strings, despite `LICENSE` being a custom
+  dual license (LLU-0.1 / HOS-1.0). Fixed there and in the README, which
+  previously just said "LLU-0.1" with no mention of the HOS-1.0 option.
+- 🐛 `pipeline` and `assistant` accept `--llm`/`--model` flags that are
+  silently ignored — both call a hardcoded stub responder, not the model
+  you pass. This isn't new in this pass, but it wasn't documented
+  anywhere either; now flagged explicitly in `CLI.md` and the docs site
+  instead of implying full inference support.
+- 🐛 `wiki_cli.py`'s own `--help` text told users to invoke it as bare
+  `hnx <module>`; it's only reachable as `hnx wiki <module>` (a
+  subcommand of the main CLI). Also fixed the actual bug behind that:
+  bare `hnx wiki` with zero arguments printed the `--help` block instead
+  of the table of contents the help text itself claims is the default —
+  the TOC branch existed in the code but was unreachable.
+- 📚 `wiki/Home.md`'s "Topic guides" index only linked 19 of the 55 pages
+  that exist; the other 36 were only reachable if you already knew the
+  filename. Rebuilt the index to cover everything, grouped by theme.
+- ✨ New page: [`wiki/HuggingFace-Models.md`](HuggingFace-Models.md) —
+  catalogs all 54 models currently published under the `ray0rf1re` HF
+  account, grouped by family, with short-name cross-references into
+  `hypernix.download.KNOWN_MODELS` where they exist.
+
+Scope note: this pass covered the CLI reference, the docs site, this
+wiki's index, and the license text. It did not attempt to line-edit
+every one of the ~50 per-module wiki pages against source — those were
+spot-checked, not exhaustively re-verified.
+
 ## 0.71.4-3
 ✂️ removed the web ui due to it being full of lies and incomplete information and features 
 

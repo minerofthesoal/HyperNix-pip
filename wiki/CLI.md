@@ -1,14 +1,15 @@
 # CLI reference
 
 `hypernix` ships a console script, `hypernix` (also aliased to `hnx` for brevity), which dispatches
-to 13 subcommands plus the `all` pipeline as the default. Every
-subcommand wraps exactly one library function, so they're easy to
-script.
+to **34 subcommands** plus the `all` pipeline as the default (see `_SUBCOMMANDS`
+in `src/hypernix/cli.py`). Most subcommands wrap one library function, so
+they're easy to script; a few (`brew`, `cli`, `net`, `gkey`) are themselves
+small sub-CLIs with their own sub-subcommands.
 
 ```
 usage: hypernix <subcommand> [options]  (or: hnx <subcommand> [options])
 
-Subcommands:
+Core pipeline:
   all                    download -> convert -> [quantize]  (default)
   download               fetch a HuggingFace snapshot
   convert                produce fp32 / fp16 GGUF from a snapshot
@@ -18,10 +19,34 @@ Subcommands:
   upload                 push files to a HuggingFace repo
   doctor                 environment diagnostic (pass --fix to install deps)
   fetch-llama-quantize   pre-seed the llama-quantize cache
+
+Training & inference:
   train                  init / expand / run training utilities
   generate               sample text from a local snapshot
   oven                   code-generation wrapper
   chat                   interactive REPL against any supported model
+  brew                   one-shot recipe pipeline, or the brewer architecture-builder sub-CLI
+  camo / camouflage      RLHF/RLAF alignment scaffolding
+  fizzle / fiz           architecture fuse/merge module
+  stml                   VRAM -> trainable-context-length calculator
+
+Assistants & dashboards:
+  cli                    interactive TUI/CLI menu over all of the above
+  pipeline               ASR -> LLM -> TTS pipeline (see note below)
+  assistant              interactive assistant REPL (see note below)
+  vera                   Vera assistant CLI
+  tvtop                  classic live training dashboard
+  cctvtop                Python training dashboard w/ hardware metrics + optional VNC
+  map                    steampunk schematic TUI for model/training state
+
+Data & infra:
+  scavenger              search + pull HF datasets under storage/quality budgets
+  websearch              non-API web search utility
+  net                    Tailscale mesh connect / export / log tailing
+  gkey                   API key issuance, scoping, revocation (Gatekeeper + Keymaster)
+  config                 HyperNix configuration management
+  prot / protect         hardware health monitoring and protection
+  wiki                   this documentation, read straight from installed source
 
 Shortcuts:
   --auto-oven            download default snapshot + run code completion
@@ -30,16 +55,33 @@ Shortcuts:
 Run `hypernix <subcommand> --help` for per-command flags.
 ```
 
+> **Known limitations — read before relying on these:** `hypernix pipeline`
+> and `hypernix assistant` both accept an LLM-selection flag (`--llm`,
+> `--model`) but currently **ignore it**. Internally they call a hardcoded
+> stub responder that returns a small set of canned/simulated replies —
+> not real inference from any model you point them at. The ASR and TTS
+> stages, and every other subcommand on this page, are real. See the
+> `pipeline` and `assistant` sections below for specifics.
+
 ## Additional Companion Scripts
 
-Apart from the main `hypernix` / `hnx` entry points, the package installs companion scripts:
+Apart from the main `hypernix` / `hnx` entry points, the package installs these
+companion scripts (see `[project.scripts]` in `pyproject.toml` for the
+authoritative list):
 
+* `hnx` — Short alias for `hypernix`.
+* `hypernix-quantize` — Alias for `hypernix` (historical name, predates the `quantize` subcommand naming).
 * `tvtop` — Classic TUI training dashboard.
-* `tvtop++` / `tvtoppp` — Premium TUI training dashboard with process list, block history, and dampened slope curve estimations.
-* `hyped` — Configurable high-quality chat TUI.
-* `hyped+` / `hyped-pro` — Standalone Node.js TUI backed by a real Python dispatch layer (cloud APIs, auto-downloaded local models, T1 Gatekeeper routing), slash autocompletion, price estimator, system prompt compactor, and a `/gui` desktop mode (Qt6 X11/Wayland, GTK4 fallback).
+* `tvtop-old` / `tvtop-plus-plus` / `tvtoppp` — Older TUI dashboard generations, kept for compatibility.
+* `tvtop-older` — Original single-panel dashboard.
+* `cctvtop` — Python training dashboard with hardware metrics and optional VNC (same as `hypernix cctvtop`).
+* `hyped` — Configurable high-quality chat TUI with a model/persona configurator.
+* `hyped+` / `hyped-pro` — Standalone Node.js TUI backed by a real Python dispatch layer (cloud APIs, auto-downloaded local models, Gatekeeper routing), slash autocompletion, price estimator, system prompt compactor, and a `/gui` desktop mode (Qt6 X11/Wayland, GTK4 fallback).
 * `hyped-pro-gui` — Launch the hyped-pro desktop GUI directly, without the TUI.
-* `eth` — Ethanol GPU overclock and VRAM helper.
+* `multilama` — Unified interface over multiple llama.cpp variants (vanilla, ik_llama.cpp, PrismML fork, KoboldCpp).
+* `eth` — Ethanol GPU overclock and VRAM helper. Refuses to apply changes without `--confirm`.
+* `gkey` — Same as `hypernix gkey`, as its own executable.
+* `hnx-map` — Same as `hypernix map`, as its own executable.
 
 ## `all` — the classic pipeline
 
@@ -259,6 +301,172 @@ hypernix chat --repo-id gemma-4-e4b --system "You are terse."
 
 Same flags as `oven` minus the FIM options, plus `--system` and
 `--message`.
+
+## `brew`
+
+```bash
+# One-shot pipeline from a recipe file:
+hypernix brew recipe.json --set output_dir=./out
+
+# Architecture-builder sub-CLI (brewer):
+hypernix brew new --preset small --out-dir ./arch
+hypernix brew list
+```
+
+A path ending in `.json` is treated as an `instant_pot` recipe and run
+end-to-end (download/convert/quantize/etc. as described in the recipe).
+Anything else dispatches into the `brewer` architecture-builder sub-CLI,
+with presets from `33m`/`micro`/`small`/`medium`/`large` (GPU) through
+`cpu-nano`/`cpu-tiny`/`cpu-small` (CPU-only).
+
+## `pipeline` and `assistant` — current limitations
+
+Both of these are real, runnable REPLs — but the LLM stage in each is
+currently a **hardcoded stub**, not a live model:
+
+```bash
+hypernix pipeline --audio recording.wav --asr whisper --llm nix2.5 --tts piper
+hypernix assistant --model nix2.5
+```
+
+- `pipeline`'s `--llm` value is accepted but never read; the "LLM" stage
+  always calls an internal `SimpleLLM` class that returns a short
+  simulated response string.
+- `assistant`'s `--model` value is accepted but never read; replies come
+  from a small hardcoded demo responder ("I'm a demo assistant — integrate
+  a real LLM for full responses!").
+- The ASR and TTS stages of `pipeline`, and everything else in this
+  document, call real code paths.
+
+If you need real generation today, use `chat`, `generate`, or `oven`
+directly against a downloaded model — those are fully wired up.
+
+## `cli`
+
+```bash
+hypernix cli            # rich TUI menu
+hypernix cli --simple   # plain-text menu, no `rich` dependency
+```
+
+Interactive menu covering downloads, conversion, quantization, training,
+and evaluation without needing to remember individual subcommand flags.
+
+## `tvtop` / `cctvtop`
+
+```bash
+hypernix tvtop      # classic single-panel dashboard, tails a training log
+hypernix cctvtop     # richer dashboard with hardware telemetry, optional VNC
+```
+
+Run `hypernix tvtop --help` / `hypernix cctvtop --help` for the full flag
+set — both are primarily driven by pointing them at a training log file.
+
+## `camo` / `camouflage`
+
+```bash
+hypernix camo -Lmodel ./snapshot -Ai -M gpt-4o-mini -Sp "Be terse." -s 200
+```
+
+RLHF/RLAF alignment scaffolding. `-Ai` enables AI-assisted evaluation
+(scoring generations with a separate evaluator model via `-M`) instead of
+manual scoring; `-Sp` sets the system prompt used during rollout, `-s` the
+number of steps.
+
+## `fizzle` / `fiz`
+
+```bash
+hypernix fizzle --help
+```
+
+The Fuzed Architecture module — fuses/merges model weights and LoRA
+adapters. See `hypernix fizzle --help` for the current flag set.
+
+## `stml`
+
+```bash
+hypernix stml --vram 8 --params 3 --precision fp16 --batch-size 1
+```
+
+Calculates a trainable context length given available VRAM (GB), model
+size (billions of params), batch size, and precision. Useful before
+`train run` to avoid an OOM crash mid-run.
+
+## `scavenger`
+
+```bash
+hypernix scavenger --keywords "code,python" --max-storage 20 \
+    --min-likes 5 --data-type parquet --download some-org/some-dataset
+```
+
+Searches HuggingFace datasets and pulls them under a storage/quality
+budget (`--max-storage` in GB, `--min-likes`, `--max-age`, etc.) instead
+of downloading everything that matches a keyword.
+
+## `websearch`
+
+```bash
+hypernix websearch "llama.cpp quantization formats" -n 5 --json
+```
+
+A non-API web search utility (`-e` to pick an engine, `--json` for
+machine-readable output) — useful in scripts/agents that need search
+results without a paid search-provider API key.
+
+## `net`
+
+```bash
+hypernix net connect 100.64.0.5        # connect to a Tailscale mesh peer
+hypernix net mport 8080                # expose the mesh port locally
+hypernix net export 8080 --apply       # export a local port to the mesh
+hypernix net tail acheck ./train.log   # tail a remote log; add -r to resume
+```
+
+Distributed network manager built on Tailscale — mainly for driving
+`tvtop`/`cctvtop` against a training run happening on another machine.
+
+## `gkey`
+
+```bash
+hypernix gkey create --type service --scopes download,upload --expires 2027-01-01
+hypernix gkey list
+hypernix gkey revoke <key_id>
+```
+
+Unified CLI over the Gatekeeper + Keymaster modules for issuing, scoping,
+and revoking API keys used by `hyped-pro`'s cloud routing.
+
+## `config`
+
+```bash
+hypernix config --help
+```
+
+Reads/writes HyperNix's persistent configuration (defaults for
+`--output-dir`, `--token`, etc). See `hypernix config --help` for the
+current subcommands.
+
+## `map`
+
+```bash
+hypernix map --help
+```
+
+A steampunk-themed schematic TUI — dials, pipes, and steam-gauge style
+visualization of model/training state. Also installed standalone as
+`hnx-map`.
+
+## `vera` / `prot` (`protect`)
+
+```bash
+hypernix vera --help
+hypernix prot --help
+```
+
+`vera` is a separate assistant CLI; `prot`/`protect` is a hardware health
+monitoring and protection module (thermal/power guardrails during long
+training runs). Both are early/minimal — check `--help` for what's
+currently implemented rather than assuming full parity with `chat` or
+`cli`.
 
 ## Environment variables
 

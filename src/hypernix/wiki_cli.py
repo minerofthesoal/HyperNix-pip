@@ -1,15 +1,18 @@
-"""hnx / hypenix — HyperNix CLI wiki and documentation browser.
+"""hypernix wiki / hnx wiki — HyperNix CLI wiki and documentation browser.
 
 v0.70.5: Auto-generating documentation browser that reads docstrings
 and type hints directly from the source code, so it never goes stale.
 
+This module is not a standalone entry point — it's reached through the
+`wiki` subcommand of the main `hypernix`/`hnx` CLI (see cli.py:_run_wiki).
+
 Usage:
-    hnx                          # Show table of contents + all modules
-    hnx <module>                 # Show docs for a specific module
-    hnx -q <module>              # Quick mode: stream docs section by section
-    hnx <module> -b              # Open wiki in browser
-    hnx --version                # Show version range (0.31.1 to current)
-    hnx --search <keyword>       # Search across all modules
+    hnx wiki                          # Show table of contents + all modules
+    hnx wiki <module>                 # Show docs for a specific module
+    hnx wiki -q <module>              # Quick mode: stream docs section by section
+    hnx wiki <module> -b              # Open wiki in browser
+    hnx wiki --version                # Show version range (0.31.1 to current)
+    hnx wiki --search <keyword>       # Search across all modules
 """
 from __future__ import annotations
 
@@ -217,7 +220,7 @@ def _show_toc(console: Console) -> None:
 
     console.print(table)
     console.print(f"\n[dim]Total: {len(modules)} modules | Version range: {VERSION_START} → latest[/]")
-    console.print("[dim]Tip: Use 'hnx <module>' for detailed docs, 'hnx -q <module>' for quick mode[/]")
+    console.print("[dim]Tip: Use 'hnx wiki <module>' for detailed docs, 'hnx wiki -q <module>' for quick mode[/]")
 
 
 def _open_in_browser(module_name: str | None) -> None:
@@ -312,7 +315,7 @@ def _search_modules(keyword: str, console: Console | None) -> None:
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    """Main entry point for the hnx/hypenix CLI."""
+    """Entry point for the `hypernix wiki` / `hnx wiki` subcommand."""
     args = list(argv if argv is not None else sys.argv[1:])
     console = Console()
 
@@ -350,24 +353,27 @@ def cli_main(argv: list[str] | None = None) -> int:
             search_keyword = args[idx + 1]
             del args[idx:idx + 2]
 
-    if "--help" in args or "-h" in args or not args:
+    # Note: only an *explicit* --help/-h prints this usage block. Bare
+    # `hnx wiki` (no args at all) falls through to the table-of-contents
+    # branch below, matching what this help text itself advertises.
+    if "--help" in args or "-h" in args:
         console.print("""
-[bold]hnx / hypenix[/] — HyperNix Wiki & Documentation Browser
+[bold]hypernix wiki / hnx wiki[/] — HyperNix Wiki & Documentation Browser
 
 [bold]Usage:[/]
-  hnx                          Show table of contents and all modules
-  hnx <module>                 Show detailed documentation for a module
-  hnx -q <module>              Quick mode: stream docs section by section
-  hnx <module> -b              Open module wiki in browser
-  hnx --version                Show version range
-  hnx --search <keyword>       Search across all modules
+  hnx wiki                          Show table of contents and all modules
+  hnx wiki <module>                 Show detailed documentation for a module
+  hnx wiki -q <module>              Quick mode: stream docs section by section
+  hnx wiki <module> -b              Open module wiki in browser
+  hnx wiki --version                Show version range
+  hnx wiki --search <keyword>       Search across all modules
 
 [bold]Examples:[/]
-  hnx                          # TOC with all modules
-  hnx pressure_cooker_v5       # Full docs for Pressure Cooker V5
-  hnx -q freezer               # Quick stream docs for Freezer
-  hnx workshop -b              # Open Workshop wiki in browser
-  hnx --search QAT             # Find all QAT-related modules
+  hnx wiki                          # TOC with all modules
+  hnx wiki pressure_cooker_v5       # Full docs for Pressure Cooker V5
+  hnx wiki -q freezer               # Quick stream docs for Freezer
+  hnx wiki workshop -b              # Open Workshop wiki in browser
+  hnx wiki --search QAT             # Find all QAT-related modules
 
 [dim]The wiki auto-updates by reading docstrings from source code.[/]
         """)
@@ -397,7 +403,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     doc = _get_module_doc(module_name)
     if doc is None:
         console.print(f"[red]Module '{module_name}' not found.[/]")
-        console.print("[dim]Run 'hnx' to see all available modules.[/]")
+        console.print("[dim]Run 'hnx wiki' to see all available modules.[/]")
         return 1
 
     if quick:
