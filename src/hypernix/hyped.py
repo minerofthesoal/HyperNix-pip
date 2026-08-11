@@ -1042,7 +1042,7 @@ class ToolRegistry:
 
     def _hypernix_train(self, model_dir: str, dataset: str, out_dir: str, steps: int = 100) -> str:
         from .train import train
-        out = train(model_dir=model_dir, dataset=dataset, out_dir=out_dir, steps=steps)
+        out = train(model_dir=model_dir, dataset_path=dataset, out_dir=out_dir, steps=steps)
         return f"Training completed: {out}"
 
     def _hypernix_convert(self, model_dir: str, output: str) -> str:
