@@ -251,3 +251,23 @@ timeline
         : 46a3e59 - Remove webui command from HyperNix CLI
 ```
 
+## Release v0.71.4-4 (2026-08-11)
+
+```mermaid
+timeline
+    title Release v0.71.4-4 Commits
+    0.71.4-4
+        : ec509fe - caffine addition?
+        : cc1f04e - caffine
+        : ed0ece6 - Add files via upload
+        : c985602 - coffee
+        : 7997539 - Delete HyperNix-pip-main-updated.zip
+        : efb76c8 - Add files via upload
+        : 45559c0 - chore- update JSON stats (scheduled)
+        : f4be6d4 - removed a lot of false facts and lies
+        : 9aefa34 - Update changelog for integration improvement
+        : f54cbd7 - Update Changelog for web UI removal
+        : 0104f68 - chore- update JSON stats (scheduled)
+        : 860d394 - Revise LICENSE to include dual licensing options
+```
+
