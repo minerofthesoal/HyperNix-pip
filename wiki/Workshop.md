@@ -30,7 +30,7 @@ audio_output = pipeline.process(audio_input)
 # Full conversational pipeline (ASR → LLM → TTS)
 conv_pipeline = workshop.ASRToLLMToTTS(
     asr_engine=asr,
-    llm_oven=oven,  # from old_oven.preheat
+    llm=oven,  # a CodeOven from old_oven.preheat() — duck-typed via .chat()
     tts_engine=tts,
 )
 response_audio = conv_pipeline.process(audio_input)
@@ -116,13 +116,18 @@ Full three-stage pipeline: speech → text → LLM response → speech:
 ```python
 pipeline = workshop.ASRToLLMToTTS(
     asr_engine=asr,
-    llm_oven=oven,
+    llm=oven,
     tts_engine=tts,
 )
 response_audio = pipeline.process(user_audio)
 ```
 
 This is the backbone for voice-enabled chatbots and voice assistants.
+
+`llm` is duck-typed, checked in this order: `.generate(prompt, max_new_tokens=, temperature=)`,
+then `.chat(messages, max_new_tokens=)`, then a raw `.forward()` + `.tokenizer`
+path, then a fallback stub echo if none match. A `CodeOven` (from
+`old_oven.preheat()`, as above) satisfies the `.chat()` path.
 
 ## Supported Architectures
 

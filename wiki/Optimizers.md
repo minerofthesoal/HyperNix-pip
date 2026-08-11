@@ -5,15 +5,15 @@ from the original device-tiered `PressureCooker` through to the newest
 `OptimizerBase`-powered V4 line. (Already documented separately:
 [Pressure Cooker V3](Pressure-Cooker-V3.md).)
 
-**Accuracy note:** `pressure_cooker.py`'s module docstring lists
+**Accuracy note:** `pressure_cooker.py`'s module docstring used to list
 `PressureCookerV2` / `PressureCookerV2Plus` and a "WORKSHOP INTEGRATION"
 / "TTS/ASR PIPELINES" section (`WorkshopFramework`, `TTSEngine`,
-`ASREngine`, etc.) as if they live in this file. They don't —
+`ASREngine`, etc.) as if they lived in this file. They never did —
 `WorkshopFramework`/`TTSEngine`/`ASREngine` actually live in
 `hypernix.workshop` (see [Workshop](Workshop.md)), and no
-`PressureCookerV2`/`V2Plus` class exists anywhere in the codebase at
-all. Treat that part of the docstring as stale; the tables below reflect
-what's actually implemented.
+`PressureCookerV2`/`V2Plus` class has ever existed anywhere in the
+codebase. The docstring has since been corrected to match reality; the
+tables below reflect what's actually implemented.
 
 ---
 

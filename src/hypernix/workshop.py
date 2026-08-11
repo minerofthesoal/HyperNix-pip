@@ -498,8 +498,10 @@ class ASRToLLMToTTS:
             # Standard generate method
             return self.llm.generate(prompt, max_new_tokens=max_length, temperature=temperature)
         elif hasattr(self.llm, 'chat'):
-            # Chat-style interface
-            return self.llm.chat(self.conversation_history, max_tokens=max_length)
+            # Chat-style interface. Uses max_new_tokens to match
+            # hypernix.old_oven.CodeOven.chat()'s real keyword name —
+            # this is the object the docs recommend passing as `llm=`.
+            return self.llm.chat(self.conversation_history, max_new_tokens=max_length)
         elif hasattr(self.llm, 'forward'):
             # Raw model - need tokenizer
             if hasattr(self.llm, 'tokenizer'):

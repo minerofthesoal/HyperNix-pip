@@ -15,6 +15,8 @@ reachable if you already knew the filename. Fixed.)
 |---|---|
 | [CLI](CLI.md) | Every subcommand (all 34), every flag, typical invocations. |
 | [Kitchen](Kitchen.md) | pans / microwave / table / sink / instant_pot / coffee_maker / pressure_cooker / pressure_cooker_v3. |
+| [CoffeeMaker](CoffeeMaker.md) | Scheduled training/eval runs — brew on a timer instead of babysitting a run. |
+| [Blender](Blender.md) | Interleaves/mixes multiple input data streams into one. |
 | [Architectures](Architectures.md) | `ARCH_PRESETS` seed registry and `KNOWN_MODELS` short-name registry. |
 | [HuggingFace Models](HuggingFace-Models.md) | Every model currently published under the `ray0rf1re` HF account. |
 | [Roadmap](Roadmap.md) | Planned features and releases. |

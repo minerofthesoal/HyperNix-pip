@@ -81,7 +81,7 @@ weight size.
 
 ```python
 oven.train(
-    dataset="./corpus.txt",       # raw-text file
+    dataset_path="./corpus.txt",  # raw-text file
     out_dir="./trained",
     steps=1000, batch_size=2, context_length=512,
     lr=3e-4, weight_decay=0.1,

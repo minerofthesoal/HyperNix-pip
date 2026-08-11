@@ -1,46 +1,28 @@
-"""pressure_cooker — custom AdamW optimizer with device-tuned tiers + v2 quantization support.
+"""pressure_cooker — custom AdamW optimizer with device-tuned tiers.
 
 v0.70.0 rewrite.  The base :class:`PressureCooker` is a pure-Python
 implementation of the AdamW schedule with gradient clipping and
 optional lookahead.  On top of that v0.70.0 ships specialised
-tiers, split by the target device, plus V2/V2Plus variants with
-full quantization-aware training support.
+tiers, split by the target device.
 
-QUANTIZATION TIERS (V2):
-* :class:`PressureCookerV2`      — Base V2 with fp16/fp64 native support
-* :class:`PressureCookerV2Plus`  — V2+ with Q8, Q6, Q5.5, Q4M quantized training
-
-DEVICE TIERS (all upgraded to V2 standards):
+DEVICE TIERS:
 * :class:`StovetopCooker`      — CPU tier 1.  Minimum-memory path
 * :class:`ElectricCooker`      — CPU tier 2.  Multi-tensor optimized
 * :class:`InductionCooker`     — GPU tier 1.  Fused AdamW + AMP
 * :class:`ProCooker`           — GPU tier 2.  CUDA graphs capture
+* :class:`UniversalCooker`     — Auto-selects a tier for you (see ``TIERS``)
 
-All cookers now include these 7+ upgrades:
-1. Full mixed-precision (fp16/bf16/fp64) with automatic dtype detection
-2. Quantization-aware training (QAT) hooks for Q8/Q6/Q5.5/Q4M
-3. Gradient checkpointing integration for memory efficiency
-4. Adaptive gradient clipping with per-layer scaling
-5. EMA (Exponential Moving Average) weight shadowing
-6. Distributed training awareness (DDP/FSDP compatible)
-7. Dynamic loss scaling with backoff on overflow
-8. Parameter freezing/unfreezing callbacks
-9. Learning rate finder utility
-10. Training metrics streaming to tvtop dashboard
+Fused AdamW / ``foreach`` / GradScaler support is auto-detected from the
+installed torch version at import time (see ``_HAS_FUSED_ADAMW`` /
+``_HAS_FOREACH`` / ``_HAS_GRAD_SCALER`` below) rather than hand-declared
+per class.
 
-WORKSHOP INTEGRATION:
-* :class:`WorkshopFramework`   — Base frameworks for model creation
-* Pre-built templates for TTS, ASR, LLM, Vision models
-
-TTS/ASR PIPELINES:
-* :class:`TTSEngine`           — Text-to-Speech synthesis
-* :class:`ASREngine`           — Automatic Speech Recognition  
-* :class:`ASRToTTS`            — Direct speech-to-speech pipeline
-* :class:`ASRToLLMToTTS`       — Full conversational pipeline
-
-NANO-NANO SUPPORT:
-* Full compatibility with ray0rf1re/nano-nano collection
-* 30+ additional model architectures supported
+Quantization-aware training, the Workshop model-building framework
+(``WorkshopFramework``), and the TTS/ASR pipeline classes
+(``TTSEngine``, ``ASREngine``, etc.) all live elsewhere in the package —
+QAT in :mod:`hypernix.pressure_cooker_v3` / ``_v4`` / ``_v5``, Workshop
+and the TTS/ASR classes in :mod:`hypernix.workshop`. They are not part
+of this module; do not import them from here.
 """
 from __future__ import annotations
 

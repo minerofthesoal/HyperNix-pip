@@ -174,10 +174,16 @@ An extremely efficient multi-GPU training topology specifically designed to link
 Automatic regulation of context length, curriculum tuning, and token padding/truncation during training. `Abbicus` dynamically calculates these parameters based on the model's total parameter size, dataset type, and current global step, ensuring maximum throughput.
 
 ```python
-from hypernix.abbicus import Abbicus
-regulator = Abbicus(model_size_params=8e9, dataset_type="instruct")
-context_len = regulator.get_context_length(current_step=5000)
+from hypernix.abbicus import Abbicus, AbbicusConfig
+
+cfg = AbbicusConfig(model_size="8B", dataset_type="instruct")
+regulator = Abbicus(cfg)
+regulator.step(global_step=5000)
+context_len = regulator.current_max_length
 ```
+
+See [Abbicus](Abbicus.md) for the full config options and the
+`TurboAbbicus` variant (exponential growth + VRAM safeguard).
 
 ## AutoModel fallback
 
