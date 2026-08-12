@@ -6,6 +6,10 @@ HuggingFace account, pulled directly from the account's model listing.
 feed — downloads/likes will have moved on by the time you read it; treat
 the counts as "roughly this order of magnitude," not exact.
 
+
+most models are currently undertrained!
+
+
 Several of these are also wired into `hypernix.download.KNOWN_MODELS` as
 short names — where that's the case, the short name is listed so you can
 `hypernix download --repo-id <short-name>` instead of typing the full
@@ -19,8 +23,7 @@ short names — where that's the case, the short name is listed so you can
 > the `ray0rf1re` account itself — it does not attempt to audit `Nix-ai`'s
 > full catalog.
 
-## Nix family (flagship line)
-
+## Nix family (will be flagships line)
 The main line of general-purpose chat/instruct models — 3B, Qwen2-shaped.
 
 | Model | Task | Params | Updated | Downloads |
