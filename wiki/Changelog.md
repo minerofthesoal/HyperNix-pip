@@ -10,16 +10,19 @@ next release header.
 ## Legend
 
 - ✨ new feature
-- 🐛 bug fix
+- 🐛 minor bug fix
 - 🛡️ UX / error-message polish
 - 📚 documentation
 - 🔧 internal / plumbing
 - ✂️ cut / remove
 - 🛜 website update / pages update
 - 🔁 refactor / integration improvement 
+- 𖢥 major bug fix
+- ꩜ restore to older version of item
+
+## next version 0.71.5
 
 ## Unreleased
-
 ✨ **`PressureCookerV6` / `PressureCookerV6V`** — new speed-first optimizer
 generation, deliberately the opposite tradeoff from V5/V5S's
 memory-first design. `PressureCookerV6` ("Single-State Trust Momentum")
