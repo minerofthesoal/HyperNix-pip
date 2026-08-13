@@ -20,9 +20,122 @@ next release header.
 
 ## Unreleased
 
-📚 **Wiki / CLI reference / docs-site accuracy pass** — an audit found the
-documentation had drifted substantially from the actual code, not just
-gone slightly stale:
+✨ **`PressureCookerV6` / `PressureCookerV6V`** — new speed-first optimizer
+generation, deliberately the opposite tradeoff from V5/V5S's
+memory-first design. `PressureCookerV6` ("Single-State Trust Momentum")
+drops V5's whole feature set — no oscillation tracking, no curvature
+estimate, no quantized momentum, no per-parameter Python-level `float()`
+syncs — down to a single fused momentum buffer updated via
+`torch._foreach_*` multi-tensor ops, with at most one batched
+host↔device sync per step (for an optional LARS/LAMB-style trust ratio)
+instead of several per parameter tensor. Real, measured numbers, not
+estimates — from `scripts/benchmark_v6.py` and the now-V6-aware
+`scripts/measure_optimizer_memory.py`, both included in this change:
+**0.5x AdamW's optimizer-state bytes** (one fp32 buffer instead of two,
+exact across every hidden size measured) and **1.59x AdamW's step time
+on CPU** (this environment has no CUDA device — the design specifically
+targets host↔device sync and kernel-launch overhead, which matters far
+more on GPU than CPU, so that ratio is reported as a CPU number, not
+extrapolated). `PressureCookerV6V` adds CUDA graph capture
+(`warmup_graph`/`replay_graph`, identical contract to
+`pressure_cooker.ProCooker`) and optional `torch.compile` on top,
+requiring at least one CUDA parameter; falls back to eager execution
+with a warning if `torch.compile` is unavailable or fails, never raises
+for that. No Pascal-specific `Agedcookerv6` tier — V6 never touches
+torch's `fused=True` AdamW kernel (the thing that actually needs
+sm_70+), so there's nothing to work around. Full writeup, including the
+honest tradeoffs (no per-element adaptive LR, more LR tuning than
+AdamW typically needed) and a documented CUDA-graph-capture caveat for
+`grad_accum_steps`/`grad_scaler`/`skip_on_nonfinite`: see wiki
+[Pressure Cooker V6 / V6V](Pressure-Cooker-V6.md).
+
+✨ **V6 production-hardening pass** — `grad_accum_steps` and
+`torch.cuda.amp.GradScaler` integration, same contract as
+`pressure_cooker.InductionCooker` (`unscale_` → skip cleanly on
+non-finite instead of corrupting momentum state → `update()`), plus an
+opt-in `skip_on_nonfinite` for plain (non-scaler) training. The
+non-finite check itself is batched into a single `torch._foreach_norm`
++ one host sync for the *whole step*, improving on `InductionCooker`'s
+own per-parameter `.all()` sync rather than just copying it. Off by
+default (`skip_on_nonfinite=False`) so the default configuration's op
+count — and the CPU benchmark numbers above — are exactly what's
+documented, not inflated by an always-on check most stable runs never
+trip. `PressureCookerV6V` shares all of this through a new
+`_apply_update()` hook instead of duplicating `step()`'s
+accumulation/GradScaler/grad-clip logic a second time.
+
+🐛 **CUDA graph capture + dynamic V6 features don't mix safely — now
+documented, not silently wrong.** CUDA graphs bake in whichever
+Python-level branch ran during `warmup_graph`, permanently: replay
+always re-executes the same recorded kernels regardless of what later
+batches look like. If `grad_accum_steps > 1`, `grad_scaler` is set, or
+`skip_on_nonfinite=True`, the accumulation-gate / non-finite-skip
+decision only gets evaluated once, at capture time.
+`PressureCookerV6V.warmup_graph` now detects this configuration and
+warns; the docstring spells out the mechanism and what to do instead
+(don't graph-capture with those features enabled, or capture only once
+the always-taken branch is known to be safe to repeat unconditionally).
+
+🔧 **`tests/test_pressure_cooker_v6.py`** — new, real test coverage (not
+a stub): construction/config, loss actually decreasing under several
+configurations (nesterov, no-trust-ratio, no-foreach), fused vs.
+non-fused paths producing numerically identical trajectories, weight
+decay applying under a zero gradient, multi-param-group support,
+state-dict round-tripping, optimizer-state byte count vs. AdamW,
+gradient accumulation gating, GradScaler skip/apply/momentum-untouched
+behavior, `skip_on_nonfinite` on and off, and — deliberately not just a
+toy `nn.Linear` stack — a small transformer block (token embedding +
+multi-head attention + LayerNorm + GELU MLP + output head) to confirm
+V6 handles realistic parameter-shape heterogeneity. `PressureCookerV6V`
+CUDA-only paths (construction on real CUDA tensors, graph capture, a
+compiled step actually executing on a GPU) are marked
+`skipif(not torch.cuda.is_available())` and were not exercised on real
+CUDA hardware while writing this — this environment has no GPU. That
+code reuses `ProCooker`'s already-shipped `warmup_graph`/`replay_graph`
+implementation verbatim rather than inventing a new one, which is the
+best available substitute for hardware verification, not a replacement
+for it — stated plainly in the V6 wiki page too.
+
+🔧 **`scripts/benchmark_v6.py`** (new) and
+**`scripts/measure_optimizer_memory.py`** (extended) — real measurement
+tools cited above, not hand-typed numbers. Both auto-detect CUDA and
+report whichever device they actually ran on; `benchmark_v6.py` prints
+an explicit note when it falls back to CPU rather than letting a CPU
+number pass silently as if it were representative of GPU performance.
+
+📚 **`hypernix.__init__` / `wiki_cli.py`** — `PressureCookerV6` and
+`PressureCookerV6V` wired into the top-level lazy-import system
+(`__all__`, `_LAZY_ATTRS`, the `TYPE_CHECKING` import block) and into
+`hnx-wiki`'s module→page map, matching how every prior generation is
+exposed — `import hypernix; hypernix.PressureCookerV6` works, and
+`hnx-wiki` correctly resolves both new modules to the new wiki page.
+
+📚 **`wiki/Pressure-Cooker-V6.md`** (new), **`wiki/Optimizers.md`**,
+**`wiki/Home.md`** — new dedicated page for V6/V6V with the measured
+numbers, usage examples, and the CUDA-graph caveat above.
+`Optimizers.md`'s intro also got a small accuracy fix while touching
+this page: it previously called V4 "the newest `OptimizerBase`-powered
+line", which stopped being true once V5/V5S shipped and is now doubly
+wrong with V6 added — it now points to both dedicated pages instead of
+asserting a staleness-prone "newest" claim.
+
+🛜 **Docs site: full holiday/observance calendar.** Extended the
+existing Christmas / Christmas Eve / Halloween / Thanksgiving / July
+4th / Pride Month banner system (`getActiveSiteEvent`/`EventBanner` in
+`docs/src/App.tsx`) with 14 more: Trans Day of Visibility (Mar 31),
+Transgender Day of Remembrance (Nov 20), MLK Day, Valentine's Day,
+International Women's Day, St. Patrick's Day, Earth Day, Cinco de Mayo,
+Memorial Day, Juneteenth, Bisexual Visibility Day, Labor Day, National
+Coming Out Day, and New Year's Eve — each with its own hand-drawn SVG
+icon and correct date logic, including two new date helpers
+(`nthWeekdayOfMonth` already existed; added `lastWeekdayOfMonth` for
+Memorial Day) rather than hardcoded dates for the floating holidays.
+Juneteenth is checked ahead of the existing "any day in June is Pride
+Month" catch-all so it gets its own banner on the 19th instead of being
+silently shadowed. `MODULES` and the `WIKI_PAGES` fallback list also
+updated for `pressure_cooker_v6`/`pressure_cooker_v6v` and the new wiki
+page — `npm run build` verified clean after all of the above.
+
 
 - `wiki/CLI.md` documented 13 of the CLI's 34 real subcommands and
   claimed that was the complete set. Added full sections for `brew`,

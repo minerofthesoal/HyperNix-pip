@@ -98,6 +98,8 @@ __all__ = [
     "PressureCookerV4",
     "PressureCookerV5",
     "PressureCookerV5Plus",
+    "PressureCookerV6",
+    "PressureCookerV6V",
     "QUANT_CATALOG",
     "QUANT_TYPES",
     "QuantConfig",
@@ -174,6 +176,8 @@ __all__ = [
     "pressure_cooker_v3",
     "pressure_cooker_v4",
     "pressure_cooker_v5",
+    "pressure_cooker_v6",
+    "pressure_cooker_v6v",
     "preheat",
     "print_models",
     "quant_batch",
@@ -264,6 +268,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'PressureCookerV4': ('pressure_cooker_v4', 'PressureCookerV4'),
     'PressureCookerV5': ('pressure_cooker_v5', 'PressureCookerV5'),
     'PressureCookerV5Plus': ('pressure_cooker_v5', 'PressureCookerV5Plus'),
+    'PressureCookerV6': ('pressure_cooker_v6', 'PressureCookerV6'),
+    'PressureCookerV6V': ('pressure_cooker_v6v', 'PressureCookerV6V'),
     'QAProcessor': ('qa', 'QAProcessor'),
     'QUANT_CATALOG': ('quantize', 'CATALOG'),
     'QUANT_TYPES': ('quantize', 'QUANT_TYPES'),
@@ -351,6 +357,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'pressure_cooker_v3': ('pressure_cooker_v3', None),
     'pressure_cooker_v4': ('pressure_cooker_v4', None),
     'pressure_cooker_v5': ('pressure_cooker_v5', None),
+    'pressure_cooker_v6': ('pressure_cooker_v6', None),
+    'pressure_cooker_v6v': ('pressure_cooker_v6v', None),
     'print_models': ('utils', 'print_models'),
     'qa': ('qa', None),
     'quant_batch': ('quantize', 'batch_quantize'),
@@ -486,6 +494,8 @@ if TYPE_CHECKING:
         pressure_cooker_v3,
         pressure_cooker_v4,
         pressure_cooker_v5,
+        pressure_cooker_v6,
+        pressure_cooker_v6v,
         qa,
         recipe_book,
         salt_shaker,
@@ -566,6 +576,8 @@ if TYPE_CHECKING:
         PressureCookerV5Plus,
         ULTRAagedcookerv5,
     )
+    from .pressure_cooker_v6 import PressureCookerV6
+    from .pressure_cooker_v6v import PressureCookerV6V
     from .qa import QAProcessor
     from .quantize import CATALOG as QUANT_CATALOG  # noqa: I001
     from .quantize import QUANT_TYPES, HyperNixQuantizer, QuantJob, QuantSpec, quantize_gguf

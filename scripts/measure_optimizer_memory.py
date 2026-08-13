@@ -1,5 +1,5 @@
 """Measure exact optimizer-state memory footprint for AdamW vs PressureCooker
-V5 vs V5S, per parameter tensor.
+V5 vs V5S vs V6, per parameter tensor.
 
 This does not estimate or guess -- it instantiates each real optimizer,
 runs one backward + step so every state tensor actually gets allocated
@@ -20,6 +20,7 @@ from torch.optim import AdamW
 
 from hypernix.pressure_cooker_v5 import PressureCookerV5
 from hypernix.pressure_cooker_v5s import PressureCookerV5S
+from hypernix.pressure_cooker_v6 import PressureCookerV6
 
 SEED = 0
 
@@ -51,6 +52,7 @@ def measure(hidden: int, batch: int = 32) -> list[dict]:
         "AdamW": lambda m: AdamW(m.parameters(), lr=1e-3),
         "PressureCookerV5": lambda m: PressureCookerV5(m.parameters(), lr=1e-3),
         "PressureCookerV5S": lambda m: PressureCookerV5S(m.parameters(), lr=1e-3),
+        "PressureCookerV6": lambda m: PressureCookerV6(m.parameters(), lr=1e-3),
     }
     rows = []
     for name, make_opt in configs.items():

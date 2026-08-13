@@ -1,3 +1,4 @@
+LICENSE
 MANIFEST.in
 README.md
 pyproject.toml
@@ -101,6 +102,8 @@ src/hypernix/pressure_cooker_v3.py
 src/hypernix/pressure_cooker_v4.py
 src/hypernix/pressure_cooker_v5.py
 src/hypernix/pressure_cooker_v5s.py
+src/hypernix/pressure_cooker_v6.py
+src/hypernix/pressure_cooker_v6v.py
 src/hypernix/protect.py
 src/hypernix/py.typed
 src/hypernix/qa.py
@@ -130,13 +133,9 @@ src/hypernix/utils.py
 src/hypernix/vera.py
 src/hypernix/version_launcher.py
 src/hypernix/websearch.py
-src/hypernix/webui.py
 src/hypernix/whisk.py
 src/hypernix/wiki_cli.py
 src/hypernix/workshop.py
-src/hypernix/webui_static/app.js
-src/hypernix/webui_static/index.html
-src/hypernix/webui_static/style.css
 tests/test_alarms_and_presets.py
 tests/test_arch_mapping.py
 tests/test_cli_integration.py
@@ -157,6 +156,7 @@ tests/test_nix_fallback.py
 tests/test_old_oven.py
 tests/test_pressure_cooker_v048.py
 tests/test_pressure_cooker_v3.py
+tests/test_pressure_cooker_v6.py
 tests/test_quantize_v0703.py
 tests/test_ranges.py
 tests/test_shakers_and_torchcompat.py
@@ -193,7 +193,6 @@ tests/test_v0714_hyped_pro_launcher.py
 tests/test_v0714_hyped_pro_tools.py
 tests/test_v0714_multilama.py
 tests/test_version_launcher.py
-tests/test_webui.py
 wiki/Abbicus.md
 wiki/Alarms.md
 wiki/Apron.md
@@ -219,6 +218,7 @@ wiki/Frameworks.md
 wiki/Freezer.md
 wiki/Fridges.md
 wiki/Home.md
+wiki/HuggingFace-Models.md
 wiki/HyperLog.md
 wiki/Kitchen.md
 wiki/Lunchbox.md
@@ -233,6 +233,7 @@ wiki/PipelineMechanics.md
 wiki/Pressure-Cooker-V3.md
 wiki/Pressure-Cooker-V4.md
 wiki/Pressure-Cooker-V5.md
+wiki/Pressure-Cooker-V6.md
 wiki/Quantization.md
 wiki/Ranges.md
 wiki/RecipeBook.md

@@ -688,6 +688,15 @@ const MODULES = [
     { fn: 'PressureCookerV5S.swap_ema_weights(model) -> None', desc: 'Swap live weights with EMA weights for evaluation.' },
     { fn: '… 8 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
+  { name: 'hypernix.pressure_cooker_v6', src: 'src/hypernix/pressure_cooker_v6.py', fns: [
+    { fn: 'PressureCookerV6(params, schedule=None, lr=0.0003, momentum_beta=0.9, weight_decay=0.01, nesterov=False, trust_ratio=True, trust_clip=(0.05, 5.0), eps=1e-08, grad_clip=1.0, foreach=True, grad_scaler=None, grad_accum_steps=1, skip_on_nonfinite=False, **kwargs) -> None', desc: 'Speed-first optimizer — single fused momentum buffer, torch._foreach_* multi-tensor updates, LARS/LAMB-style trust ratio, no second moment.' },
+    { fn: 'PressureCookerV6.describe() -> dict[str, Any]', desc: 'Return a human-readable description of the optimizer config, including grad_accum_steps/grad_scaler/skipped_steps.' },
+  ]},
+  { name: 'hypernix.pressure_cooker_v6v', src: 'src/hypernix/pressure_cooker_v6v.py', fns: [
+    { fn: 'PressureCookerV6V(params, compile=True, **kwargs) -> None', desc: 'PressureCookerV6 wired for CUDA graph capture and optional torch.compile; requires at least one CUDA parameter.' },
+    { fn: 'PressureCookerV6V.warmup_graph(step_fn) -> None', desc: 'Record a CUDA graph from a representative training step (same contract as ProCooker.warmup_graph).' },
+    { fn: 'PressureCookerV6V.replay_graph()', desc: 'Replay the captured CUDA graph; returns whatever step_fn returned.' },
+  ]},
   { name: 'hypernix.protect', src: 'src/hypernix/protect.py', fns: [
     { fn: 'set_monitor_state(state) -> None', desc: 'Turn the monitor \'on\' or \'off\' using xset on Linux.' },
   ]},
@@ -916,7 +925,7 @@ const WIKI_PAGES = [
   'Freezer', 'Fridges', 'HuggingFace-Models', 'HyperLog', 'Kitchen',
   'Lunchbox', 'MTP', 'Menu', 'Microwave', 'Optimizers', 'Ovens', 'Pans',
   'Pascal', 'PipelineMechanics', 'Pressure-Cooker-V3', 'Pressure-Cooker-V4',
-  'Pressure-Cooker-V5', 'Quantization', 'Ranges', 'RecipeBook',
+  'Pressure-Cooker-V5', 'Pressure-Cooker-V6', 'Quantization', 'Ranges', 'RecipeBook',
   'Release-Timeline', 'Roadmap', 'STML', 'Scavenger', 'Shakers', 'Smoker',
   'Toaster', 'Training', 'Tupperware', 'Vera', 'Whisk', 'Workshop',
   'macOS-legacy',
@@ -2252,6 +2261,16 @@ function nthWeekdayOfMonth(year, monthIndex0, weekday, n) {
   return null
 }
 
+// Last occurrence of a given weekday in a month, e.g. Memorial Day (last
+// Monday of May). weekday: 0=Sun..6=Sat.
+function lastWeekdayOfMonth(year, monthIndex0, weekday) {
+  const d = new Date(year, monthIndex0 + 1, 0) // last calendar day of the month
+  while (d.getDay() !== weekday) {
+    d.setDate(d.getDate() - 1)
+  }
+  return d.getDate()
+}
+
 function getActiveSiteEvent(now = new Date()) {
   const month = now.getMonth() + 1
   const day = now.getDate()
@@ -2266,8 +2285,38 @@ function getActiveSiteEvent(now = new Date()) {
   if (month === 12 && day === 24) {
     return { id: `christmas-eve-${year}`, kind: 'christmas-eve' }
   }
+  if (month === 12 && day === 31) {
+    return { id: `newyearseve-${year}`, kind: 'newyearseve' }
+  }
   if (month === 1 && day === 1) {
     return { id: `newyear-${year}`, kind: 'newyear' }
+  }
+  if (month === 1 && day === nthWeekdayOfMonth(year, 0, 1, 3)) {
+    return { id: `mlk-${year}`, kind: 'mlk' }
+  }
+  if (month === 2 && day === 14) {
+    return { id: `valentines-${year}`, kind: 'valentines' }
+  }
+  if (month === 3 && day === 8) {
+    return { id: `iwd-${year}`, kind: 'iwd' }
+  }
+  if (month === 3 && day === 17) {
+    return { id: `stpatricks-${year}`, kind: 'stpatricks' }
+  }
+  if (month === 3 && day === 31) {
+    return { id: `tdov-${year}`, kind: 'tdov' }
+  }
+  if (month === 4 && day === 22) {
+    return { id: `earthday-${year}`, kind: 'earthday' }
+  }
+  if (month === 5 && day === 5) {
+    return { id: `cincodemayo-${year}`, kind: 'cincodemayo' }
+  }
+  if (month === 5 && day === lastWeekdayOfMonth(year, 4, 1)) {
+    return { id: `memorialday-${year}`, kind: 'memorialday' }
+  }
+  if (month === 6 && day === 19) {
+    return { id: `juneteenth-${year}`, kind: 'juneteenth' }
   }
   if (month === 10 && day === 31) {
     return { id: `halloween-${year}`, kind: 'halloween' }
@@ -2275,8 +2324,20 @@ function getActiveSiteEvent(now = new Date()) {
   if (month === 11 && day === nthWeekdayOfMonth(year, 10, 4, 4)) {
     return { id: `thanksgiving-${year}`, kind: 'thanksgiving' }
   }
+  if (month === 11 && day === 20) {
+    return { id: `tdor-${year}`, kind: 'tdor' }
+  }
   if (month === 7 && (day === 3 || day === 4)) {
     return { id: `july4-${year}`, kind: 'july4', eve: day === 3 }
+  }
+  if (month === 9 && day === nthWeekdayOfMonth(year, 8, 1, 1)) {
+    return { id: `laborday-${year}`, kind: 'laborday' }
+  }
+  if (month === 9 && day === 23) {
+    return { id: `bivisibility-${year}`, kind: 'bivisibility' }
+  }
+  if (month === 10 && day === 11) {
+    return { id: `comingout-${year}`, kind: 'comingout' }
   }
   if (month === 6) {
     return { id: `pride-${year}`, kind: 'pride' }
@@ -2394,6 +2455,92 @@ function ThanksgivingIcon({ size = 18 }) {
   )
 }
 
+function TransFlagIcon({ size = 18 }) {
+  const stripes = ['#5bcefa', '#f5a9b8', '#ffffff', '#f5a9b8', '#5bcefa']
+  const h = size * 0.66
+  return (
+    <svg width={size} height={h} viewBox="0 0 30 20" style={{ borderRadius: 2, flexShrink: 0 }}>
+      {stripes.map((c, i) => (
+        <rect key={i} x="0" y={i * 4} width="30" height="4.4" fill={c} />
+      ))}
+    </svg>
+  )
+}
+
+function BiFlagIcon({ size = 18 }) {
+  const h = size * 0.66
+  return (
+    <svg width={size} height={h} viewBox="0 0 30 20" style={{ borderRadius: 2, flexShrink: 0 }}>
+      <rect x="0" y="0" width="30" height="8" fill="#d60270" />
+      <rect x="0" y="8" width="30" height="4" fill="#9b4f96" />
+      <rect x="0" y="12" width="30" height="8" fill="#0038a8" />
+    </svg>
+  )
+}
+
+function HeartIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+      <path d="M12 20.5c-4.5-3-9-6.4-9-11A5 5 0 0 1 12 6a5 5 0 0 1 9 3.5c0 4.6-4.5 8-9 11z" fill="#e0245e" />
+    </svg>
+  )
+}
+
+function ShamrockIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+      <circle cx="9" cy="9" r="4.4" fill="#0f8a3c" />
+      <circle cx="15" cy="9" r="4.4" fill="#0f8a3c" />
+      <circle cx="12" cy="14" r="4.4" fill="#0f8a3c" />
+      <line x1="12" y1="16" x2="12" y2="22" stroke="#0f8a3c" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function EarthIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" fill="#1f6feb" />
+      <path d="M4 10c2-1 3 1 5 0s2-3 4-2 1 3 3 2 2-2 4-1" fill="none" stroke="#2fa84f" strokeWidth="2.4" strokeLinecap="round" />
+      <ellipse cx="8" cy="17" rx="3" ry="1.8" fill="#2fa84f" />
+      <ellipse cx="16" cy="6.5" rx="2.4" ry="1.5" fill="#2fa84f" />
+    </svg>
+  )
+}
+
+function MexicanFlagIcon({ size = 18 }) {
+  const h = size * 0.66
+  return (
+    <svg width={size} height={h} viewBox="0 0 30 20" style={{ borderRadius: 2, flexShrink: 0 }}>
+      <rect x="0" y="0" width="10" height="20" fill="#006847" />
+      <rect x="10" y="0" width="10" height="20" fill="#ffffff" />
+      <rect x="20" y="0" width="10" height="20" fill="#ce1126" />
+      <circle cx="15" cy="10" r="1.6" fill="#8a6d1e" />
+    </svg>
+  )
+}
+
+function CandleIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+      <path d="M12 3c1.4 1.4 1.4 3-0.2 4.4-1.2 1-1.2 2 0.2 2.6" fill="none" stroke="#ffb648" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="9" y="10" width="6" height="11" rx="1" fill="#e8e2d0" />
+      <rect x="9" y="13" width="6" height="1.4" fill="#c8192e" />
+    </svg>
+  )
+}
+
+function WomensDayIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#8a2be2" strokeWidth="1.8"
+      strokeLinecap="round" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="9" r="6" />
+      <line x1="12" y1="15" x2="12" y2="22" />
+      <line x1="8.5" y1="18.5" x2="15.5" y2="18.5" />
+    </svg>
+  )
+}
+
 // Credits ray0rf1re on every event banner until the package hits v1 — once
 // the major version rolls to 1+, the credit line stops appearing.
 function isPreV1(version) {
@@ -2470,6 +2617,132 @@ function EventBanner({ event, dismissed, onDismiss, version }) {
         <ThanksgivingIcon />
         <span>Happy Thanksgiving from HyperNix — thanks for cooking with us.</span>
         <ThanksgivingIcon />
+      </>
+    )
+  } else if (event.kind === 'tdov') {
+    bg = 'linear-gradient(90deg,#5bcefa,#f5a9b8,#ffffff,#f5a9b8,#5bcefa)'
+    content = (
+      <>
+        <TransFlagIcon />
+        <span>Happy Trans Day of Visibility from the HyperNix team.</span>
+        <TransFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'tdor') {
+    bg = '#0d1520'
+    content = (
+      <>
+        <TransFlagIcon />
+        <span>Transgender Day of Remembrance — honoring those we've lost.</span>
+        <TransFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'bivisibility') {
+    bg = 'linear-gradient(90deg,#d60270,#9b4f96,#0038a8)'
+    content = (
+      <>
+        <BiFlagIcon />
+        <span>Happy Bisexual Visibility Day from the HyperNix team.</span>
+        <BiFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'comingout') {
+    bg = '#1a0f24'
+    content = (
+      <>
+        <PrideFlagIcon />
+        <span>Happy National Coming Out Day from the HyperNix team.</span>
+        <PrideFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'mlk') {
+    bg = '#241505'
+    content = (
+      <>
+        <CandleIcon />
+        <span>Honoring Dr. Martin Luther King Jr. Day.</span>
+        <CandleIcon />
+      </>
+    )
+  } else if (event.kind === 'valentines') {
+    bg = 'linear-gradient(90deg,#7a0f2b,#c81f4d)'
+    content = (
+      <>
+        <HeartIcon />
+        <span>Happy Valentine's Day from the HyperNix team!</span>
+        <HeartIcon />
+      </>
+    )
+  } else if (event.kind === 'iwd') {
+    bg = '#2c0f3d'
+    content = (
+      <>
+        <WomensDayIcon />
+        <span>Happy International Women's Day from HyperNix.</span>
+        <WomensDayIcon />
+      </>
+    )
+  } else if (event.kind === 'stpatricks') {
+    bg = '#052e14'
+    content = (
+      <>
+        <ShamrockIcon />
+        <span>Happy St. Patrick's Day from the HyperNix team!</span>
+        <ShamrockIcon />
+      </>
+    )
+  } else if (event.kind === 'earthday') {
+    bg = 'linear-gradient(90deg,#0b3d66,#155d2f)'
+    content = (
+      <>
+        <EarthIcon />
+        <span>Happy Earth Day from HyperNix.</span>
+        <EarthIcon />
+      </>
+    )
+  } else if (event.kind === 'cincodemayo') {
+    bg = '#1c0f05'
+    content = (
+      <>
+        <MexicanFlagIcon />
+        <span>¡Feliz Cinco de Mayo! from the HyperNix team.</span>
+        <MexicanFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'memorialday') {
+    bg = '#10141f'
+    content = (
+      <>
+        <AmericanFlagIcon />
+        <span>Memorial Day — remembering those who gave everything.</span>
+        <AmericanFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'juneteenth') {
+    bg = 'linear-gradient(90deg,#0a1f4d,#c8192e)'
+    content = (
+      <>
+        <NewYearIcon />
+        <span>Happy Juneteenth from the HyperNix team.</span>
+        <NewYearIcon />
+      </>
+    )
+  } else if (event.kind === 'laborday') {
+    bg = '#0d1a2e'
+    content = (
+      <>
+        <AmericanFlagIcon />
+        <span>Happy Labor Day from the HyperNix team!</span>
+        <AmericanFlagIcon />
+      </>
+    )
+  } else if (event.kind === 'newyearseve') {
+    bg = '#0d0d0d'
+    content = (
+      <>
+        <NewYearIcon />
+        <span>See you next year — Happy New Year's Eve from HyperNix!</span>
+        <NewYearIcon />
       </>
     )
   } else {

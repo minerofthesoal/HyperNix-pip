@@ -1,9 +1,13 @@
 # Optimizers — `pressure_cooker`, `optimizer_framework`, `pressure_cooker_v4`
 
 Three related modules covering HyperNix's custom AdamW optimizer family,
-from the original device-tiered `PressureCooker` through to the newest
-`OptimizerBase`-powered V4 line. (Already documented separately:
-[Pressure Cooker V3](Pressure-Cooker-V3.md).)
+from the original device-tiered `PressureCooker` through to the
+`OptimizerBase`-powered V4 line. V4 is not the newest generation — it's
+superseded for new training by the memory-first V5/V5S line and the
+speed-first V6 line, both documented on their own pages:
+[Pressure Cooker V5 / V5+ / V5S](Pressure-Cooker-V5.md) and
+[Pressure Cooker V6 / V6V](Pressure-Cooker-V6.md). (V3 is also documented
+separately: [Pressure Cooker V3](Pressure-Cooker-V3.md).)
 
 **Accuracy note:** `pressure_cooker.py`'s module docstring used to list
 `PressureCookerV2` / `PressureCookerV2Plus` and a "WORKSHOP INTEGRATION"
@@ -233,8 +237,30 @@ optional EMA update → increment global step.
 
 ---
 
+## `hypernix.pressure_cooker_v6` / `hypernix.pressure_cooker_v6v` — speed-first generation
+
+Full writeup: [Pressure Cooker V6 / V6V](Pressure-Cooker-V6.md). Briefly,
+for cross-reference from this page: `PressureCookerV6` (`OptimizerBase`
+subclass, like V4/V5) drops V5's whole feature set (no oscillation
+tracking, no curvature estimate, no quantized momentum) down to a single
+fused momentum buffer updated via `torch._foreach_*` multi-tensor ops,
+trading V5's adaptive-per-parameter learning rate for raw step throughput.
+`PressureCookerV6V` adds CUDA graph capture (`warmup_graph`/`replay_graph`,
+same contract as `pressure_cooker.ProCooker`) and optional `torch.compile`
+on top, requires at least one CUDA parameter, and never touches the SSTM
+update rule itself. No Pascal-specific `Agedcookerv6` tier exists — V6
+never calls torch's `fused=True` AdamW kernel (the thing that actually
+requires sm_70+), so there's nothing to work around. It also carries
+`InductionCooker`'s real-training features — `grad_accum_steps` and
+`GradScaler` integration (`grad_scaler=`) — with a batched, single-sync
+non-finite check rather than a per-parameter one; see the dedicated page
+for the CUDA-graph-capture caveat that comes with combining those and
+`PressureCookerV6V`.
+
 ## See also
 
 - [Pressure Cooker V3](Pressure-Cooker-V3.md) — the ZeRO/FP8-focused generation between the base tier and V4
+- [Pressure Cooker V5 / V5+ / V5S](Pressure-Cooker-V5.md) — the memory-first generation after V4
+- [Pressure Cooker V6 / V6V](Pressure-Cooker-V6.md) — the speed-first generation, contrasted with V5 above
 - [Frameworks](Frameworks.md) — `compute_framework` (hardware abstraction) and `workshop`, a distinct module family from `optimizer_framework` despite the similar name
 - `hypernix.smoker.GoodSmoker` — a much simpler heuristic LR shaping approach, contrasted with the real per-step scheduling here

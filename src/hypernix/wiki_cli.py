@@ -228,6 +228,8 @@ def _open_in_browser(module_name: str | None) -> None:
     base_url = "https://github.com/minerofthesoal/HyperNix-pip/wiki"
     if module_name:
         page_map = {
+            "pressure_cooker_v6": "Pressure-Cooker-V6",
+            "pressure_cooker_v6v": "Pressure-Cooker-V6",
             "pressure_cooker_v5": "Pressure-Cooker-V5",
             "pressure_cooker_v4": "Pressure-Cooker-V4",
             "pressure_cooker_v3": "Pressure-Cooker-V3",

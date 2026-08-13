@@ -1,10 +1,10 @@
 Metadata-Version: 2.4
 Name: hypernix
-Version: 0.71.4b10
+Version: 0.71.4.post4
 Summary: Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M).
 Home-page: https://github.com/minerofthesoal/hypernix-pip
 Author: HyperNix contributors
-License: Apache-2.0
+License: LLU-0.1
 Project-URL: Homepage, https://minerofthesoal.github.io/HyperNix-pip/
 Project-URL: Source, https://github.com/minerofthesoal/hypernix-pip
 Project-URL: Issues, https://github.com/minerofthesoal/hypernix-pip/issues
@@ -26,6 +26,7 @@ Classifier: Programming Language :: Python :: 3.14
 Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
 Requires-Python: <3.15,>=3.10
 Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: torch<3,>=1.13
 Requires-Dist: numpy<3,>=1.26
 Requires-Dist: safetensors>=0.4.3
@@ -58,6 +59,7 @@ Provides-Extra: gui-gtk
 Requires-Dist: PyGObject>=3.48; extra == "gui-gtk"
 Provides-Extra: gui
 Requires-Dist: hypernix[gui-qt]; extra == "gui"
+Dynamic: license-file
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/2d5eb37/assets/logo.png" alt="hypernix logo" width="240" />
@@ -72,13 +74,7 @@ Requires-Dist: hypernix[gui-qt]; extra == "gui"
 **End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
 
 ## What's fixed in this update
-
-- **`hyped` TUI crash on every prompt** — submitting *any* prompt in the `hyped` chat TUI raised `AttributeError: 'OvenRunner' object has no attribute '_format_chat'` immediately after pressing Enter, on every provider (local/openai/anthropic/rest/t1). Root cause: `ChatScreen` wired a low-level `Bell` streamer into `Countertop`, but `Bell.stream_chat()` needs an oven exposing `.model` / `.tokenizer` / `._format_chat` directly, and `OvenRunner` (the multi-provider wrapper) only exposes a high-level `.chat()`. Fixed in `hyped.py`; regression test added in `tests/test_v0712_hyped_countertop.py`.
-- **`scripts/benchmark_v5.py` / `benchmark_v5s.py`** — both hard-coded `.cuda()` (crashed with no GPU) and trained all optimizers *sequentially on one shared model instance*, so later optimizers in the loop started from already-mutated weights instead of a fair, identical starting point. Rewritten to be device-safe, give each optimizer its own seeded model copy, and report peak memory alongside step time.
-- **`wiki/Pressure-Cooker-V5.md`** — corrected a factually wrong "6-bit quantized momentum" / "stochastic rounding" claim (the real implementation is int8 with standard rounding; see `_quantize_momentum` in `pressure_cooker_v5.py`), fixed an example that called `PressureCookerV5(..., peak_lr=..., quantize_momentum=...)` — neither kwarg exists, so it raised `TypeError` as written — and replaced a fabricated `hnx pressure-cooker-v5 --tier ...` CLI example with the actual supported entry points. Added the missing V5S section.
-- **This README** — roughly 30 lines across the module table and changelog sections were truncated mid-sentence with a literal `[...]` and a missing closing `|` (from an earlier editing pass), breaking the module table's markdown rendering. All 30 have been completed with accurate text checked against the current source, and the same "6-bit" inaccuracy above is fixed everywhere it appeared here too.
-- **New**: [`pressure_cooker_v5_v5s_paper.md`](pressure_cooker_v5_v5s_paper.md) — a from-source-measured efficiency writeup for `PressureCookerV5` / `V5S`, and `scripts/measure_optimizer_memory.py`, a new script that measures exact (not estimated) optimizer-state memory per parameter tensor.
-
+See changlog.md
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
@@ -579,4 +575,20 @@ python scripts/measure_optimizer_memory.py  # exact optimizer-state bytes per pa
 
 ## License
 
-LLU-0.1
+HyperNix is **dual-licensed** — recipients choose one of the two options
+below (see the full text in [`LICENSE`](LICENSE)):
+
+- **LLU-0.1** — the HyperNix OpenCode Light Limited Use License, Version
+  0.1. Source-available, with a same-license requirement for forks and a
+  §12 field-of-use restriction (it does not meet the OSI Open Source
+  Definition because of that restriction). This is the **default** if
+  you don't make an active choice.
+- **HOS-1.0** — the HyperNix Open Source License, Version 1.0. An
+  OSI-compliant open-source license with no field-of-use restrictions.
+
+You must pick one license and follow its terms — you can't mix terms
+from both. Large trained models (29.1B+ parameters) that are shared
+publicly carry a transparency requirement (disclosing training-data
+sources or a data composition summary) under either license; see
+`LICENSE` §7–8 (LLU-0.1) / the equivalent HOS-1.0 sections for specifics.
+`hypernix` is **not** Apache-2.0, MIT, or any other stock license.
