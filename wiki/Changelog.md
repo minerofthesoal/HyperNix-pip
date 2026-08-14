@@ -19,7 +19,7 @@ next release header.
 - 🔁 refactor / integration improvement 
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
-
+- ❗ unfixed known bug
 ## next version 0.71.5
 
 ## Unreleased
