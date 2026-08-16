@@ -271,3 +271,26 @@ timeline
         : 860d394 - Revise LICENSE to include dual licensing options
 ```
 
+## Release v0.71.4-5 (2026-08-16)
+
+```mermaid
+timeline
+    title Release v0.71.4-5 Commits
+    0.71.4-5
+        : 626b562 - chore- update JSON stats (scheduled)
+        : 5b91d75 - chore- update JSON stats (scheduled)
+        : 9124d73 - chore- update JSON stats (scheduled)
+        : a76b5b0 - Update Changelog with unfixed known bug note
+        : 8a194f1 - Revise changelog for version 0.71.5
+        : 623b9f8 - pc-v6+pc-v6v, other changes
+        : f353068 - chore- update JSON stats (scheduled)
+        : 338c2c3 - chore- update JSON stats (scheduled)
+        : 63e58d3 - Revise Nix family section and model notes
+        : b974f12 - Delete hypernix_fixes.diff
+        : b0ebbce - Delete fix-hyped-dict-logits(1).patch
+        : dc99f2d - Delete hypernix_pressure_cooker_v5_v5s.patch
+        : 6ae442b - Delete ci-fixes-v8.patch
+        : de808de - chore- update JSON stats (scheduled)
+        : 883ffdd - chore- update JSON stats (manual run)
+```
+
