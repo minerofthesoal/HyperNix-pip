@@ -15,7 +15,9 @@ Three entry points cover 90% of the job:
 Each plotting function accepts an ``out_path``; no GUI is ever opened.
 """
 from __future__ import annotations
+
 from rich.console import Console
+
 Console().print("[bold red]WARNING: new_fridge is deprecated. Please transition to neo_oven.[/]")
 
 import re

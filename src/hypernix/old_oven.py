@@ -23,7 +23,9 @@ Typical use (CLI)::
                                          --fill-suffix "\\n\\nprint(add(1,2))"
 """
 from __future__ import annotations
+
 from rich.console import Console
+
 Console().print("[bold red]WARNING: old_oven is deprecated. Please transition to neo_oven.[/]")
 
 from dataclasses import dataclass
@@ -33,9 +35,9 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from .neo_oven import unwrap_model as _unwrap_model_fn
 from .download import download_model, verify_snapshot
 from .generate import _load_tokenizer, _sample_next
+from .neo_oven import unwrap_model as _unwrap_model_fn
 from .train import (
     HyperNixConfig,
     HyperNixModel,

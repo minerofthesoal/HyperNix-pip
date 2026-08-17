@@ -4,3 +4,12 @@ target-version = "py312"
 [lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+# These deprecated shims intentionally print a warning before their
+# imports so the message fires even if the rest of the module fails
+# to load; that ordering is the point, not an oversight.
+[lint.per-file-ignores]
+"src/hypernix/mediocre_fridge.py" = ["E402"]
+"src/hypernix/new_fridge.py" = ["E402"]
+"src/hypernix/old_fridge.py" = ["E402"]
+"src/hypernix/old_oven.py" = ["E402"]

@@ -124,11 +124,13 @@ __all__ = [
     "qa",
     "assistant",
     "nano_nano",
+    "NanoNanoModel",
     "neo_oven",
     "NeoOven",
     "NeoDatasetBuilder",
     "NeoMetricsCallback",
     "net",
+    "tailscale_ssh_check",
     "bake_code",
     "bell",
     "blender",
@@ -260,6 +262,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'CPU_PRESETS': ('freezer', 'CPU_PRESETS'),
     'CardboardBox': ('cardboard_box', 'CardboardBox'),
     'CodeOven': ('old_oven', 'CodeOven'),
+    'NanoNanoModel': ('nano_nano', 'NanoNanoModel'),
     'NeoOven': ('neo_oven', 'NeoOven'),
     'NeoDatasetBuilder': ('neo_oven', 'NeoDatasetBuilder'),
     'NeoMetricsCallback': ('neo_oven', 'NeoMetricsCallback'),
@@ -360,6 +363,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'nano_nano': ('nano_nano', None),
     'neo_oven': ('neo_oven', None),
     'net': ('net', None),
+    'tailscale_ssh_check': ('net', 'tailscale_ssh_check'),
     'new_fridge': ('new_fridge', None),
     'new_oven': ('old_oven', 'new_oven'),
     'new_range': ('new_range', None),
@@ -472,9 +476,6 @@ if TYPE_CHECKING:
         assistant,
         bell,
         blender,
-        nano_nano,
-        neo_oven,
-        net,
         cardboard_box,
         coffee_maker,
         compactor,
@@ -503,6 +504,9 @@ if TYPE_CHECKING:
         mediocre_fridge,
         menu,
         microwave,
+        nano_nano,
+        neo_oven,
+        net,
         new_fridge,
         new_range,
         old_fridge,
@@ -518,9 +522,9 @@ if TYPE_CHECKING:
         pressure_cooker_v4,
         pressure_cooker_v5,
         pressure_cooker_v5s,
-        pressurecooker_v5s,
         pressure_cooker_v6,
         pressure_cooker_v6v,
+        pressurecooker_v5s,
         qa,
         recipe_book,
         salt_shaker,
@@ -567,6 +571,8 @@ if TYPE_CHECKING:
     )
     from .gatekeeper import Gatekeeper, Quota, QuotaViolation
     from .generate import generate_text
+    from .keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
+    from .lazy_suzan import LazySusan, LazySusanConfig
     from .nano_nano import NanoNanoModel
     from .neo_oven import (
         NeoDatasetBuilder,
@@ -574,8 +580,6 @@ if TYPE_CHECKING:
         NeoOven,
     )
     from .net import tailscale_ssh_check
-    from .keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
-    from .lazy_suzan import LazySusan, LazySusanConfig
     from .old_oven import (
         ARCH_PRESETS,
         CodeOven,

@@ -19,7 +19,9 @@ Everything tolerates being called on CPU-only models; the CUDA-only
 primitives gate themselves behind ``torch.cuda.is_available()``.
 """
 from __future__ import annotations
+
 from rich.console import Console
+
 Console().print("[bold red]WARNING: old_fridge is deprecated. Please transition to neo_oven.[/]")
 
 import fnmatch
