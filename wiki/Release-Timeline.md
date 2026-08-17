@@ -294,3 +294,14 @@ timeline
         : 883ffdd - chore- update JSON stats (manual run)
 ```
 
+## Release v0.71.5a2 (2026-08-17)
+
+```mermaid
+timeline
+    title Release v0.71.5a2 Commits
+    0.71.5a2
+        : 15aa12b - fixes
+        : ee23dc0 - ruff fixes
+        : 33d668c - 0.71.5a1 and a2
+```
+
