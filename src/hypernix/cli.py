@@ -633,12 +633,12 @@ def _run_oven(raw: list[str]) -> int:
 
     Equivalent (roughly) to::
 
-        oven = hypernix.old_oven.preheat(repo_id, local_dir=..., device=...)
+        oven = hypernix.neo_oven.preheat(repo_id, local_dir=..., device=...)
         print(oven.complete(prompt))
         # or oven.fill(prefix, suffix) when --fill-prefix is given
         oven.save_pt(save_pt_path)  # if --save-pt
     """
-    from .old_oven import preheat
+    from .neo_oven import preheat
 
     p = argparse.ArgumentParser(
         prog="hypernix oven",
@@ -719,7 +719,7 @@ def _run_chat(raw: list[str]) -> int:
     full HF repo id. ``--message`` runs a single turn and exits (useful
     for scripting); without it, drops into an interactive REPL.
     """
-    from .old_oven import preheat
+    from .neo_oven import preheat
 
     p = argparse.ArgumentParser(
         prog="hypernix chat",

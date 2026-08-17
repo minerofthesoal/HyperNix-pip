@@ -1,288 +1,249 @@
 """vera — Verify HyperNix module syntax and run smoke tests.
 
-v0.70.5: Module verification engine that checks:
-  1. Import correctness (all hypernix imports resolve)
-  2. Docstring coverage (modules, classes, public functions)
-  3. Naming convention compliance (kitchen-themed naming)
-  4. Type annotation coverage
-  5. Basic smoke test (module imports without errors)
-  6. Optional: run the module's __main__ or doctest
+Vera is a tool to input a file path, lint it (via ast & ruff), smoke test it, 
+pytest it if possible, run it, and intelligently explain errors using a small LLM.
 
 Usage:
-    hnx vera <python_file>           # Verify a single file
-    hnx vera <module_name>           # Verify an installed module
-    hnx vera --all                   # Verify all hypernix modules
-    hnx vera --strict <file>         # Fail on missing docstrings
-    hnx vera --smoke <file>          # Run smoke test after syntax check
+    hnx vera <python_file> [options]
+
+Options:
+    -dr, --dry-run   Run the file with dry-run flag
+    -C               Fully run the file
+    -FT              Test each argument one at a time
+    -q <1-10>        Argument testing depth (default 1)
+    -t <time>        Timeout
+    -T <unit>        Timeout unit (s, M, ml). Default ml (milliseconds)
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import inspect
+import shlex
+import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console
-from rich.table import Table
+
+console = Console()
 
 
 @dataclass
-class VerificationResult:
-    """Result of verifying a single module or file."""
-    name: str
+class VeraResult:
     passed: bool = True
-    errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    stats: dict[str, int] = field(default_factory=dict)
+    output: str = ""
+    error_context: str = ""
 
-    def add_error(self, msg: str) -> None:
-        self.errors.append(msg)
+    def fail(self, msg: str, context: str = ""):
         self.passed = False
+        self.output += f"\nError: {msg}"
+        self.error_context += f"\n{context}"
 
-    def add_warning(self, msg: str) -> None:
-        self.warnings.append(msg)
+
+def get_ai_explanation(error_text: str, source_code: str) -> str:
+    """Use a small qwen3.5 model to explain the error without crashing."""
+    try:
+        from hypernix.neo_oven import preheat
+        oven = preheat("qwen3.5-4b", quiet=True)
+        
+        prompt = (
+            f"An error occurred while testing a Python script.\n\n"
+            f"Source code snippet:\n```python\n{source_code[:1500]}\n```\n\n"
+            f"Error output:\n```\n{error_text[-1500:]}\n```\n\n"
+            f"Explain what is wrong and tell me how to fix it, and mention the line numbers."
+        )
+        # Use chat format for a better response
+        reply = oven.chat([{"role": "user", "content": prompt}], max_new_tokens=256)
+        return reply
+    except Exception as e:
+        return f"[AI Explanation Unavailable]: Failed to load AI model: {e}"
 
 
-class HyperNixVerifier:
-    """Verifies HyperNix module syntax, conventions, and runs smoke tests."""
+def run_command(cmd: list[str], timeout_s: float | None = None) -> tuple[bool, str, str]:
+    """Run a subprocess command and return (success, stdout, stderr)."""
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+        return res.returncode == 0, res.stdout, res.stderr
+    except subprocess.TimeoutExpired as e:
+        return False, "", f"Timeout after {timeout_s}s: {e}"
+    except Exception as e:
+        return False, "", str(e)
 
-    def __init__(self, strict: bool = False, smoke: bool = False):
-        self.strict = strict
-        self.smoke = smoke
-        self.console = Console()
 
-    def verify_file(self, file_path: Path) -> VerificationResult:
-        """Verify a Python file."""
-        result = VerificationResult(name=str(file_path))
-
-        if not file_path.exists():
-            result.add_error(f"File not found: {file_path}")
-            return result
-
+def lint_file(file_path: Path) -> VeraResult:
+    result = VeraResult()
+    
+    # 1. AST check
+    try:
         source = file_path.read_text(encoding="utf-8")
-
-        try:
-            tree = ast.parse(source)
-        except SyntaxError as e:
-            result.add_error(f"Syntax error: {e}")
-            return result
-
-        result.stats["lines"] = len(source.splitlines())
-
-        module_doc = ast.get_docstring(tree)
-        if not module_doc:
-            if self.strict:
-                result.add_error("Missing module docstring")
-            else:
-                result.add_warning("Missing module docstring")
-        else:
-            result.stats["module_doc_lines"] = len(module_doc.splitlines())
-
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.ClassDef):
-                self._check_class(node, result)
-            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                if not node.name.startswith("_"):
-                    self._check_function(node, result)
-
-        if self.smoke:
-            self._run_smoke_test(file_path, result)
-
+        ast.parse(source)
+    except SyntaxError as e:
+        result.fail(f"AST SyntaxError: {e}", context=str(e))
+        return result
+    except Exception as e:
+        result.fail(f"Read Error: {e}", context=str(e))
         return result
 
-    def verify_module(self, module_name: str) -> VerificationResult:
-        """Verify an installed module by name."""
-        import importlib
+    # 2. Ruff check
+    success, stdout, stderr = run_command(["ruff", "check", str(file_path)])
+    if not success:
+        result.fail("Ruff linting failed.", context=stdout + "\n" + stderr)
 
-        result = VerificationResult(name=module_name)
+    return result
 
-        try:
-            module = importlib.import_module(f"hypernix.{module_name}")
-        except ImportError as e:
-            result.add_error(f"Import failed: {e}")
+
+def smoke_test(file_path: Path) -> VeraResult:
+    result = VeraResult()
+    import importlib.util
+    
+    temp_name = f"_smoke_test_{file_path.stem}"
+    try:
+        spec = importlib.util.spec_from_file_location(temp_name, file_path)
+        if spec is None or spec.loader is None:
+            result.fail("Could not create module spec")
             return result
+            
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[temp_name] = module
+        spec.loader.exec_module(module)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        result.fail(f"Smoke test failed: {e}", context=tb)
+    
+    return result
 
-        if not hasattr(module, "__file__") or module.__file__ is None:
-            result.add_error("Module has no __file__ attribute")
-            return result
 
-        file_path = Path(module.__file__)
-        return self.verify_file(file_path)
-
-    def verify_all(self):
-        """Verify all hypernix modules."""
-        import hypernix
-        root = Path(hypernix.__file__).parent
-
-        for file_path in sorted(root.glob("*.py")):
-            if file_path.name.startswith("_"):
-                continue
-            module_name = file_path.stem
-            yield self.verify_module(module_name)
-
-    def _check_class(self, node: ast.ClassDef, result: VerificationResult) -> None:
-        """Check a class definition."""
-        doc = ast.get_docstring(node)
-        if not doc and self.strict:
-            result.add_error(f"Class '{node.name}' missing docstring")
-        elif not doc:
-            result.add_warning(f"Class '{node.name}' missing docstring")
-
-        result.stats["classes"] = result.stats.get("classes", 0) + 1
-
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
-                if not item.name.startswith("_") or item.name in ("__init__", "__call__"):
-                    self._check_function(item, result, prefix=f"{node.name}.")
-
-    def _check_function(
-        self,
-        node: ast.FunctionDef | ast.AsyncFunctionDef,
-        result: VerificationResult,
-        prefix: str = "",
-    ) -> None:
-        """Check a function definition."""
-        doc = ast.get_docstring(node)
-        if not doc and self.strict:
-            result.add_error(f"Function '{prefix}{node.name}' missing docstring")
-        elif not doc:
-            result.add_warning(f"Function '{prefix}{node.name}' missing docstring")
-
-        has_annotations = False
-        if node.returns:
-            has_annotations = True
-        for arg in node.args.args:
-            if arg.annotation:
-                has_annotations = True
-                break
-
-        if not has_annotations:
-            result.add_warning(f"Function '{prefix}{node.name}' lacks type annotations")
-
-        key = "methods" if prefix else "functions"
-        result.stats[key] = result.stats.get(key, 0) + 1
-
-    def _run_smoke_test(self, file_path: Path, result: VerificationResult) -> None:
-        """Run a basic smoke test by importing the module."""
-        import importlib.util
-
-        temp_name = f"_smoke_test_{file_path.stem}"
-
-        try:
-            spec = importlib.util.spec_from_file_location(temp_name, file_path)
-            if spec is None or spec.loader is None:
-                result.add_error("Could not create module spec for smoke test")
-                return
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[temp_name] = module
-            spec.loader.exec_module(module)
-
-            if hasattr(module, "__all__"):
-                for name in module.__all__:
-                    if not hasattr(module, name):
-                        result.add_error(f"__all__ declares '{name}' but it's not defined")
-
-            result.stats["smoke_test"] = 1
-
-        except Exception as e:
-            result.add_error(f"Smoke test failed: {e}")
-
-    def print_result(self, result: VerificationResult) -> None:
-        """Pretty-print a verification result."""
-        if result.passed:
-            status = "[green]✓ PASS[/]"
+def run_pytest(file_path: Path, timeout_s: float | None) -> VeraResult:
+    result = VeraResult()
+    success, stdout, stderr = run_command(["pytest", str(file_path)], timeout_s)
+    if not success:
+        if "no tests ran" in stdout:
+            # Not a failure if there are just no tests
+            pass
         else:
-            status = "[red]✗ FAIL[/]"
+            result.fail("Pytest failed.", context=stdout + "\n" + stderr)
+    return result
 
-        self.console.print(f"\n{status} [bold]{result.name}[/]")
 
-        if result.stats:
-            stats_str = " | ".join(f"{k}={v}" for k, v in sorted(result.stats.items()))
-            self.console.print(f"  [dim]{stats_str}[/]")
+def execute_file(file_path: Path, args: list[str], timeout_s: float | None) -> VeraResult:
+    result = VeraResult()
+    cmd = [sys.executable, str(file_path)] + args
+    success, stdout, stderr = run_command(cmd, timeout_s)
+    if not success:
+        result.fail(f"Execution failed with args {args}", context=stdout + "\n" + stderr)
+    return result
 
-        for warning in result.warnings:
-            self.console.print(f"  [yellow]⚠ {warning}[/]")
-        for error in result.errors:
-            self.console.print(f"  [red]✗ {error}[/]")
 
-    def print_summary(self, results: list[VerificationResult]) -> None:
-        """Print a summary table of all results."""
-        passed = sum(1 for r in results if r.passed)
-        total = len(results)
-
-        table = Table(title="Verification Summary")
-        table.add_column("Module", style="cyan")
-        table.add_column("Status", justify="center")
-        table.add_column("Errors", justify="right")
-        table.add_column("Warnings", justify="right")
-
-        for r in results:
-            status = "[green]✓[/]" if r.passed else "[red]✗[/]"
-            table.add_row(r.name, status, str(len(r.errors)), str(len(r.warnings)))
-
-        self.console.print(table)
-        self.console.print(f"\n[bold]{passed}/{total} passed[/] ({total - passed} failed)")
+def test_arguments(file_path: Path, depth: int, timeout_s: float | None) -> VeraResult:
+    """Test script functions or CLI arguments one at a time."""
+    result = VeraResult()
+    
+    # Approach: we try to run the script with --help to find arguments
+    success, stdout, stderr = run_command([sys.executable, str(file_path), "--help"], timeout_s)
+    if success and "-h" in stdout or "--help" in stdout:
+        # Extract simplistic arguments (lines starting with  - or --)
+        args_to_test = []
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("-") and not line.startswith("--help"):
+                arg = line.split()[0].replace(",", "")
+                args_to_test.append(arg)
+        
+        # Test them based on depth
+        for i, arg in enumerate(args_to_test):
+            if i >= depth:
+                break
+            cmd = [sys.executable, str(file_path), arg]
+            succ, out, err = run_command(cmd, timeout_s)
+            if not succ:
+                result.fail(f"Argument test failed for {arg}", context=out + "\n" + err)
+                break
+    else:
+        # No --help, try AST function execution testing
+        try:
+            source = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            functions = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+            if functions:
+                result.fail(f"Script has no standard CLI help, found functions: {functions[:depth]}. "
+                            "Advanced FT argument probing failed.", context="No CLI arg parser detected.")
+        except Exception as e:
+            result.fail("Failed to parse script for FT.", context=str(e))
+            
+    return result
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    """CLI entry point for hnx vera."""
-    args = list(argv if argv is not None else sys.argv[1:])
-    console = Console()
+    parser = argparse.ArgumentParser(
+        prog="hnx vera",
+        description="Verify HyperNix module syntax, run smoke tests, and intelligently explain errors."
+    )
+    parser.add_argument("file", help="Python file to test")
+    parser.add_argument("-dr", "--dry-run", action="store_true", help="Run the file with dry-run flag")
+    parser.add_argument("-C", "--full-run", action="store_true", help="Fully run the file")
+    parser.add_argument("-FT", "--function-test", action="store_true", help="Test each argument one at a time")
+    parser.add_argument("-q", "--depth", type=int, default=1, help="Argument testing depth (1-10)")
+    parser.add_argument("-t", "--timeout", type=float, default=None, help="Timeout value")
+    parser.add_argument("-T", "--timeout-unit", choices=["s", "M", "ml"], default="ml", help="Timeout unit (s, M, ml)")
+    
+    # Allow unknown args to pass? No, just parse known.
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    file_path = Path(args.file)
+    
+    if not file_path.exists():
+        console.print(f"[red]Error:[/] File not found: {file_path}")
+        return 1
 
-    strict = "--strict" in args
-    smoke = "--smoke" in args
-    all_modules = "--all" in args
+    timeout_s = None
+    if args.timeout is not None:
+        if args.timeout_unit == "ml":
+            timeout_s = args.timeout / 1000.0
+        elif args.timeout_unit == "s":
+            timeout_s = args.timeout
+        elif args.timeout_unit == "M":
+            timeout_s = args.timeout * 60.0
 
-    for flag in ("--strict", "--smoke", "--all"):
-        while flag in args:
-            args.remove(flag)
+    console.print(f"[bold cyan]Vera:[/] Analyzing {file_path} ...\n")
+    
+    stages = [
+        ("Linting (AST + Ruff)", lambda: lint_file(file_path)),
+        ("Smoke Testing", lambda: smoke_test(file_path)),
+        ("Pytest", lambda: run_pytest(file_path, timeout_s)),
+    ]
+    
+    if args.dry_run:
+        stages.append(("Dry Run", lambda: execute_file(file_path, ["--dry-run"], timeout_s)))
+        # Fallback to -dr if --dry-run isn't recognized could be added, but this suffices for the request.
+    elif args.full_run:
+        stages.append(("Full Run", lambda: execute_file(file_path, [], timeout_s)))
+        
+    if args.function_test:
+        stages.append(("Argument Testing (-FT)", lambda: test_arguments(file_path, args.depth, timeout_s)))
 
-    if "--help" in args or "-h" in args or not args:
-        console.print("""
-[bold]hnx vera[/] — Verify HyperNix module syntax and run smoke tests
+    source_code = file_path.read_text(encoding="utf-8", errors="ignore")
+    
+    for stage_name, stage_fn in stages:
+        console.print(f"Running [bold]{stage_name}[/] ...")
+        res = stage_fn()
+        if not res.passed:
+            console.print(f"[red]✗ {stage_name} Failed![/]")
+            if res.output:
+                console.print(f"[dim]{res.output}[/]")
+            
+            console.print("\n[bold yellow]Vera AI Analysis:[/] (Using qwen3.5-4b)")
+            with console.status("Generating explanation..."):
+                explanation = get_ai_explanation(res.error_context, source_code)
+            console.print(f"[green]{explanation}[/]")
+            return 1
+        else:
+            console.print(f"[green]✓ {stage_name} Passed[/]\n")
 
-[bold]Usage:[/]
-  hnx vera <file.py>               Verify a Python file
-  hnx vera <module_name>           Verify a hypernix module
-  hnx vera --all                   Verify all hypernix modules
-  hnx vera --strict <file>         Fail on missing docstrings
-  hnx vera --smoke <file>          Run smoke test after checks
-
-[bold]Checks performed:[/]
-  • Syntax validation (AST parsing)
-  • Module/class/function docstring coverage
-  • Type annotation coverage
-  • Import correctness
-  • Smoke test (module loads without errors)
-
-[bold]Examples:[/]
-  hnx vera pressure_cooker_v5.py   # Verify a file
-  hnx vera pressure_cooker_v5      # Verify installed module
-  hnx vera --all --strict          # Strict check of everything
-  hnx vera --smoke my_module.py    # Verify + smoke test
-        """)
-        return 0
-
-    verifier = HyperNixVerifier(strict=strict, smoke=smoke)
-
-    if all_modules:
-        results = list(verifier.verify_all())
-        for r in results:
-            verifier.print_result(r)
-        verifier.print_summary(results)
-        return 0 if all(r.passed for r in results) else 1
-
-    target = args[0]
-    file_path = Path(target)
-
-    if file_path.exists() and file_path.suffix == ".py":
-        result = verifier.verify_file(file_path)
-    else:
-        result = verifier.verify_module(target)
-
-    verifier.print_result(result)
-    return 0 if result.passed else 1
+    console.print("[bold green]All checks passed successfully![/]")
+    return 0
 
 
 if __name__ == "__main__":

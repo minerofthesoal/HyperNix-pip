@@ -1291,7 +1291,7 @@ class OvenRunner:
     def load(self) -> None:
         if self.entry.provider == "local":
             try:
-                from .old_oven import preheat
+                from .neo_oven import preheat
                 self.local_oven = preheat(self.entry.repo_id, quiet=True)
             except Exception as exc:  # noqa: BLE001
                 self.load_error = str(exc)

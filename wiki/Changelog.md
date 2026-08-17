@@ -21,6 +21,34 @@ next release header.
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
 ## next version 0.71.5
+## 0.71.5a2
+
+✨ **`neo_oven` — Unified Model Management Module** — New `hypernix.neo_oven` module replaces `old_oven`, `old_fridge`, `mediocre_fridge`, and `new_fridge` as the single, production-ready entry point for model loading, generation, training, and evaluation.
+
+✨ **`NeoOven` class** — Full successor to `CodeOven` with identical API (`complete`, `fill`, `chat`, `train`, `save_pt`) plus new capabilities: `stream()` for token-by-token generation, `generate_batch()` for batched inference, inline `freeze_backbone()` / `memory_stats()` / `vram()`, and `build_judge_corpus()` shortcut.
+
+✨ **`JudgeCorpus`** — Replaces `mediocre_fridge` toy script. Proper class-based judge/reward-model dataset builder supporting: `from_pairs()`, `from_oven()` (collect real LLM responses), `from_hf_dataset()` (HF `datasets` integration), JSONL and legacy text serialization, round-trip `load()`, and configurable hard-negative augmentation with 7 strategies (not just 5 character-shuffles).
+
+✨ **`TrainingMetrics`** — Replaces `new_fridge` regex log parsing + static matplotlib. Callback-based metrics collector with native TensorBoard (`SummaryWriter`), Weights & Biases, and MLflow integration. Buffers all steps locally; produces loss-curve PNGs, score histograms, and multi-round plots on demand via `plot_loss()` / `plot_score_distribution()` / `plot_round_losses()`. Export to JSONL via `to_jsonl()`. `NeoOven.train()` accepts `metrics=True` to auto-attach.
+
+✨ **Inline memory management** — `freeze()`, `unfreeze()`, `parameter_stats()`, `offload_to_cpu()`, `chill_cache()`, `vram_stats()` — all previously in `old_fridge`, now unified in `neo_oven` with improved DDP/FSDP/`torch.compile` unwrapping and 7 strategies for hard-negative augmentation.
+
+✨ **`preheat()` / `new_oven()`** — Top-level functional shortcuts identical in call signature to their `old_oven` counterparts, now returning a `NeoOven` instead of a `CodeOven`.
+
+✨ **`parse_training_log()`** — Extended to return structured dicts with `step`, `loss`, `lr`, and `ppl` fields instead of flat `(step, loss)` tuples, while remaining backward-compatible.
+
+🔧 **Backward-compatibility shims** — `plot_loss_curve()`, `plot_score_distribution()`, `plot_round_losses()`, and `synthesize_judge_corpus()` are re-exported from `neo_oven` so callers using the `new_fridge` / `mediocre_fridge` API surface continue to work without changes.
+
+🔧 **Codebase-wide transition** — All internal imports in `cli.py`, `hyped.py`, `hyped_pro_core.py`, `bell.py`, `countertop.py`, and `vera.py` now route through `neo_oven.preheat` instead of `old_oven.preheat`. `old_oven.py`'s internal `old_fridge` dependency was cut and replaced with `neo_oven.unwrap_model`.
+
+✂️ **Legacy modules deprecated** — `old_oven`, `old_fridge`, `mediocre_fridge`, `new_fridge` now print a **bold red** deprecation warning on import (via `rich.Console`) pointing users to `neo_oven`. The files are kept intact for backward compatibility.
+
+🔧 **Tests** — New `tests/test_neo_oven.py` with comprehensive coverage: memory management, `JudgeCorpus` round-trips, `TrainingMetrics` recording and JSONL output, `parse_training_log`, arch preset completeness, and importability checks.
+
+## 0.71.5A1
+✨ **Vera Redesign** — Transformed Vera from an AI assistant into a robust smoke-testing and linting tool (`hnx vera`). Added support for `ast`/`ruff` linting, argument testing (`-FT`), dry-runs (`-dr`), full-runs (`-C`), timeout tracking, and `pytest` fallbacks.
+✨ **Vera AI Analysis** — When a test fails in Vera, it now surfaces an advanced AI explanation powered by Qwen3.5-4b (`hypernix.neo_oven.preheat`) to identify line numbers and fixes without crashing.
+✨ **Pressure Cooker V5S Exposure** — `pressure_cooker_v5s` is now directly importable from the top-level `hypernix` namespace (and aliased as `pressurecooker_v5s`).
 
 ## Unreleased
 ✨ **`PressureCookerV6` / `PressureCookerV6V`** — new speed-first optimizer

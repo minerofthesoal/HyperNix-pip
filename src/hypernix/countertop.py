@@ -15,7 +15,7 @@ with.  The :class:`Countertop` class is the same idea for chat:
 
 Quick start::
 
-    from hypernix.old_oven import preheat
+    from hypernix.neo_oven import preheat
     from hypernix.countertop import Countertop
 
     oven = preheat("hyper-nix.2")

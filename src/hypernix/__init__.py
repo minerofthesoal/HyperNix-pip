@@ -14,7 +14,7 @@ trained, quantized, uploaded HuggingFace snapshot:
   Non-HyperNix architectures (Gemma, Phi, DeepSeek, GLM, GPT-OSS,
   Qwen3/3.5/3.6, Gemma 4, …) route through a thin
   ``transformers.AutoModelForCausalLM`` wrapper.
-* :mod:`hypernix.old_oven` — :class:`CodeOven`, :func:`preheat`,
+* :mod:`hypernix.old_oven` and :mod:`hypernix.neo_oven` — :class:`CodeOven`, :class:`NeoOven`, :func:`preheat`,
   :func:`new_oven`, plus the :data:`ARCH_PRESETS` seed-init models
   across the Llama / Qwen / Gemma / Phi / GLM / DeepSeek / Nemotron /
   GPT-OSS / Nix families.
@@ -98,6 +98,8 @@ __all__ = [
     "PressureCookerV4",
     "PressureCookerV5",
     "PressureCookerV5Plus",
+    "PressureCookerV5S",
+    "V5SConfig",
     "PressureCookerV6",
     "PressureCookerV6V",
     "QUANT_CATALOG",
@@ -121,6 +123,12 @@ __all__ = [
     "cardboard_box",
     "qa",
     "assistant",
+    "nano_nano",
+    "neo_oven",
+    "NeoOven",
+    "NeoDatasetBuilder",
+    "NeoMetricsCallback",
+    "net",
     "bake_code",
     "bell",
     "blender",
@@ -176,6 +184,8 @@ __all__ = [
     "pressure_cooker_v3",
     "pressure_cooker_v4",
     "pressure_cooker_v5",
+    "pressure_cooker_v5s",
+    "pressurecooker_v5s",
     "pressure_cooker_v6",
     "pressure_cooker_v6v",
     "preheat",
@@ -250,6 +260,10 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'CPU_PRESETS': ('freezer', 'CPU_PRESETS'),
     'CardboardBox': ('cardboard_box', 'CardboardBox'),
     'CodeOven': ('old_oven', 'CodeOven'),
+    'NeoOven': ('neo_oven', 'NeoOven'),
+    'NeoDatasetBuilder': ('neo_oven', 'NeoDatasetBuilder'),
+    'NeoMetricsCallback': ('neo_oven', 'NeoMetricsCallback'),
+    'Config': ('config', 'Config'),
     'ComputeArch': ('compute_framework', 'ComputeArch'),
     'ComputeFramework': ('compute_framework', 'ComputeFramework'),
     'CookerLite': ('pressure_cooker_v4', 'CookerLite'),
@@ -268,6 +282,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'PressureCookerV4': ('pressure_cooker_v4', 'PressureCookerV4'),
     'PressureCookerV5': ('pressure_cooker_v5', 'PressureCookerV5'),
     'PressureCookerV5Plus': ('pressure_cooker_v5', 'PressureCookerV5Plus'),
+    'PressureCookerV5S': ('pressure_cooker_v5s', 'PressureCookerV5S'),
+    'V5SConfig': ('pressure_cooker_v5s', 'V5SConfig'),
     'PressureCookerV6': ('pressure_cooker_v6', 'PressureCookerV6'),
     'PressureCookerV6V': ('pressure_cooker_v6v', 'PressureCookerV6V'),
     'QAProcessor': ('qa', 'QAProcessor'),
@@ -341,6 +357,9 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'mediocre_fridge': ('mediocre_fridge', None),
     'menu': ('menu', None),
     'microwave': ('microwave', None),
+    'nano_nano': ('nano_nano', None),
+    'neo_oven': ('neo_oven', None),
+    'net': ('net', None),
     'new_fridge': ('new_fridge', None),
     'new_oven': ('old_oven', 'new_oven'),
     'new_range': ('new_range', None),
@@ -357,6 +376,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'pressure_cooker_v3': ('pressure_cooker_v3', None),
     'pressure_cooker_v4': ('pressure_cooker_v4', None),
     'pressure_cooker_v5': ('pressure_cooker_v5', None),
+    'pressure_cooker_v5s': ('pressure_cooker_v5s', None),
+    'pressurecooker_v5s': ('pressure_cooker_v5s', None),
     'pressure_cooker_v6': ('pressure_cooker_v6', None),
     'pressure_cooker_v6v': ('pressure_cooker_v6v', None),
     'print_models': ('utils', 'print_models'),
@@ -451,7 +472,9 @@ if TYPE_CHECKING:
         assistant,
         bell,
         blender,
-        cake_pan,
+        nano_nano,
+        neo_oven,
+        net,
         cardboard_box,
         coffee_maker,
         compactor,
@@ -494,6 +517,8 @@ if TYPE_CHECKING:
         pressure_cooker_v3,
         pressure_cooker_v4,
         pressure_cooker_v5,
+        pressure_cooker_v5s,
+        pressurecooker_v5s,
         pressure_cooker_v6,
         pressure_cooker_v6v,
         qa,
@@ -542,6 +567,13 @@ if TYPE_CHECKING:
     )
     from .gatekeeper import Gatekeeper, Quota, QuotaViolation
     from .generate import generate_text
+    from .nano_nano import NanoNanoModel
+    from .neo_oven import (
+        NeoDatasetBuilder,
+        NeoMetricsCallback,
+        NeoOven,
+    )
+    from .net import tailscale_ssh_check
     from .keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
     from .lazy_suzan import LazySusan, LazySusanConfig
     from .old_oven import (
@@ -575,6 +607,10 @@ if TYPE_CHECKING:
         PressureCookerV5,
         PressureCookerV5Plus,
         ULTRAagedcookerv5,
+    )
+    from .pressure_cooker_v5s import (
+        PressureCookerV5S,
+        V5SConfig,
     )
     from .pressure_cooker_v6 import PressureCookerV6
     from .pressure_cooker_v6v import PressureCookerV6V

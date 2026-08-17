@@ -2,7 +2,7 @@
 
 A bell rings when an order's done.  Here it does two things:
 
-1.  Wraps any ``CodeOven`` (or compatible) so generation streams
+1.  Wraps any ``NeoOven`` (or compatible) so generation streams
     one token at a time through user-supplied callbacks instead of
     blocking until the full reply is ready.
 2.  Provides a tiny notification primitive so a long chat or batch
@@ -11,7 +11,7 @@ A bell rings when an order's done.  Here it does two things:
 Usage with a chat oven::
 
     from hypernix.bell import Bell
-    from hypernix.old_oven import preheat
+    from hypernix.neo_oven import preheat
 
     oven = preheat("hyper-nix.2")
 
@@ -35,7 +35,7 @@ Both forms also work for plain completion via ``stream_complete`` /
 
 The bell is **not** required for chatting — :class:`hypernix.countertop.Countertop`
 uses it under the hood when you pass ``stream=True``, but you can
-also use it standalone with ``CodeOven``.
+also use it standalone with ``NeoOven``.
 """
 from __future__ import annotations
 

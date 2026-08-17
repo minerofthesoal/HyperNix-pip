@@ -24,6 +24,8 @@ special-tokens) so any byte/BPE tokenizer can consume them without
 modification.
 """
 from __future__ import annotations
+from rich.console import Console
+Console().print("[bold red]WARNING: mediocre_fridge is deprecated. Please transition to neo_oven.[/]")
 
 import random
 from collections.abc import Sequence

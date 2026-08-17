@@ -23,6 +23,8 @@ Typical use (CLI)::
                                          --fill-suffix "\\n\\nprint(add(1,2))"
 """
 from __future__ import annotations
+from rich.console import Console
+Console().print("[bold red]WARNING: old_oven is deprecated. Please transition to neo_oven.[/]")
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,7 +33,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from . import old_fridge
+from .neo_oven import unwrap_model as _unwrap_model_fn
 from .download import download_model, verify_snapshot
 from .generate import _load_tokenizer, _sample_next
 from .train import (
@@ -769,10 +771,10 @@ class CodeOven:
                 optimizer_kwargs["peak_lr"] = lr
             if "grad_clip" in optimizer_params:
                 optimizer_kwargs["grad_clip"] = grad_clip
-            core = old_fridge.unwrap_model(self.model)
+            core = _unwrap_model_fn(self.model)
             opt = optimizer_class(core.parameters(), **optimizer_kwargs)
         else:
-            core = old_fridge.unwrap_model(self.model)
+            core = _unwrap_model_fn(self.model)
             opt = torch.optim.AdamW(core.parameters(), lr=lr, **optimizer_kwargs)
             
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, steps))

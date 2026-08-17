@@ -602,7 +602,7 @@ DEFAULT_LOCAL_DTYPE = os.environ.get("HYPED_PRO_DTYPE", "float16")
 
 def _get_oven(model: ModelDef, quiet: bool = True):
     _require("torch", "torch")
-    from .old_oven import preheat
+    from .neo_oven import preheat
 
     dtype = DEFAULT_LOCAL_DTYPE
     device = os.environ.get("HYPED_PRO_DEVICE")
