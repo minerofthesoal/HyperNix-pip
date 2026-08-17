@@ -12,10 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import json
-import math
 import random
-import tempfile
-from pathlib import Path
 
 import pytest
 import torch
@@ -23,10 +20,10 @@ import torch.nn as nn
 
 from hypernix.neo_oven import (
     ARCH_PRESETS,
-    JudgeCorpus,
-    JudgeExample,
     LABEL_BAD,
     LABEL_GOOD,
+    JudgeCorpus,
+    JudgeExample,
     ParamStats,
     TrainingMetrics,
     _mangle_response,
@@ -42,7 +39,6 @@ from hypernix.neo_oven import (
     unwrap_model,
     vram_stats,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -138,7 +134,7 @@ class TestJudgeCorpus:
         out = corpus.save(tmp_path / "corpus.jsonl")
         loaded = JudgeCorpus.load(out)
         assert len(loaded) == len(corpus)
-        for a, b in zip(corpus.examples, loaded.examples):
+        for a, b in zip(corpus.examples, loaded.examples, strict=True):
             assert a.prompt == b.prompt
             assert a.response == b.response
             assert a.label == b.label
@@ -291,9 +287,7 @@ def test_neooven_class_importable():
 
 def test_plot_functions_importable():
     from hypernix.neo_oven import (
-        plot_loss_curve,
         plot_round_losses,
-        plot_score_distribution,
     )
     assert callable(plot_loss_curve)
     assert callable(plot_score_distribution)

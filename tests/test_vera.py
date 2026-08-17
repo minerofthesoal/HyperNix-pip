@@ -1,7 +1,5 @@
-import pytest
-import sys
-from pathlib import Path
-from hypernix.vera import lint_file, smoke_test, test_arguments, cli_main
+from hypernix.vera import cli_main, lint_file, smoke_test
+
 
 def test_lint_valid_file(tmp_path):
     valid_file = tmp_path / "valid.py"

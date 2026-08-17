@@ -20,7 +20,7 @@ import argparse
 import ast
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console
@@ -38,6 +38,61 @@ class VeraResult:
         self.passed = False
         self.output += f"\nError: {msg}"
         self.error_context += f"\n{context}"
+
+
+@dataclass
+class VerificationResult:
+    """Result of a :class:`HyperNixVerifier` check on a single file."""
+
+    name: str
+    passed: bool = True
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def add_error(self, msg: str) -> None:
+        self.errors.append(msg)
+        self.passed = False
+
+    def add_warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+
+
+class HyperNixVerifier:
+    """Lightweight, in-process syntax and style verifier.
+
+    This complements the module-level :func:`lint_file` / :func:`smoke_test`
+    helpers (which shell out to ``ruff`` and actually import the file) with
+    a cheap, dependency-free check: syntax validity via :func:`ast.parse`
+    plus a module-docstring convention check. In ``strict`` mode a missing
+    module docstring is treated as an error; otherwise it's just a warning.
+    """
+
+    def __init__(self, strict: bool = False) -> None:
+        self.strict = strict
+
+    def verify_file(self, file_path: Path) -> VerificationResult:
+        result = VerificationResult(name=str(file_path))
+
+        try:
+            source = file_path.read_text(encoding="utf-8")
+        except OSError as e:
+            result.add_error(f"Could not read file: {e}")
+            return result
+
+        try:
+            tree = ast.parse(source, filename=str(file_path))
+        except SyntaxError as e:
+            result.add_error(f"SyntaxError: {e}")
+            return result
+
+        if ast.get_docstring(tree) is None:
+            msg = "Missing module docstring"
+            if self.strict:
+                result.add_error(msg)
+            else:
+                result.add_warning(msg)
+
+        return result
 
 
 def get_ai_explanation(error_text: str, source_code: str) -> str:

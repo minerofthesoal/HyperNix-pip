@@ -15,6 +15,7 @@ string, not a bare Python traceback.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -28,12 +29,17 @@ TIMEOUT_LONG = 180
 
 
 def _run(args: list[str], *, timeout: int = TIMEOUT_SHORT) -> subprocess.CompletedProcess:
-    env = {
-        "PYTHONPATH": str(SRC),
-        "HYPERNIX_AUTO_INSTALL": "0",  # never touch pip during tests
-        "PATH": "/usr/bin:/bin:/usr/local/bin",
-        "HOME": str(Path.home()),
-    }
+    # Start from the real parent environment rather than a hand-rolled one.
+    # A hardcoded Unix-style PATH (with no SystemRoot/etc.) breaks socket
+    # initialization on Windows: subprocess.run(..., env=...) replaces the
+    # child's entire environment, and without SystemRoot, Winsock can't
+    # locate its provider, so anything touching sockets (asyncio, requests,
+    # huggingface_hub, ...) dies with OSError: [WinError 10106]. Inheriting
+    # os.environ and overriding only what the test actually needs avoids
+    # that while keeping the run hermetic for the two knobs that matter.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(SRC)
+    env["HYPERNIX_AUTO_INSTALL"] = "0"  # never touch pip during tests
     return subprocess.run(
         [sys.executable, "-m", "hypernix.cli", *args],
         cwd=str(REPO_ROOT),

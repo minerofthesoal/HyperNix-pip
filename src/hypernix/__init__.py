@@ -127,10 +127,7 @@ __all__ = [
     "NanoNanoModel",
     "neo_oven",
     "NeoOven",
-    "NeoDatasetBuilder",
-    "NeoMetricsCallback",
     "net",
-    "tailscale_ssh_check",
     "bake_code",
     "bell",
     "blender",
@@ -264,9 +261,6 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'CodeOven': ('old_oven', 'CodeOven'),
     'NanoNanoModel': ('nano_nano', 'NanoNanoModel'),
     'NeoOven': ('neo_oven', 'NeoOven'),
-    'NeoDatasetBuilder': ('neo_oven', 'NeoDatasetBuilder'),
-    'NeoMetricsCallback': ('neo_oven', 'NeoMetricsCallback'),
-    'Config': ('config', 'Config'),
     'ComputeArch': ('compute_framework', 'ComputeArch'),
     'ComputeFramework': ('compute_framework', 'ComputeFramework'),
     'CookerLite': ('pressure_cooker_v4', 'CookerLite'),
@@ -363,7 +357,6 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'nano_nano': ('nano_nano', None),
     'neo_oven': ('neo_oven', None),
     'net': ('net', None),
-    'tailscale_ssh_check': ('net', 'tailscale_ssh_check'),
     'new_fridge': ('new_fridge', None),
     'new_oven': ('old_oven', 'new_oven'),
     'new_range': ('new_range', None),
@@ -574,12 +567,7 @@ if TYPE_CHECKING:
     from .keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
     from .lazy_suzan import LazySusan, LazySusanConfig
     from .nano_nano import NanoNanoModel
-    from .neo_oven import (
-        NeoDatasetBuilder,
-        NeoMetricsCallback,
-        NeoOven,
-    )
-    from .net import tailscale_ssh_check
+    from .neo_oven import NeoOven
     from .old_oven import (
         ARCH_PRESETS,
         CodeOven,
