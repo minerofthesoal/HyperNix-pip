@@ -21,6 +21,24 @@ next release header.
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
 ## next version 0.71.5
+## 0.71.5b1
+
+✨ **T1 API (`hypernix.t1api`) — Beta 1** — Controlled HTTP gateway into HyperNix-pip, built as a mountable FastAPI module (`hypernix.t1api.create_app`). Implements the spec's Beta 1 scope exactly: core FastAPI server, T1 authentication + scoped tokens, model registry, basic per-key/per-model usage tracking, `/health` `/status` `/models` + auth/usage/config endpoints, SQLite storage, OpenAPI docs. Full contract in `wiki/T1-API.md`.
+
+✨ **Model Registry** — `hypernix.t1api.registry.ModelRegistry` is the single source of truth for which models the T1 API exposes; unregistered `model_id`s always return `MODEL_NOT_SUPPORTED`, never silently fall through to a client-supplied path. The nine example models from the spec (HyperNix 1, Ryiver 1, nanoNix, ...) ship as seed data but are invisible by default (`status: "example"`) — set `T1_ENABLE_EXAMPLE_MODELS=1` to make them selectable for local testing.
+
+✨ **Auth integration, not reimplementation** — `hypernix.t1api.auth.T1AuthService` wraps the existing `Keymaster`/`Gatekeeper` rather than duplicating key storage or quota logic, and adds short-lived HMAC-signed scoped tokens (`POST /auth/token`) on top. Admin-only `POST /auth/t1/admin/rotate` implements "convert a normal T1 token into an admin token only when the authenticated user has the required permission."
+
+✨ **Usage metering** — `hypernix.t1api.usage.UsageMeter` tracks per-key/per-model usage on SQLite (`hypernix.t1api.storage.UsageStore`) and enforces the spec's "either input or output cap hit = fully exhausted, independent per model" rule via `MODEL_QUOTA_EXHAUSTED`.
+
+✨ **`waiter` — the official T1 API TUI/CLI** — New `waiter` console script (`hypernix.waiter`), zero hard deps beyond core `hypernix` (stdlib `urllib` client). Implements the spec's single-command automatic setup (`waiter serv -A -I <server> -K <T1_TOKEN> -E`) plus `models`/`model`/`status`/`health`/`whoami`/`usage`/`config` subcommands. Every `serv` flag from the spec is parsed and accepted; flags needing Beta 2/3 server endpoints (`-B`/`-W`/`-r`/`-a`, full `-Rf`/`-y`, `-G`) store intent locally and print a stable "not wired yet" notice instead of no-op'ing silently. Full flag-by-flag status in `wiki/Waiter-TUI.md`.
+
+🔧 **New optional extras** — `hypernix[t1api]` (`fastapi`, `uvicorn`, `pydantic`, `python-dotenv`) for the HTTP layer; `hypernix[t1api-test]` adds `httpx` for `tests/test_t1api_http.py`. `hypernix.t1api`'s core (registry/storage/usage/auth/config/errors) stays importable without either — same zero-extra-deps-for-core-logic pattern as `hypernix.keymaster`/`hypernix.gatekeeper`.
+
+🔧 **Tests** — `tests/test_t1api_core.py` and `tests/test_t1api_auth.py` (pure-Python core, run against the real `Keymaster`/`Gatekeeper`, no extra deps needed) plus `tests/test_t1api_http.py` (FastAPI `TestClient`, needs `hypernix[t1api-test]`).
+
+📚 **`wiki/T1-API.md`, `wiki/Waiter-TUI.md`** — New pages: architecture, model registry semantics, auth, quota rules, endpoint reference, full Beta 1→4 roadmap table matching the spec's own beta breakdown, security notes.
+
 ## 0.71.5a2
 
 ✨ **`neo_oven` — Unified Model Management Module** — New `hypernix.neo_oven` module replaces `old_oven`, `old_fridge`, `mediocre_fridge`, and `new_fridge` as the single, production-ready entry point for model loading, generation, training, and evaluation.

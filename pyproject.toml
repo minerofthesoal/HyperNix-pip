@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.71.5a2"
+version = "0.71.5b1"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "LLU-0.1" }
@@ -62,6 +62,22 @@ dev = ["pytest>=8", "ruff>=0.5", "build>=1.2", "twine>=5"]
 # When not installed, Keymaster falls back to plain JSON storage with
 # a warning. Install with: pip install hypernix[security]
 security = ["cryptography>=42"]
+# v0.71.5b1: HyperNix T1 API — hypernix.t1api.create_app() and the
+# `waiter` console script's server-side dependencies. hypernix.t1api's
+# core (registry/storage/usage/auth/config/errors) has NO dependency on
+# this extra and imports fine without it; only hypernix.t1api.create_app
+# (and hypernix.t1api.app/.schemas/.deps/.routers) require it. The
+# `waiter` CLI itself is a client and does NOT need this extra — it talks
+# HTTP via stdlib urllib. Install with: pip install hypernix[t1api]
+t1api = [
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.29,<1",
+    "pydantic>=2,<3",
+    "python-dotenv>=1,<2",
+]
+# Test-only deps for the t1api/waiter suites beyond the base `dev` extra
+# (httpx is FastAPI TestClient's transport; the rest come from `dev`+`t1api`).
+t1api-test = ["hypernix[dev,t1api]", "httpx>=0.27,<1"]
 # Old Intel Macs / anywhere torch 2.x won't install.  This extra does
 # NOT relax the main torch pin — the compat shims in
 # ``hypernix.torch_compat`` run on torch 1.13+, but you must pin
@@ -108,6 +124,10 @@ hyped-pro-gui = "hypernix.hyped_pro_gui:cli_main"
 multilama = "hypernix.multilama:cli_main"
 # v0.71.0: unified Gatekeeper + Keymaster CLI.
 gkey = "hypernix.gkey_cli:main"
+# v0.71.5b1: HyperNix T1 API's official client TUI/CLI. Zero-extra-deps
+# client (stdlib urllib) — does NOT require `pip install hypernix[t1api]`,
+# that extra is only for running the server (hypernix.t1api.create_app()).
+waiter = "hypernix.waiter.cli:main"
 # v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).
 hnx-map = "hypernix.map:cli_main"
 
@@ -128,7 +148,7 @@ where = ["src"]
 include = ["hypernix*"]
 
 [tool.setuptools.package-data]
-hypernix = ["py.typed", "webui_static/*", "*.js"]
+hypernix = ["py.typed", "webui_static/*", "*.js", "t1api/data/*.json"]
 
 # ---------------------------------------------------------------------------
 # Ruff / pytest defaults (also duplicated in ruff.toml / pytest.ini so

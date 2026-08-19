@@ -1,0 +1,304 @@
+"""t1api.registry — the Model Registry service.
+
+**Hard requirement (see the T1 API spec): the T1 API must only expose and
+operate on models explicitly registered here.** Nothing in this module
+discovers models from HyperNix-pip's local checkpoint cache, HuggingFace
+Hub, or any client-supplied path. A model must have an explicit
+:class:`ModelEntry` before it can be selected, routed to, assigned to a
+server/key/plan, or included in usage accounting — everything else in
+``t1api`` (routers, the router/cascade engine landing in Beta 2, usage
+metering) is required to call :meth:`ModelRegistry.require` rather than
+trust a client-supplied model_id directly.
+
+Seed data
+---------
+``t1api/data/model_registry.example.json`` ships nine example entries taken
+directly from the T1 API spec (HyperNix 1, Ryiver 1, nanoNix, ...). The spec
+is explicit that these are placeholders ("just examples and are not
+currently real"), so every seed entry is loaded with
+``status=ModelStatus.EXAMPLE`` and is excluded from
+:meth:`ModelRegistry.list` / :meth:`ModelRegistry.require` unless the
+registry is constructed with ``include_examples=True`` (or the
+``T1_ENABLE_EXAMPLE_MODELS=1`` environment variable is set — see
+``t1api.config``). This keeps the hard requirement honest: until Rayla
+swaps in real entries, the registry is intentionally empty from the point
+of view of routing and API responses.
+
+Adding real models is a data change, not a code change: write a JSON file
+in the same shape and point ``ModelRegistry.load(path=...)`` at it, or call
+``registry.register(entry)`` from an admin-only code path.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import threading
+from dataclasses import dataclass, field, asdict
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+from .errors import T1APIError, T1ErrorCode
+
+logger = logging.getLogger(__name__)
+
+_DATA_DIR = Path(__file__).parent / "data"
+_EXAMPLE_REGISTRY_PATH = _DATA_DIR / "model_registry.example.json"
+
+
+class ModelStatus(StrEnum):
+    """Lifecycle status of a registry entry."""
+
+    EXAMPLE = "example"  # placeholder / seed data — never routable by default
+    AVAILABLE = "available"
+    BETA = "beta"
+    DEPRECATED = "deprecated"
+    DISABLED = "disabled"
+
+
+class ModelAvailabilityFlag(StrEnum):
+    """Coarse availability classification, independent of per-plan gating."""
+
+    PUBLIC = "public"
+    RESTRICTED = "restricted"
+    INTERNAL = "internal"
+    OFFLINE = "offline"
+
+
+@dataclass
+class ModelPricing:
+    """Pricing metadata. All fields optional — a free/local-only model can
+    leave everything at 0."""
+
+    input_price_per_1k: float = 0.0
+    output_price_per_1k: float = 0.0
+    currency: str = "USD"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> ModelPricing:
+        d = d or {}
+        return cls(
+            input_price_per_1k=float(d.get("input_price_per_1k", 0.0)),
+            output_price_per_1k=float(d.get("output_price_per_1k", 0.0)),
+            currency=d.get("currency", "USD"),
+        )
+
+
+@dataclass
+class ModelEntry:
+    """One explicit, admin-controlled model registry entry.
+
+    Field list matches the T1 API spec's "MODEL REGISTRY" section minimum
+    set. ``model_id`` is a stable slug (never a parameter-count string —
+    see the spec's ``nanonix-mini-lite`` vs ``85b-25.25b`` example).
+    """
+
+    model_id: str
+    display_name: str
+    version: str
+    total_parameters: float  # in billions, e.g. 875.1 == 875.1B
+    active_parameters: float | None  # None for dense models w/ no MoE split
+    architecture: str
+    supported_tasks: list[str]
+    availability: ModelAvailabilityFlag
+    minimum_plan: str
+    free_tier_available: bool
+    api_available: bool
+    local_available: bool
+    remote_available: bool
+    context_limit: int
+    input_token_limit: int
+    output_token_limit: int
+    tool_call_limit: int | None
+    pricing: ModelPricing
+    routing_priority: int  # lower = preferred; used by the Beta 2 router
+    fallback_model: str | None  # model_id, or None
+    license: str
+    status: ModelStatus = ModelStatus.AVAILABLE
+    is_example_entry: bool = False
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["availability"] = self.availability.value
+        d["status"] = self.status.value
+        d["pricing"] = self.pricing.to_dict()
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ModelEntry:
+        return cls(
+            model_id=d["model_id"],
+            display_name=d["display_name"],
+            version=d.get("version", "1.0"),
+            total_parameters=float(d["total_parameters"]),
+            active_parameters=(
+                float(d["active_parameters"]) if d.get("active_parameters") is not None else None
+            ),
+            architecture=d.get("architecture", "unknown"),
+            supported_tasks=list(d.get("supported_tasks", ["chat"])),
+            availability=ModelAvailabilityFlag(d.get("availability", "public")),
+            minimum_plan=d.get("minimum_plan", "free"),
+            free_tier_available=bool(d.get("free_tier_available", False)),
+            api_available=bool(d.get("api_available", True)),
+            local_available=bool(d.get("local_available", False)),
+            remote_available=bool(d.get("remote_available", True)),
+            context_limit=int(d.get("context_limit", 8192)),
+            input_token_limit=int(d.get("input_token_limit", d.get("context_limit", 8192))),
+            output_token_limit=int(d.get("output_token_limit", 2048)),
+            tool_call_limit=d.get("tool_call_limit"),
+            pricing=ModelPricing.from_dict(d.get("pricing")),
+            routing_priority=int(d.get("routing_priority", 100)),
+            fallback_model=d.get("fallback_model"),
+            license=d.get("license", "unspecified"),
+            status=ModelStatus(d.get("status", "available")),
+            is_example_entry=bool(d.get("is_example_entry", False)),
+            notes=d.get("notes", ""),
+        )
+
+    @property
+    def is_routable(self) -> bool:
+        """True if this entry may ever be selected (manually or by the
+        router) — excludes example/disabled/deprecated entries."""
+        return self.status in (ModelStatus.AVAILABLE, ModelStatus.BETA)
+
+
+class ModelRegistry:
+    """Thread-safe, in-memory model registry backed by a JSON file.
+
+    This is the *only* place model_id → capability/limit lookups happen.
+    Routers, the usage meter, and (in Beta 2) the routing/cascade engine
+    must call :meth:`require` rather than trust a caller-supplied model_id.
+    """
+
+    def __init__(
+        self,
+        entries: dict[str, ModelEntry] | None = None,
+        *,
+        include_examples: bool = False,
+    ) -> None:
+        self._lock = threading.RLock()
+        self._entries: dict[str, ModelEntry] = dict(entries or {})
+        self._include_examples = include_examples
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def load(
+        cls,
+        path: str | Path | None = None,
+        *,
+        include_examples: bool = False,
+    ) -> ModelRegistry:
+        """Load a registry from a JSON file (a list of entry dicts).
+
+        Defaults to the shipped example seed file. Pass a real ``path`` to
+        point at production registry data instead.
+        """
+        src = Path(path) if path is not None else _EXAMPLE_REGISTRY_PATH
+        if not src.exists():
+            logger.warning("t1api.registry: %s not found, starting with an empty registry", src)
+            return cls(include_examples=include_examples)
+        raw = json.loads(src.read_text(encoding="utf-8"))
+        entries = {}
+        for item in raw:
+            entry = ModelEntry.from_dict(item)
+            entries[entry.model_id] = entry
+        logger.info("t1api.registry: loaded %d entries from %s", len(entries), src)
+        return cls(entries, include_examples=include_examples)
+
+    def to_json_file(self, path: str | Path) -> None:
+        with self._lock:
+            payload = [e.to_dict() for e in self._entries.values()]
+        Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    # ------------------------------------------------------------------
+    # Admin-only mutation (callers must enforce the admin scope check —
+    # the registry itself does not know about T1 keys/scopes)
+    # ------------------------------------------------------------------
+
+    def register(self, entry: ModelEntry) -> None:
+        """Add or replace a registry entry. Admin-only at the API layer."""
+        with self._lock:
+            self._entries[entry.model_id] = entry
+        logger.info("t1api.registry: registered model_id=%s status=%s", entry.model_id, entry.status)
+
+    def deregister(self, model_id: str) -> None:
+        with self._lock:
+            self._entries.pop(model_id, None)
+        logger.info("t1api.registry: deregistered model_id=%s", model_id)
+
+    # ------------------------------------------------------------------
+    # Read paths — used by every router and (later) the routing engine
+    # ------------------------------------------------------------------
+
+    def _visible(self, entry: ModelEntry) -> bool:
+        if entry.is_example_entry and not self._include_examples:
+            return False
+        return True
+
+    def get(self, model_id: str) -> ModelEntry | None:
+        """Return the entry for *model_id*, or None. Does NOT raise —
+        use :meth:`require` when an unregistered model should be a hard
+        error (e.g. in an API handler)."""
+        with self._lock:
+            entry = self._entries.get(model_id)
+        if entry is None or not self._visible(entry):
+            return None
+        return entry
+
+    def require(self, model_id: str) -> ModelEntry:
+        """Return the entry for *model_id* or raise ``MODEL_NOT_SUPPORTED``.
+
+        This is the enforcement point referenced throughout the spec:
+        "Unknown/unregistered models MUST return a stable error such as
+        MODEL_NOT_SUPPORTED."
+        """
+        entry = self.get(model_id)
+        if entry is None:
+            raise T1APIError(
+                T1ErrorCode.MODEL_NOT_SUPPORTED,
+                f"Model '{model_id}' is not registered in the T1 model registry.",
+                details={"model_id": model_id},
+                http_status=404,
+            )
+        return entry
+
+    def list(
+        self,
+        *,
+        status: ModelStatus | None = None,
+        plan: str | None = None,
+        routable_only: bool = False,
+    ) -> list[ModelEntry]:
+        with self._lock:
+            results = [e for e in self._entries.values() if self._visible(e)]
+        if status is not None:
+            results = [e for e in results if e.status == status]
+        if routable_only:
+            results = [e for e in results if e.is_routable]
+        if plan is not None:
+            results = [e for e in results if e.minimum_plan == plan or e.free_tier_available]
+        results.sort(key=lambda e: (e.routing_priority, e.model_id))
+        return results
+
+    def __len__(self) -> int:
+        with self._lock:
+            return sum(1 for e in self._entries.values() if self._visible(e))
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+        return f"ModelRegistry(entries={len(self)}, include_examples={self._include_examples})"
+
+
+__all__ = [
+    "ModelStatus",
+    "ModelAvailabilityFlag",
+    "ModelPricing",
+    "ModelEntry",
+    "ModelRegistry",
+]
