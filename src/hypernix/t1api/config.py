@@ -67,6 +67,11 @@ class T1APIConfig:
         default_factory=lambda: _bool_env("T1_ENABLE_EXAMPLE_MODELS", False)
     )
 
+    # --- Routing (Beta 2) -------------------------------------------------
+    routing_policy_path: str | None = field(
+        default_factory=lambda: os.environ.get("T1_ROUTING_POLICY_PATH")
+    )
+
     # --- Auth --------------------------------------------------------------
     # HMAC secret used to sign scoped tokens minted by POST /auth/token.
     # Never logged; never returned by any endpoint. Rotate by changing this
@@ -106,6 +111,7 @@ class T1APIConfig:
             "mount_prefix": self.mount_prefix,
             "storage_backend": "sqlite",
             "enable_example_models": self.enable_example_models,
+            "routing_policy_path": self.routing_policy_path,
             "usage_reset_period_seconds": self.usage_reset_period_seconds,
             "scoped_token_default_ttl_seconds": self.scoped_token_default_ttl_seconds,
         }

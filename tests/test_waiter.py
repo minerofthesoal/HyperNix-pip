@@ -113,6 +113,65 @@ def fake_server():
         srv.shutdown()
 
 
+class _FakeT1Beta2Handler(BaseHTTPRequestHandler):
+    """Minimal fake covering just the Beta 2 endpoints the CLI subcommand
+    tests exercise — separate from _FakeT1Handler (Beta 1) to keep each
+    fake focused on what it's actually testing."""
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code: int, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):  # noqa: N802
+        from urllib.parse import urlparse
+
+        path = urlparse(self.path).path
+        if path == "/servers":
+            self._send(200, {"servers": [{"server_id": "abcd1234ef", "name": "prod-1", "address": "https://p.example.com", "trust_level": "trusted", "status": "unknown"}], "count": 1, "request_id": "r"})
+        elif path == "/modules":
+            self._send(200, {"modules": [{"module_id": "mod123456", "name": "recommender", "version": "1.0.0", "status": "active", "size_bytes": 1024}], "count": 1, "request_id": "r"})
+        elif path.startswith("/jobs/"):
+            job_id = path.split("/")[2]
+            self._send(200, {"job": {"job_id": job_id, "kind": "module_sync", "status": "succeeded", "result": {"ok": True}, "error": None, "created_by": "u1", "created_at": 1.0, "started_at": 1.0, "finished_at": 1.1, "payload": {}}, "request_id": "r"})
+        elif path == "/events":
+            self._send(200, {"events": [{"event_id": "e1", "type": "server.registered", "data": {"name": "prod-1"}, "source": "servers", "ts": 1.0}], "count": 1, "request_id": "r"})
+        elif path == "/billing/balance":
+            self._send(200, {"account_type": "user", "account_id": "u1", "balance": 42.5, "request_id": "r"})
+        else:
+            self._send(404, {"error": {"code": "NOT_FOUND", "message": "no route"}, "request_id": "r"})
+
+    def do_POST(self):  # noqa: N802
+        from urllib.parse import urlparse
+
+        path = urlparse(self.path).path
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        if path == "/models/route":
+            self._send(200, {"model_id": "nanonix-mini-plus", "reason": "primary", "cascade_position": 0, "policy_name": "free_tier_default", "considered": [], "request_id": "r"})
+        elif path == "/servers/register":
+            self._send(200, {"server": {"server_id": "newserver01", "name": body["name"], "address": body["address"], "trust_level": "untrusted", "status": "unknown"}, "request_id": "r"})
+        else:
+            self._send(404, {"error": {"code": "NOT_FOUND", "message": "no route"}, "request_id": "r"})
+
+
+@pytest.fixture
+def beta2_server():
+    srv = HTTPServer(("127.0.0.1", 0), _FakeT1Beta2Handler)
+    port = srv.server_address[1]
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        srv.shutdown()
+
+
 # ===========================================================================
 # T1Client
 # ===========================================================================
@@ -262,3 +321,51 @@ class TestCliDispatch:
         assert rc == 0
         err = capsys.readouterr().err
         assert "Beta 2/3" in err or "not" in err.lower()
+
+
+class TestBeta2Subcommands:
+    """Beta 2 subcommands (route/servers/modules/jobs/events/billing)
+    against a fake server that implements just enough of the real Beta 2
+    HTTP contract to exercise the client + CLI dispatch path."""
+
+    def test_route_automatic(self, beta2_server):
+        rc = main(["route", "-I", beta2_server, "-K", "T1_x", "--plan", "free"])
+        assert rc == 0
+
+    def test_servers_list(self, beta2_server):
+        rc = main(["servers", "-I", beta2_server, "-K", "T1_x"])
+        assert rc == 0
+
+    def test_servers_register(self, beta2_server, capsys):
+        rc = main(
+            ["servers", "-I", beta2_server, "-K", "T1_x", "--register", "prod-2", "--address", "https://p2.example.com"]
+        )
+        assert rc == 0
+        assert "prod-2" in capsys.readouterr().out
+
+    def test_servers_register_without_address_errors_locally(self, beta2_server):
+        """--register without --address should fail fast client-side,
+        never even making a request."""
+        rc = main(["servers", "-I", beta2_server, "-K", "T1_x", "--register", "prod-2"])
+        assert rc == 1
+
+    def test_modules_list(self, beta2_server):
+        rc = main(["modules", "-I", beta2_server, "-K", "T1_x"])
+        assert rc == 0
+
+    def test_modules_upload_requires_file(self, beta2_server):
+        rc = main(["modules", "-I", beta2_server, "-K", "T1_x", "--upload", "mod123"])
+        assert rc == 1
+
+    def test_jobs_get(self, beta2_server):
+        rc = main(["jobs", "-I", beta2_server, "-K", "T1_x", "get", "job123"])
+        assert rc == 0
+
+    def test_events(self, beta2_server):
+        rc = main(["events", "-I", beta2_server, "-K", "T1_x"])
+        assert rc == 0
+
+    def test_billing_balance(self, beta2_server, capsys):
+        rc = main(["billing", "-I", beta2_server, "-K", "T1_x"])
+        assert rc == 0
+        assert "42.5" in capsys.readouterr().out

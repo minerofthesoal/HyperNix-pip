@@ -21,6 +21,28 @@ next release header.
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
 ## next version 0.71.5
+## 0.71.5b2
+
+✨ **T1 API — Beta 2** — Module registry, server registry, async jobs, event streaming, the model routing/quota-cascade engine, and billing/payment-token support. Matches the spec's Beta 2 scope; full contract in `wiki/T1-API.md`.
+
+✨ **Model routing & quota cascade** — `hypernix.t1api.routing.RoutingEngine` walks a plan-scoped, data-driven cascade (`t1api/data/routing_policies.example.json` ships the spec's own free-tier and paired-plan examples verbatim, including the paired-plan detail that N^3 falls back to `nanonix-mini` — *not* `nanonix-mini-lite`). Manual model selection never silently substitutes: an exhausted model raises `MODEL_QUOTA_EXHAUSTED` unless `automatic_fallback=True`. New `POST /models/route` (an addition beyond the spec's literal endpoint list — the spec describes routing behavior but doesn't enumerate an endpoint for it).
+
+✨ **Server registry** — `hypernix.t1api.servers.ServerRegistry`, SQLite-backed. Servers register `untrusted` by default; only an admin can promote to `trusted` (or register directly as `local` for the operator's own address). `require_trusted()` is what module sync checks before treating a server as a valid target.
+
+✨ **Module system** — `hypernix.t1api.modules.ModuleRegistry`: create, local upload (checksummed, path-sanitized), remote-source *registration* (SSRF-validated, never auto-fetched), versioning, and sync-tracking. Never executes, imports, or interprets anything it stores — a module is an opaque blob or a validated-but-unfetched URL, by design.
+
+✨ **Async jobs** — `hypernix.t1api.jobs.JobQueue`: `queued → running → succeeded|failed|cancelled`, a real `ThreadPoolExecutor` (not just synchronous stubs), pluggable per-kind handlers (unregistered kind → `NOT_SUPPORTED`), cooperative cancellation tested against a genuinely in-flight background job. One real handler ships: `module_sync`, composed in `t1api/app.py` from `ModuleRegistry` + `ServerRegistry`.
+
+✨ **Event streaming** — `hypernix.t1api.events.EventBus`, in-process pub/sub. `GET /events` polls (`since_id`/`type`/`limit`); `GET /events/stream` (addition beyond the spec's list) is an SSE live tail. Jobs auto-publish `job.<status>` events for any kind with zero per-handler code; servers/modules publish from their routers.
+
+✨ **Billing ledger** — `hypernix.t1api.billing.BillingLedger`. **Internal ledger, not a payment-processor integration** — no Stripe/card-network call anywhere. Admin-minted payment tokens (`POST /billing/payment-token`) return their raw value exactly once and store only a SHA-256 hash; redemption (`POST /billing/redeem`) is single-use (`PAYMENT_TOKEN_ALREADY_REDEEMED` on a second attempt); every transaction is masked in API responses (`txn_abcd1234…`).
+
+🔒 **New security guardrails** — `hypernix.t1api.security`: SSRF guard (`validate_remote_address`, blocks non-http(s) schemes and the cloud-metadata IP unconditionally; private/loopback addresses need explicit `allow_private=True`, the knob Tailscale/local deployments use) and path-traversal guard (`sanitize_module_path`) for local uploads. Both are shared by the server registry and module system rather than duplicated.
+
+🔧 **Local/Tailscale deployment documented** — new subsection in `wiki/T1-API.md#installation`: bind to `0.0.0.0`/the Tailscale interface, pass `allow_private_address=True` on server registration.
+
+🔧 **Tests** — `tests/test_t1api_routing.py`, `test_t1api_security.py`, `test_t1api_servers.py`, `test_t1api_modules.py`, `test_t1api_jobs.py` (including real threaded execution + cancellation), `test_t1api_events.py`, `test_t1api_billing.py` — all pure-core, executed against the real implementations, no FastAPI needed. `tests/test_t1api_http_beta2.py` (FastAPI `TestClient`, needs `hypernix[t1api-test]`) covers the new HTTP layer including the full `module_sync` job lifecycle over HTTP.
+
 ## 0.71.5b1
 
 ✨ **T1 API (`hypernix.t1api`) — Beta 1** — Controlled HTTP gateway into HyperNix-pip, built as a mountable FastAPI module (`hypernix.t1api.create_app`). Implements the spec's Beta 1 scope exactly: core FastAPI server, T1 authentication + scoped tokens, model registry, basic per-key/per-model usage tracking, `/health` `/status` `/models` + auth/usage/config endpoints, SQLite storage, OpenAPI docs. Full contract in `wiki/T1-API.md`.

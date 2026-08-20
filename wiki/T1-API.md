@@ -5,7 +5,7 @@ mountable into any Python server. The client requests an operation; the
 server decides what exists, what's available, and how much is left — see
 [Design principle](#design-principle).
 
-**Status: Beta 1** (`0.71.5b1`). This page is the living contract for
+**Status: Beta 2** (`0.71.5b2`). This page is the living contract for
 what's actually implemented vs. planned — cross-reference against the
 [Roadmap](#roadmap) before assuming an endpoint exists.
 
@@ -17,7 +17,13 @@ what's actually implemented vs. planned — cross-reference against the
 - [Model registry](#model-registry)
 - [Authentication](#authentication)
 - [Quota & usage](#quota--usage)
-- [Endpoint reference (Beta 1)](#endpoint-reference-beta-1)
+- [Model routing & quota cascade](#model-routing--quota-cascade)
+- [Servers](#servers)
+- [Modules](#modules)
+- [Jobs](#jobs)
+- [Events](#events)
+- [Billing](#billing)
+- [Endpoint reference](#endpoint-reference)
 - [Configuration](#configuration)
 - [Security](#security)
 - [Roadmap](#roadmap)
@@ -63,6 +69,31 @@ pip install 'hypernix[t1api]'   # fastapi, uvicorn, pydantic, python-dotenv
 Importing `hypernix.t1api.create_app` without the extra raises a clear
 `ImportError` telling you to install it, instead of failing deep inside
 FastAPI's own import chain.
+
+### Local / Tailscale deployment
+
+No separate deployment mode needed — a Tailscale or LAN deployment is the
+same `create_app()` + `uvicorn` command as anything else. Two things
+change:
+
+1. **Bind to the Tailscale/LAN interface**, not just loopback:
+   ```bash
+   uvicorn hypernix.t1api.app:create_app --factory --host 0.0.0.0 --port 8000
+   ```
+2. **Pass `allow_private_address=True`** wherever you register something
+   at a private address — `POST /servers/register`'s
+   `allow_private_address` field, or `ServerRegistry.register(...,
+   allow_private_address=True)` directly. Without it, `t1api.security`'s
+   SSRF guard rejects RFC1918/loopback/Tailscale (`100.64.0.0/10`)
+   addresses by default (see [Security](#security)) — that's the correct
+   default for "register a remote server" in general, and the explicit
+   opt-in is what makes a local deployment's private addresses expected
+   rather than suspicious.
+
+`waiter serv -L` (`--local-only`) records this intent client-side in the
+saved config (see [Waiter-TUI.md](Waiter-TUI.md)) but doesn't itself
+change server-side behavior — the two flags above are what actually
+matter on the server.
 
 ## Architecture
 
@@ -210,11 +241,134 @@ exhausted, plan-aware cascade hierarchies (free vs. paired-plan fallback
 chains), manual-selection-of-an-exhausted-model handling beyond the raw
 error, multi-tier reset windows.
 
-## Endpoint reference (Beta 1)
+## Model routing & quota cascade
+
+`hypernix.t1api.routing` — not in the spec's literal endpoint list, but
+its "MODEL ROUTING" / "QUOTA CASCADE" sections describe the engine in
+detail, so Beta 2 gives it one: `POST /models/route`.
+
+```bash
+curl -X POST $HOST/models/route -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"plan": "free", "input_tokens": 2000}'
+# → {"model_id": "nanonix-mini-plus", "reason": "...", "cascade_position": 0, ...}
+```
+
+Cascades are data, not code — `t1api/data/routing_policies.example.json`
+ships the spec's own free-tier and paired-plan examples verbatim (short
+prompts route to `nanonanonano-n3`, long prompts to `nanonix-mini-lite`,
+then `nanonix-nano`, then `nanonanonanonano-n4`; the paired plan falls
+back to `nanonix-mini` instead of `nanonix-mini-lite` after N^3). Point
+`T1_MODEL_REGISTRY_PATH`/a custom `RoutingTable.load(path=...)` at your
+own file to replace it.
+
+Manual selection (`model_id` set in the request body) never silently
+substitutes a different model — an exhausted model raises
+`MODEL_QUOTA_EXHAUSTED` unless `automatic_fallback: true` is set, in
+which case it walks the cascade starting after the requested model's
+position. Every model, whether reached automatically or manually, still
+goes through `ModelRegistry.require()` — a routing request can't name an
+unregistered model any more than any other endpoint can.
+
+## Servers
+
+`hypernix.t1api.servers` — tracks which servers exist and whether
+they're trusted. A server starts `untrusted` on registration; only an
+admin can promote it (`PATCH /servers/{id}`) to `trusted`, or mark it
+`local` at registration time for the operator's own loopback/Tailscale
+address. `require_trusted()` is the enforcement point other subsystems
+(module sync) call before treating a server as a valid target — see
+[Security](#security) for the SSRF guard on `address`.
+
+## Modules
+
+`hypernix.t1api.modules` — module creation, local upload, remote-source
+*registration* (not fetching — see below), versioning (`(name, version)`
+is unique), and sync-tracking against the server registry.
+
+**What "sync" means in this beta**: `POST /modules/{id}/sync` queues a
+`module_sync` job. The handler checks the target server is trusted
+(`ServerRegistry.require_trusted`) and then records the association
+(`deployed_servers`) — there is no real network transport pushing module
+bytes to a live remote server, because Beta 2 has no second real server
+to test that against safely. The trust-gating and job-tracking pipeline
+is real and tested end-to-end (`tests/test_t1api_http_beta2.py`); actual
+byte transport is Beta 3 scope.
+
+**What "remote upload" means in this beta**: `POST /modules/upload/remote`
+validates the source URL (SSRF guard, same as server registration) and
+marks the module `pending_fetch`. It does not fetch the URL. Fetching is
+deliberately not wired to a job kind yet — there's no safe way to exercise
+an actual outbound HTTP fetch in the sandbox this was built in, and doing
+it without testing it felt worse than shipping the validation/tracking
+half honestly and leaving the fetch itself for Beta 3.
+
+The registry never executes anything it stores — see the module docstring
+in `t1api/modules.py` for why that's a hard design constraint, not an
+oversight.
+
+## Jobs
+
+`hypernix.t1api.jobs` — `queued → running → succeeded|failed|cancelled`,
+exactly the state machine the spec specifies. Job *kinds* are a plugin-
+style handler registry (`JobQueue.register_handler`); submitting an
+unregistered kind returns `NOT_SUPPORTED` rather than inventing behavior.
+Beta 2 registers exactly one real handler, `module_sync` (composed in
+`t1api/app.py` from `ModuleRegistry` + `ServerRegistry`, since it's the
+one place allowed to depend on both).
+
+Execution is a small in-process `ThreadPoolExecutor`, not an external task
+queue — consistent with "SQLite for development" scale. Cancellation is
+cooperative (`threading.Event`) and was tested against a real
+in-flight background job, not just simulated.
+
+## Events
+
+`hypernix.t1api.events` — an in-process pub/sub bus. `GET /events`
+matches the spec's literal endpoint (polling, with `since_id`/`type`/
+`limit` filters). `GET /events/stream` is an addition beyond the spec's
+list — a Server-Sent-Events live tail, since "event streaming" reads most
+naturally as a stream and a pure poll can't be that.
+
+Every job state transition auto-publishes a `job.<status>` event with no
+per-handler code required (`JobQueue(event_bus=...)`); server/module
+mutations publish from their routers directly
+(`server.registered`, `module.uploaded`, etc). `GET /events` therefore
+gives a unified timeline across all of Beta 2's subsystems, not one feed
+per subsystem.
+
+## Billing
+
+`hypernix.t1api.billing` — **an internal ledger, not a payment processor
+integration.** There is no Stripe/card-network call anywhere in this
+module. A "payment token" is an admin-minted, single-use redeemable
+credit code (think: a gift-card code), matching the spec's own wording
+("payment token"). Real money-in (charging an actual card) is a
+different, much larger integration this spec doesn't describe and this
+implementation doesn't attempt.
+
+- `POST /billing/payment-token` (admin-only) mints a token and returns
+  the raw value exactly once — it is never retrievable again; only its
+  SHA-256 hash is persisted.
+- `POST /billing/redeem` credits an account and marks the token spent;
+  redeeming twice returns `PAYMENT_TOKEN_ALREADY_REDEEMED`.
+- `POST /billing/add-balance` (admin-only) is a direct credit with no
+  token trail — the most trusted operation in this module.
+- Every transaction is masked in API responses (`txn_abcd1234…`) — see
+  `Transaction.to_dict()` / `PaymentTokenRecord.to_dict()`.
+- `BillingLedger.charge()` exists (a debit that raises
+  `INSUFFICIENT_BALANCE` rather than going negative) but is **not**
+  automatically wired to usage metering yet — cost-per-request billing
+  integration (the spec's "actual cost"/"estimated cost" usage endpoints)
+  is Beta 3 scope.
+
+## Endpoint reference
 
 All responses include `request_id`. Errors use the envelope shown in
 [Model registry](#model-registry) above with a code from
 `hypernix.t1api.errors.T1ErrorCode`.
+
+**Beta 1**
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
@@ -231,6 +385,40 @@ All responses include `request_id`. Errors use the envelope shown in
 | GET | `/models/{model_id}/usage` | bearer | caller's usage for this model |
 | GET | `/usage/current` | bearer | all-time + current-window totals |
 | GET | `/usage/remaining?model_id=` | bearer | remaining allowance for one model |
+
+**Beta 2**
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/models/route` | bearer | routing/quota-cascade decision (addition, not in the spec's literal list) |
+| GET | `/servers` | bearer | list registered servers |
+| POST | `/servers/register` | bearer | register a server (starts `untrusted`) |
+| PATCH | `/servers/{server_id}` | bearer, admin | trust-level/status/capability changes |
+| DELETE | `/servers/{server_id}` | bearer, admin | deregister |
+| GET | `/modules` | bearer | list modules (own, or all for admins) |
+| POST | `/modules/create` | bearer | create a draft module entry |
+| POST | `/modules/upload/local?module_id=` | bearer | multipart file upload, activates the module |
+| POST | `/modules/upload/remote?module_id=` | bearer | register (not fetch) a remote source |
+| GET | `/modules/{module_id}` | bearer | module detail |
+| PATCH | `/modules/{module_id}` | bearer, owner/admin | metadata/status |
+| DELETE | `/modules/{module_id}` | bearer, owner/admin | delete entry + stored file |
+| POST | `/modules/{module_id}/sync` | bearer, owner/admin | queues a `module_sync` job |
+| POST | `/jobs` | bearer | submit a job (`NOT_SUPPORTED` for unregistered kinds) |
+| GET | `/jobs/{job_id}` | bearer | job status/result/error |
+| POST | `/jobs/{job_id}/cancel` | bearer | cooperative cancellation |
+| GET | `/events` | bearer | poll recent events (`since_id`/`type`/`limit`) |
+| GET | `/events/stream` | bearer | SSE live tail (addition, not in the spec's literal list) |
+| GET | `/billing/balance` | bearer | caller's own balance |
+| GET | `/billing/transactions` | bearer | caller's own transaction history |
+| POST | `/billing/payment-token` | bearer, admin | mint a redeemable token |
+| POST | `/billing/redeem` | bearer | redeem a token into an account |
+| POST | `/billing/add-balance` | bearer, admin | direct credit |
+
+Note the two `module_id`-as-query-parameter endpoints
+(`/modules/upload/local`, `/modules/upload/remote`) — deliberate, matching
+the spec's literal paths (`POST /modules/upload/local`, no `{module_id}`
+in the template), unlike every other module endpoint which puts
+`module_id` in the path.
 
 Full request/response examples: run the server and open `/docs` (Swagger
 UI, auto-generated from `schemas.py`) — that's the canonical, always-in-sync
@@ -250,14 +438,27 @@ field can't accidentally start being served.
   error *code*, not the credential.
 - `GET /config` is an allowlist (see above).
 - Scoped tokens can only narrow a key's scopes, never widen them.
-- Admin operations (`/auth/t1/admin/rotate`) require the *requester* to
-  already hold `KeyType.ADMIN` + `KeyScope.ADMIN` — checked before
-  anything else runs.
-- SSRF/path-traversal prevention, mTLS, IP allow/blacklists, and rate
-  limiting middleware are Beta 2/3 — Beta 1 relies on
-  `Gatekeeper`'s existing per-key quota enforcement
-  (`T1AuthService.check_quota`) and doesn't yet add T1-API-specific
-  network-level guardrails.
+- Admin operations (`/auth/t1/admin/rotate`, server trust promotion,
+  billing mint/add-balance) require the *requester* to already hold
+  `KeyType.ADMIN` + `KeyScope.ADMIN` — checked before anything else runs.
+- **SSRF guard** (`t1api.security.validate_remote_address`): only
+  `http`/`https` schemes are ever accepted; the cloud-metadata SSRF target
+  (`169.254.169.254`) is always rejected; private/loopback/link-local
+  addresses require explicit `allow_private=True` (surfaced as
+  `allow_private_address` on server registration, `allow_private` on
+  remote module source registration) — the knob a Tailscale/local
+  deployment needs, without silently allowing SSRF for everyone else.
+- **Path-traversal guard** (`t1api.security.sanitize_module_path`): every
+  local module upload resolves its filename against a fixed storage
+  directory and rejects anything that would escape it.
+- **No code execution**: the module system never imports, executes, or
+  interprets anything it stores — see the module docstring in
+  `t1api/modules.py`.
+- **Server trust gating**: `ServerRegistry.require_trusted()` blocks
+  module sync to any server that isn't `trusted`/`local` — a fresh
+  registration is always `untrusted` until an admin promotes it.
+- mTLS, IP allow/blacklists, and rate-limiting middleware beyond
+  `Gatekeeper`'s existing per-key quota enforcement are Beta 3.
 
 ## Roadmap
 
@@ -266,9 +467,9 @@ renumbered or reinterpreted.
 
 | Beta | Scope | Status |
 |---|---|---|
-| **1** | Core FastAPI server, T1 auth + scoped tokens, model registry, basic per-key/model usage tracking, `/health` `/status` `/models` + auth/usage/config endpoints, basic `waiter` CLI, SQLite, OpenAPI docs | **Shipped** (this doc) |
-| **2** | Module registry, module upload/sync, server registry, async jobs, event streaming, quota cascade, model routing engine, billing/payment-token support, encrypted secrets beyond Keymaster's existing, Tailscale/local deployment guide | Not started |
-| **3** | Production hardening, PostgreSQL backend, complete audit logging, mTLS, advanced rate limiting, remote multi-server deployment, full `waiter` TUI (curses-style `-G`), complete SDK, complete test suite, deployment docs, security audit checklist | Not started |
+| **1** | Core FastAPI server, T1 auth + scoped tokens, model registry, basic per-key/model usage tracking, `/health` `/status` `/models` + auth/usage/config endpoints, basic `waiter` CLI, SQLite, OpenAPI docs | **Shipped** |
+| **2** | Module registry, module upload/sync, server registry, async jobs, event streaming, quota cascade, model routing engine, billing/payment-token support, Tailscale/local deployment guide | **Shipped** (this doc) — encrypted secrets beyond Keymaster's existing pattern (module content at rest, payment token hashing) partially covered; a dedicated at-rest encryption pass for module blobs specifically is still open |
+| **3** | Production hardening, PostgreSQL backend, complete audit logging, mTLS, advanced rate limiting, remote multi-server deployment (real module byte transport + remote-source fetch), full `waiter` TUI (curses-style `-G`), complete SDK, complete test suite, deployment docs, security audit checklist, cost-per-request billing integration | Not started |
 | **4** | `hyped-pro` T1-key support against a local T1 API server; `hyped-pro` auto-displaying the current public release version; `qwen3.8-27b` registry entry | Not started |
 
 ## Design principle

@@ -51,6 +51,30 @@ def get_config(request: Request) -> T1APIConfig:
     return request.app.state.t1_config
 
 
+def get_routing_engine(request: Request):
+    return request.app.state.t1_routing_engine
+
+
+def get_server_registry(request: Request):
+    return request.app.state.t1_server_registry
+
+
+def get_module_registry(request: Request):
+    return request.app.state.t1_module_registry
+
+
+def get_job_queue(request: Request):
+    return request.app.state.t1_job_queue
+
+
+def get_event_bus(request: Request):
+    return request.app.state.t1_event_bus
+
+
+def get_billing_ledger(request: Request):
+    return request.app.state.t1_billing_ledger
+
+
 def _extract_credential(authorization: str | None) -> str:
     if not authorization:
         raise T1APIError(
@@ -97,4 +121,10 @@ __all__ = [
     "get_config",
     "get_auth_context",
     "require_admin",
+    "get_routing_engine",
+    "get_server_registry",
+    "get_module_registry",
+    "get_job_queue",
+    "get_event_bus",
+    "get_billing_ledger",
 ]

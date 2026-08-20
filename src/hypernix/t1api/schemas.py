@@ -197,6 +197,251 @@ class ConfigResponse(BaseModel):
     request_id: str
 
 
+# ---------------------------------------------------------------------------
+# Beta 2: routing
+# ---------------------------------------------------------------------------
+
+
+class RouteRequest(BaseModel):
+    plan: str = Field(..., description="Caller's plan, used to resolve a routing policy.")
+    model_id: str | None = Field(
+        default=None, description="Manual model selection. Omit for automatic routing."
+    )
+    input_tokens: int = Field(default=0, ge=0)
+    automatic_fallback: bool = Field(
+        default=False,
+        description="Only meaningful with model_id set: fall through the cascade if the "
+        "requested model is exhausted, instead of raising MODEL_QUOTA_EXHAUSTED.",
+    )
+
+
+class RouteResponse(BaseModel):
+    model_id: str
+    reason: str
+    cascade_position: int
+    policy_name: str
+    considered: list[dict[str, Any]]
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 2: servers
+# ---------------------------------------------------------------------------
+
+
+class ServerRegisterRequest(BaseModel):
+    name: str
+    address: str
+    capabilities: list[str] = Field(default_factory=list)
+    tags: dict[str, str] = Field(default_factory=dict)
+    allow_private_address: bool = Field(
+        default=False, description="Set True for local/Tailscale addresses."
+    )
+
+
+class ServerUpdateRequest(BaseModel):
+    name: str | None = None
+    status: str | None = None
+    trust_level: str | None = None
+    capabilities: list[str] | None = None
+    tags: dict[str, str] | None = None
+
+
+class ServerItem(BaseModel):
+    server_id: str
+    name: str
+    address: str
+    trust_level: str
+    status: str
+    capabilities: list[str]
+    tags: dict[str, str]
+    registered_by: str
+    created_at: float
+    updated_at: float
+    last_seen: float | None
+
+
+class ServerListResponse(BaseModel):
+    servers: list[ServerItem]
+    count: int
+    request_id: str
+
+
+class ServerDetailResponse(BaseModel):
+    server: ServerItem
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 2: modules
+# ---------------------------------------------------------------------------
+
+
+class ModuleCreateRequest(BaseModel):
+    name: str
+    version: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModuleUpdateRequest(BaseModel):
+    metadata: dict[str, Any] | None = None
+    status: str | None = None
+
+
+class ModuleUploadRemoteRequest(BaseModel):
+    source_url: str
+    allow_private: bool = False
+
+
+class ModuleSyncRequest(BaseModel):
+    server_id: str
+
+
+class ModuleItem(BaseModel):
+    module_id: str
+    name: str
+    version: str
+    owner_key_id: str
+    status: str
+    source_type: str
+    source_url: str | None
+    checksum: str | None
+    size_bytes: int | None
+    deployed_servers: list[str]
+    metadata: dict[str, Any]
+    created_at: float
+    updated_at: float
+
+
+class ModuleListResponse(BaseModel):
+    modules: list[ModuleItem]
+    count: int
+    request_id: str
+
+
+class ModuleDetailResponse(BaseModel):
+    module: ModuleItem
+    request_id: str
+
+
+class ModuleSyncResponse(BaseModel):
+    job_id: str
+    status: str
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 2: jobs
+# ---------------------------------------------------------------------------
+
+
+class JobCreateRequest(BaseModel):
+    kind: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobItem(BaseModel):
+    job_id: str
+    kind: str
+    payload: dict[str, Any]
+    status: str
+    result: dict[str, Any] | None
+    error: str | None
+    created_by: str
+    created_at: float
+    started_at: float | None
+    finished_at: float | None
+
+
+class JobListResponse(BaseModel):
+    jobs: list[JobItem]
+    count: int
+    request_id: str
+
+
+class JobDetailResponse(BaseModel):
+    job: JobItem
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 2: events
+# ---------------------------------------------------------------------------
+
+
+class EventItem(BaseModel):
+    event_id: str
+    type: str
+    data: dict[str, Any]
+    source: str
+    ts: float
+
+
+class EventListResponse(BaseModel):
+    events: list[EventItem]
+    count: int
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 2: billing
+# ---------------------------------------------------------------------------
+
+
+class BillingBalanceResponse(BaseModel):
+    account_type: str
+    account_id: str
+    balance: float
+    request_id: str
+
+
+class TransactionItem(BaseModel):
+    transaction_id: str
+    account_type: str
+    account_id: str
+    amount: float
+    kind: str
+    balance_after: float
+    note: str
+    created_by: str
+    created_at: float
+
+
+class TransactionListResponse(BaseModel):
+    transactions: list[TransactionItem]
+    count: int
+    request_id: str
+
+
+class PaymentTokenMintRequest(BaseModel):
+    amount: float = Field(..., gt=0)
+    currency: str = "USD"
+    ttl_seconds: int | None = Field(default=None, ge=1)
+
+
+class PaymentTokenMintResponse(BaseModel):
+    token: str = Field(..., description="Raw token — shown exactly once, never retrievable again.")
+    payment_token_id: str
+    amount: float
+    currency: str
+    request_id: str
+
+
+class RedeemRequest(BaseModel):
+    token: str
+    account_type: str = "user"
+    account_id: str | None = Field(
+        default=None, description="Defaults to the authenticated caller's key_id if omitted."
+    )
+
+
+class AddBalanceRequest(BaseModel):
+    account_type: str
+    account_id: str
+    amount: float = Field(..., gt=0)
+    note: str = ""
+
+
 __all__ = [
     "ErrorDetail",
     "ErrorResponse",
@@ -217,4 +462,32 @@ __all__ = [
     "UsageCurrentResponse",
     "UsageRemainingResponse",
     "ConfigResponse",
+    "RouteRequest",
+    "RouteResponse",
+    "ServerRegisterRequest",
+    "ServerUpdateRequest",
+    "ServerItem",
+    "ServerListResponse",
+    "ServerDetailResponse",
+    "ModuleCreateRequest",
+    "ModuleUpdateRequest",
+    "ModuleUploadRemoteRequest",
+    "ModuleSyncRequest",
+    "ModuleItem",
+    "ModuleListResponse",
+    "ModuleDetailResponse",
+    "ModuleSyncResponse",
+    "JobCreateRequest",
+    "JobItem",
+    "JobListResponse",
+    "JobDetailResponse",
+    "EventItem",
+    "EventListResponse",
+    "BillingBalanceResponse",
+    "TransactionItem",
+    "TransactionListResponse",
+    "PaymentTokenMintRequest",
+    "PaymentTokenMintResponse",
+    "RedeemRequest",
+    "AddBalanceRequest",
 ]

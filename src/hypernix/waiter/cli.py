@@ -566,6 +566,164 @@ def _cmd_config(rest: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Beta 2 subcommands — servers, modules, jobs, events, billing, route
+# ---------------------------------------------------------------------------
+
+
+def _cmd_route(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter route", description="Ask the T1 API's routing engine which model to use.")
+    p.add_argument("--plan", required=True, help="Your plan (e.g. free, paired)")
+    p.add_argument("--model", dest="model_id", default=None, help="Manual selection instead of automatic routing")
+    p.add_argument("--input-tokens", type=int, default=0)
+    p.add_argument("--auto-fallback", action="store_true", help="Fall through the cascade if --model is exhausted")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    payload = client.route(
+        plan=args.plan, model_id=args.model_id, input_tokens=args.input_tokens, automatic_fallback=args.auto_fallback
+    )
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    _ok(f"Routed to {payload['model_id']} ({payload['reason']})")
+    return 0
+
+
+def _cmd_servers(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter servers", description="List / register servers.")
+    p.add_argument("--register", metavar="NAME", default=None, help="Register a new server with this name")
+    p.add_argument("--address", default=None, help="Required with --register")
+    p.add_argument("--allow-private", action="store_true", help="Allow a private/Tailscale/localhost address")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    if args.register:
+        if not args.address:
+            _err("--register requires --address")
+            return 1
+        payload = client.register_server(name=args.register, address=args.address, allow_private_address=args.allow_private)
+        if args.as_json:
+            _print_json(payload)
+        else:
+            s = payload["server"]
+            _ok(f"Registered {s['name']} ({s['server_id'][:8]}…) — trust_level={s['trust_level']}")
+        return 0
+    payload = client.list_servers()
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    rows = [[s["server_id"][:8] + "…", s["name"], s["address"], s["trust_level"], s["status"]] for s in payload["servers"]]
+    _print_table(["server_id", "name", "address", "trust", "status"], rows, title=f"Servers ({payload['count']})")
+    return 0
+
+
+def _cmd_modules(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter modules", description="List modules, or create/upload/sync one.")
+    p.add_argument("--create", metavar="NAME", default=None, help="Create a new module with this name")
+    p.add_argument("--version", default="1.0.0", help="Version for --create (default 1.0.0)")
+    p.add_argument("--upload", metavar="MODULE_ID", default=None, help="Upload a local file to this module_id")
+    p.add_argument("--file", default=None, help="Local file path for --upload")
+    p.add_argument("--sync", metavar="MODULE_ID", default=None, help="Sync this module_id to --server-id")
+    p.add_argument("--server-id", default=None, help="Target server_id for --sync")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+
+    if args.create:
+        payload = client.create_module(name=args.create, version=args.version)
+        m = payload["module"]
+        _ok(f"Created {m['name']}@{m['version']} ({m['module_id'][:8]}…) status={m['status']}")
+        return 0
+    if args.upload:
+        if not args.file:
+            _err("--upload requires --file")
+            return 1
+        payload = client.upload_module_local(args.upload, args.file)
+        m = payload["module"]
+        _ok(f"Uploaded {m['size_bytes']} bytes, checksum={m['checksum'][:12]}…, status={m['status']}")
+        return 0
+    if args.sync:
+        if not args.server_id:
+            _err("--sync requires --server-id")
+            return 1
+        payload = client.sync_module(args.sync, args.server_id)
+        _ok(f"Queued module_sync job {payload['job_id'][:8]}… (status={payload['status']})")
+        _info("  check progress with: waiter jobs get " + payload["job_id"])
+        return 0
+
+    payload = client.list_modules()
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    rows = [
+        [m["module_id"][:8] + "…", f"{m['name']}@{m['version']}", m["status"], str(m["size_bytes"] or "-")]
+        for m in payload["modules"]
+    ]
+    _print_table(["module_id", "name@version", "status", "size_bytes"], rows, title=f"Modules ({payload['count']})")
+    return 0
+
+
+def _cmd_jobs(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter jobs", description="Get or cancel a job by ID.")
+    p.add_argument("action", choices=["get", "cancel"], help="get: show status/result. cancel: request cancellation.")
+    p.add_argument("job_id")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    payload = client.cancel_job(args.job_id) if args.action == "cancel" else client.get_job(args.job_id)
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    j = payload["job"]
+    rows = [[k, str(v)] for k, v in j.items()]
+    _print_table(["field", "value"], rows, title=f"Job {j['job_id'][:8]}…")
+    return 0
+
+
+def _cmd_events(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter events", description="Poll recent events.")
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--since", dest="since_id", default=None, help="Only events after this event_id")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    payload = client.list_events(limit=args.limit, since_id=args.since_id)
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    rows = [[e["type"], e["source"], str(e["data"])[:60]] for e in payload["events"]]
+    _print_table(["type", "source", "data"], rows, title=f"Events ({payload['count']})")
+    return 0
+
+
+def _cmd_billing(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter billing", description="Show balance/transactions, or redeem a payment token.")
+    p.add_argument("--redeem", metavar="TOKEN", default=None, help="Redeem a payment token into your account")
+    p.add_argument("--transactions", action="store_true", help="Show transaction history instead of just balance")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    if args.redeem:
+        payload = client.redeem_payment_token(args.redeem)
+        _ok(f"Redeemed — new balance: {payload['balance']} ({payload['account_type']}:{payload['account_id']})")
+        return 0
+    if args.transactions:
+        payload = client.billing_transactions()
+        if args.as_json:
+            _print_json(payload)
+            return 0
+        rows = [[t["transaction_id"], t["kind"], f"{t['amount']:+.2f}", f"{t['balance_after']:.2f}", t["note"]] for t in payload["transactions"]]
+        _print_table(["txn_id", "kind", "amount", "balance_after", "note"], rows, title="Transactions")
+        return 0
+    payload = client.billing_balance()
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    _info(f"Balance: {payload['balance']} ({payload['account_type']}:{payload['account_id']})")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -576,10 +734,16 @@ Usage:
   waiter serv     One-shot automatic setup: waiter serv -A -I <server> -K <T1_TOKEN> -E
   waiter models   List models visible in the server's registry
   waiter model    Show detail/availability/usage for one model
+  waiter route    Ask the routing engine which model to use (--plan, --model, --auto-fallback)
   waiter status   Server status
   waiter health   Server liveness check
   waiter whoami   Validate the configured key and show its scopes
   waiter usage    Show current usage (or --model <id> for remaining allowance)
+  waiter servers  List / register servers (--register NAME --address ...)
+  waiter modules  List modules, or --create/--upload/--sync one
+  waiter jobs     get|cancel <job_id>
+  waiter events   Poll recent events (--limit, --since)
+  waiter billing  Balance/transactions, or --redeem <token>
   waiter config   Show the locally saved config
 
 Every subcommand accepts -I/-K/-F/-P/-H to override the saved config for
@@ -613,6 +777,12 @@ def main(argv: list[str] | None = None) -> int:
         "whoami": _cmd_whoami,
         "usage": _cmd_usage,
         "config": _cmd_config,
+        "route": _cmd_route,
+        "servers": _cmd_servers,
+        "modules": _cmd_modules,
+        "jobs": _cmd_jobs,
+        "events": _cmd_events,
+        "billing": _cmd_billing,
     }
 
     if cmd not in dispatch:

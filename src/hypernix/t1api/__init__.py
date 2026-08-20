@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__t1api_version__ = "0.71.5b1"
+__t1api_version__ = "0.71.5b2"
 
 __all__ = [
     "__t1api_version__",
@@ -37,6 +37,19 @@ __all__ = [
     "UsageStore",
     "UsageMeter",
     "T1AuthService",
+    "SQLiteBackend",
+    "RoutingTable",
+    "RoutingEngine",
+    "RoutingPolicy",
+    "ServerRegistry",
+    "TrustLevel",
+    "ServerStatus",
+    "ModuleRegistry",
+    "ModuleStatus",
+    "JobQueue",
+    "JobStatus",
+    "EventBus",
+    "BillingLedger",
 ]
 
 
@@ -66,6 +79,34 @@ def __getattr__(name: str) -> Any:
         from .auth import T1AuthService as _svc
 
         return _svc
+    if name == "SQLiteBackend":
+        from .db import SQLiteBackend as _backend
+
+        return _backend
+    if name in ("RoutingTable", "RoutingEngine", "RoutingPolicy", "CascadeStep", "RoutingDecision"):
+        from . import routing as _routing
+
+        return getattr(_routing, name)
+    if name in ("ServerRegistry", "TrustLevel", "ServerStatus", "ServerEntry"):
+        from . import servers as _servers
+
+        return getattr(_servers, name)
+    if name in ("ModuleRegistry", "ModuleStatus", "ModuleEntry", "SourceType"):
+        from . import modules as _modules
+
+        return getattr(_modules, name)
+    if name in ("JobQueue", "JobStatus", "JobEntry"):
+        from . import jobs as _jobs
+
+        return getattr(_jobs, name)
+    if name in ("EventBus", "Event", "Subscriber"):
+        from . import events as _events
+
+        return getattr(_events, name)
+    if name in ("BillingLedger", "TransactionKind", "Transaction", "PaymentTokenRecord"):
+        from . import billing as _billing
+
+        return getattr(_billing, name)
 
     # HTTP-layer names: require the optional [t1api] extra.
     if name == "create_app":

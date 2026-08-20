@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..auth import AuthContext
-from ..deps import get_auth_context, get_registry, get_request_id, get_usage_meter
+from ..deps import get_auth_context, get_registry, get_request_id, get_routing_engine, get_usage_meter
 from ..registry import ModelRegistry
 from ..schemas import (
     ModelAvailabilityResponse,
@@ -12,6 +12,8 @@ from ..schemas import (
     ModelListResponse,
     ModelSummary,
     ModelUsageResponse,
+    RouteRequest,
+    RouteResponse,
 )
 from ..usage import UsageMeter
 
@@ -109,6 +111,36 @@ def model_usage(
 ) -> ModelUsageResponse:
     snap = meter.snapshot_for_model(ctx.key_id, model_id)
     return ModelUsageResponse(**snap.to_dict(), request_id=request_id)
+
+
+@router.post("/route", response_model=RouteResponse)
+def route_model(
+    body: RouteRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    engine=Depends(get_routing_engine),
+    request_id: str = Depends(get_request_id),
+) -> RouteResponse:
+    """Not in the original endpoint list — added to give the Beta 2
+    routing/quota-cascade engine (``t1api.routing``) an HTTP surface,
+    since the spec describes the engine's behavior in detail but doesn't
+    enumerate a specific endpoint for it. See wiki/T1-API.md#routing.
+
+    Automatic routing (no ``model_id``) walks the caller's plan cascade.
+    Manual routing (``model_id`` set) enforces the exhausted-model rule
+    exactly as the spec describes: raises ``MODEL_QUOTA_EXHAUSTED`` unless
+    ``automatic_fallback=True``.
+    """
+    if body.model_id is None:
+        decision = engine.route_automatic(key_id=ctx.key_id, plan=body.plan, input_tokens=body.input_tokens)
+    else:
+        decision = engine.route_manual(
+            key_id=ctx.key_id,
+            plan=body.plan,
+            model_id=body.model_id,
+            input_tokens=body.input_tokens,
+            automatic_fallback=body.automatic_fallback,
+        )
+    return RouteResponse(**decision.to_dict(), request_id=request_id)
 
 
 __all__ = ["router"]

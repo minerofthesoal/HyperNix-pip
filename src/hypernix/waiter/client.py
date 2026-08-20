@@ -182,5 +182,140 @@ class T1Client:
     def usage_remaining(self, model_id: str) -> dict[str, Any]:
         return self._request("GET", "/usage/remaining", query={"model_id": model_id}, auth=True)
 
+    # ------------------------------------------------------------------
+    # Beta 2: routing
+    # ------------------------------------------------------------------
+
+    def route(
+        self, *, plan: str, model_id: str | None = None, input_tokens: int = 0, automatic_fallback: bool = False
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"plan": plan, "input_tokens": input_tokens, "automatic_fallback": automatic_fallback}
+        if model_id is not None:
+            body["model_id"] = model_id
+        return self._request("POST", "/models/route", body=body, auth=True)
+
+    # ------------------------------------------------------------------
+    # Beta 2: servers
+    # ------------------------------------------------------------------
+
+    def list_servers(self) -> dict[str, Any]:
+        return self._request("GET", "/servers", auth=True)
+
+    def register_server(
+        self, *, name: str, address: str, capabilities: list[str] | None = None, allow_private_address: bool = False
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/servers/register",
+            body={
+                "name": name,
+                "address": address,
+                "capabilities": capabilities or [],
+                "allow_private_address": allow_private_address,
+            },
+            auth=True,
+        )
+
+    def update_server(self, server_id: str, **fields: Any) -> dict[str, Any]:
+        return self._request("PATCH", f"/servers/{urllib.parse.quote(server_id, safe='')}", body=fields, auth=True)
+
+    # ------------------------------------------------------------------
+    # Beta 2: modules
+    # ------------------------------------------------------------------
+
+    def list_modules(self) -> dict[str, Any]:
+        return self._request("GET", "/modules", auth=True)
+
+    def create_module(self, *, name: str, version: str) -> dict[str, Any]:
+        return self._request("POST", "/modules/create", body={"name": name, "version": version}, auth=True)
+
+    def upload_module_local(self, module_id: str, file_path: str) -> dict[str, Any]:
+        """Multipart upload — the one call that doesn't go through
+        ``_request`` (that helper is JSON-only), since a file upload needs
+        a multipart body. Stdlib-only, same constraint as the rest of this
+        client: builds the multipart body by hand instead of adding a
+        `requests` dependency."""
+        import mimetypes
+        import os
+        import uuid as _uuid
+
+        boundary = _uuid.uuid4().hex
+        filename = os.path.basename(file_path)
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        parts = [
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
+            f"Content-Type: {content_type}\r\n\r\n".encode(),
+            file_bytes,
+            f"\r\n--{boundary}--\r\n".encode(),
+        ]
+        body = b"".join(parts)
+
+        url = self._url(f"/modules/upload/local?module_id={urllib.parse.quote(module_id, safe='')}")
+        headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        if not self.credential:
+            raise T1ClientError("Module upload requires a credential — pass -K/--key or run 'waiter serv -A' first.")
+        headers["Authorization"] = f"Bearer {self.credential}"
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=max(self.timeout, 30.0)) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            try:
+                payload = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                payload = {}
+            err = payload.get("error", {})
+            raise T1ClientError(
+                err.get("message", f"HTTP {exc.code} uploading module"),
+                code=err.get("code"),
+                status=exc.code,
+                request_id=payload.get("request_id"),
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise T1ClientError(f"Could not reach {url}: {exc.reason}") from exc
+
+    def sync_module(self, module_id: str, server_id: str) -> dict[str, Any]:
+        return self._request(
+            "POST", f"/modules/{urllib.parse.quote(module_id, safe='')}/sync", body={"server_id": server_id}, auth=True
+        )
+
+    # ------------------------------------------------------------------
+    # Beta 2: jobs
+    # ------------------------------------------------------------------
+
+    def get_job(self, job_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/jobs/{urllib.parse.quote(job_id, safe='')}", auth=True)
+
+    def cancel_job(self, job_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/jobs/{urllib.parse.quote(job_id, safe='')}/cancel", auth=True)
+
+    # ------------------------------------------------------------------
+    # Beta 2: events
+    # ------------------------------------------------------------------
+
+    def list_events(self, *, limit: int = 50, since_id: str | None = None) -> dict[str, Any]:
+        query = {"limit": str(limit)}
+        if since_id is not None:
+            query["since_id"] = since_id
+        return self._request("GET", "/events", query=query, auth=True)
+
+    # ------------------------------------------------------------------
+    # Beta 2: billing
+    # ------------------------------------------------------------------
+
+    def billing_balance(self) -> dict[str, Any]:
+        return self._request("GET", "/billing/balance", auth=True)
+
+    def billing_transactions(self) -> dict[str, Any]:
+        return self._request("GET", "/billing/transactions", auth=True)
+
+    def redeem_payment_token(self, token: str) -> dict[str, Any]:
+        return self._request("POST", "/billing/redeem", body={"token": token}, auth=True)
+
 
 __all__ = ["T1Client", "T1ClientError"]

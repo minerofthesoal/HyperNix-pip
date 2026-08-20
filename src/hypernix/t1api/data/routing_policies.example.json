@@ -1,0 +1,71 @@
+{
+  "default_policy": "free_tier_default",
+  "plan_to_policy": {
+    "free": "free_tier_default",
+    "paired": "paired_plan_default"
+  },
+  "policies": [
+    {
+      "name": "free_tier_default",
+      "description": "The spec's own 'FREE MODEL ROUTING EXAMPLE': primary nanonix-mini-plus; size-based routing to N^3 vs miniLite; then nanonix-nano; then N^4 as last resort.",
+      "steps": [
+        {
+          "model_id": "nanonix-mini-plus",
+          "max_input_tokens": null,
+          "note": "primary free-tier model"
+        },
+        {
+          "model_id": "nanonanonano-n3",
+          "max_input_tokens": 5000,
+          "note": "prompt <= 5000 input tokens routes here when permitted"
+        },
+        {
+          "model_id": "nanonix-mini-lite",
+          "max_input_tokens": null,
+          "note": "prompt > 5000 input tokens routes here when permitted"
+        },
+        {
+          "model_id": "nanonix-nano",
+          "max_input_tokens": null,
+          "note": "low-cost fallback after the primary allowance is exhausted"
+        },
+        {
+          "model_id": "nanonanonanonano-n4",
+          "max_input_tokens": null,
+          "note": "used after nanonix-nano's fallback allowance is exhausted"
+        }
+      ]
+    },
+    {
+      "name": "paired_plan_default",
+      "description": "The spec's 'PAIRED-PLAN ROUTING' example: after N^3 usage is exhausted, a paired plan falls back to nanonix-mini, NOT nanonix-mini-lite.",
+      "steps": [
+        {
+          "model_id": "nanonix-mini-plus",
+          "max_input_tokens": null,
+          "note": "primary paired-plan model"
+        },
+        {
+          "model_id": "nanonanonano-n3",
+          "max_input_tokens": 5000,
+          "note": "prompt <= 5000 input tokens routes here when permitted"
+        },
+        {
+          "model_id": "nanonix-mini",
+          "max_input_tokens": null,
+          "note": "paired-plan fallback — NOT nanonix-mini-lite, per the spec"
+        },
+        {
+          "model_id": "nanonix-nano",
+          "max_input_tokens": null,
+          "note": "low-cost fallback after nanonix-mini is exhausted"
+        },
+        {
+          "model_id": "nanonanonanonano-n4",
+          "max_input_tokens": null,
+          "note": "last resort"
+        }
+      ]
+    }
+  ]
+}

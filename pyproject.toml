@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.71.5b1"
+version = "0.71.5b2"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "LLU-0.1" }
@@ -74,6 +74,10 @@ t1api = [
     "uvicorn[standard]>=0.29,<1",
     "pydantic>=2,<3",
     "python-dotenv>=1,<2",
+    # v0.71.5b2: required at runtime by FastAPI's UploadFile/File() —
+    # used by POST /modules/upload/local. Not imported directly anywhere
+    # in hypernix, but FastAPI raises at request time without it installed.
+    "python-multipart>=0.0.9,<1",
 ]
 # Test-only deps for the t1api/waiter suites beyond the base `dev` extra
 # (httpx is FastAPI TestClient's transport; the rest come from `dev`+`t1api`).

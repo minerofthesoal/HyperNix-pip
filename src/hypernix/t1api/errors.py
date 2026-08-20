@@ -60,6 +60,25 @@ class T1ErrorCode(StrEnum):
     CONFLICT = "CONFLICT"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
+    # --- Beta 2: modules / servers / jobs -------------------------------
+    MODULE_NOT_FOUND = "MODULE_NOT_FOUND"
+    MODULE_ALREADY_EXISTS = "MODULE_ALREADY_EXISTS"
+    MODULE_UPLOAD_REJECTED = "MODULE_UPLOAD_REJECTED"
+    SERVER_NOT_FOUND = "SERVER_NOT_FOUND"
+    SERVER_UNTRUSTED = "SERVER_UNTRUSTED"
+    JOB_NOT_FOUND = "JOB_NOT_FOUND"
+    JOB_NOT_CANCELLABLE = "JOB_NOT_CANCELLABLE"
+    PATH_TRAVERSAL_REJECTED = "PATH_TRAVERSAL_REJECTED"
+    SSRF_BLOCKED = "SSRF_BLOCKED"
+
+    # --- Beta 2: billing -------------------------------------------------
+    PAYMENT_TOKEN_INVALID = "PAYMENT_TOKEN_INVALID"
+    PAYMENT_TOKEN_ALREADY_REDEEMED = "PAYMENT_TOKEN_ALREADY_REDEEMED"
+    INSUFFICIENT_BALANCE = "INSUFFICIENT_BALANCE"
+
+    # --- Beta 2: routing ---------------------------------------------------
+    ROUTING_EXHAUSTED = "ROUTING_EXHAUSTED"  # every model in the cascade is exhausted
+
 
 class T1APIError(Exception):
     """Raised anywhere in the T1 API stack; carries a stable error code.
