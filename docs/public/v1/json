@@ -1,17 +1,13 @@
 {
   "version": "0.71.4.post5",
-  "total_downloads": 7732,
-  "last_day": 12,
-  "last_week": 173,
-  "last_month": 1414,
+  "total_downloads": 7743,
+  "last_day": 11,
+  "last_week": 160,
+  "last_month": 1215,
   "downloads": {
     "recent": {
       "window_days": 30,
       "daily": [
-        {
-          "date": "2026-07-20",
-          "downloads": 210
-        },
         {
           "date": "2026-07-21",
           "downloads": 154
@@ -111,14 +107,18 @@
         {
           "date": "2026-08-18",
           "downloads": 12
+        },
+        {
+          "date": "2026-08-19",
+          "downloads": 11
         }
       ]
     },
     "three_month": {
-      "days": 55,
-      "total_downloads": 3026,
+      "days": 56,
+      "total_downloads": 3236,
       "from": "2026-05-22",
-      "to": "2026-07-19"
+      "to": "2026-07-20"
     },
     "older": {
       "days": 28,
@@ -142,7 +142,7 @@
     },
     {
       "version": "3.14",
-      "downloads": 87
+      "downloads": 89
     },
     {
       "version": "3.13",
@@ -160,8 +160,8 @@
     },
     {
       "os": "Windows",
-      "downloads": 16
+      "downloads": 18
     }
   ],
-  "updated_at": "2026-08-19T21:00:57.077347Z"
+  "updated_at": "2026-08-20T21:02:39.168807Z"
 }
