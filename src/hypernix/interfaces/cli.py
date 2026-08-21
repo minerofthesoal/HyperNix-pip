@@ -1189,126 +1189,28 @@ def _run_pipeline(raw: list[str]) -> int:
 
 
 def _run_assistant(raw: list[str]) -> int:
-    """`hypernix assistant` — Launch interactive Linux local AI assistant."""
-    from hypernix.models.workshop import TTSConfig, TTSEngine
-    
+    """`hypernix assistant` — interactive local AI assistant (chat + voice)."""
+    from hypernix.interfaces.assistant import InteractiveCLI
+
     p = argparse.ArgumentParser(
         prog="hypernix assistant",
-        description="Launch interactive Linux local AI assistant with voice support.",
+        description=(
+            "Interactive assistant. Chat turns are dispatched through the same "
+            "provider registry as `hyped` (local snapshots, local GGUF, or a "
+            "cloud API), so --model selects a real model."
+        ),
     )
-    p.add_argument("--voice", "-v", action="store_true", help="Enable voice mode")
-    p.add_argument("--model", "-m", default="qwen3.5-1b", help="LLM model to use (default: Qwen3.5 1B)")
+    p.add_argument(
+        "--voice", "-v", action="store_true",
+        help="Speak replies with the TTS engine (also toggled in-session with /voice)",
+    )
+    p.add_argument(
+        "--model", "-m", default=None,
+        help="Model short name; defaults to the one set by `hypernix config`",
+    )
     ns = p.parse_args(raw)
-    
-    print("=" * 60)
-    print("🤖 HyperNix Local AI Assistant v0.61.4")
-    print("=" * 60)
-    print("\nCommands:")
-    print("  /help     - Show this help")
-    print("  /voice    - Toggle voice mode")
-    print("  /system   - Execute system command")
-    print("  /quit     - Exit assistant")
-    print("\nType your message or speak (if voice mode enabled)")
-    print("=" * 60 + "\n")
-    
-    # Initialize TTS if voice mode enabled
-    tts_engine = None
-    if ns.voice:
-        print("Initializing voice mode...")
-        tts_config = TTSConfig(sample_rate=22050)
-        tts_engine = TTSEngine(tts_config)
-        tts_engine.initialize()
-        print("✓ Voice mode enabled\n")
-    
-    # Simple LLM
-    class AssistantLLM:
-        def __init__(self):
-            self.context = []
-        
-        def respond(self, message):
-            self.context.append(message)
-            
-            # Simple command handling
-            if "time" in message.lower():
-                from datetime import datetime
-                return f"The current time is {datetime.now().strftime('%H:%M:%S')}"
-            elif "date" in message.lower():
-                from datetime import date
-                return f"Today's date is {date.today()}"
-            elif "hello" in message.lower() or "hi" in message.lower():
-                return "Hello! I'm your HyperNix AI assistant. How can I help you?"
-            elif "weather" in message.lower():
-                return "I don't have access to weather data, but you can check weather.com"
-            else:
-                return f"You said: '{message}'. I'm a demo assistant - integrate a real LLM for full responses!"
-    
-    assistant = AssistantLLM()
-    
-    while True:
-        try:
-            user_input = input("\nYou: ").strip()
-            
-            if not user_input:
-                continue
-            
-            if user_input.lower() in ["/quit", "/exit", "quit", "exit"]:
-                print("\nGoodbye! 👋")
-                break
-            
-            if user_input.lower() == "/help":
-                print("\nCommands:")
-                print("  /help     - Show this help")
-                print("  /voice    - Toggle voice mode")
-                print("  /system   - Execute system command (e.g., /system ls -la)")
-                print("  /quit     - Exit assistant")
-                continue
-            
-            if user_input.lower() == "/voice":
-                if tts_engine is None:
-                    print("Initializing voice mode...")
-                    tts_config = TTSConfig(sample_rate=22050)
-                    tts_engine = TTSEngine(tts_config)
-                    tts_engine.initialize()
-                    print("✓ Voice mode enabled")
-                else:
-                    tts_engine = None
-                    print("✗ Voice mode disabled")
-                continue
-            
-            if user_input.startswith("/system"):
-                cmd = user_input[8:].strip()
-                if cmd:
-                    import subprocess
-                    try:
-                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-                        print(f"Output:\n{result.stdout}")
-                        if result.stderr:
-                            print(f"Errors:\n{result.stderr}")
-                    except Exception as e:
-                        print(f"Command failed: {e}")
-                continue
-            
-            # Normal conversation
-            response = assistant.respond(user_input)
-            print(f"Assistant: {response}")
-            
-            # Speak response if voice mode enabled
-            if tts_engine and response:
-                try:
-                    audio_data = tts_engine.synthesize(response)
-                    if hasattr(audio_data, 'cpu'):
-                        # Convert tensor to playable format
-                        audio_np = (audio_data.clamp(-1, 1) * 32767).short().cpu().numpy()
-                        print(f"[Audio generated: {len(audio_np)} samples]")
-                except Exception as e:
-                    print(f"[TTS error: {e}]")
-        
-        except KeyboardInterrupt:
-            print("\n\nInterrupted. Goodbye! 👋")
-            break
-        except EOFError:
-            break
-    
+
+    InteractiveCLI(model=ns.model, voice=ns.voice).cmd_assistant()
     return 0
 
 
