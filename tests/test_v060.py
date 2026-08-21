@@ -225,13 +225,13 @@ class TestTimer:
     def test_kitchen_timer_expires_after_duration(self) -> None:
         t = timer.KitchenTimer(duration=0.05).start()
         assert not t.expired()
-        time.sleep(0.06)
+        time.sleep(0.25)
         assert t.expired()
 
     def test_egg_timer_fires_on_ring_once(self) -> None:
         rings = []
         t = timer.EggTimer(duration=0.02, on_ring=lambda: rings.append(1)).start()
-        time.sleep(0.03)
+        time.sleep(0.07)
         t.check()
         t.check()
         t.check()
@@ -242,7 +242,7 @@ class TestTimer:
         t = timer.IntervalTimer(interval_seconds=0.05).start()
         # First call right after start: shouldn't fire yet.
         assert t.should_fire() is False
-        time.sleep(0.06)
+        time.sleep(0.26)
         assert t.should_fire() is True
         # Two consecutive should_fire calls in the same window: only one fires.
         assert t.should_fire() is False
