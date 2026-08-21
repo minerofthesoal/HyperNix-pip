@@ -9,7 +9,7 @@ import time
 import pytest
 
 from hypernix.gatekeeper import Gatekeeper
-from hypernix.keymaster import KeyScope, KeyType, Keymaster
+from hypernix.keymaster import Keymaster, KeyScope, KeyType
 from hypernix.t1api.auth import T1AuthService
 from hypernix.t1api.errors import T1APIError, T1ErrorCode
 

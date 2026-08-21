@@ -27,10 +27,8 @@ every account is a T1 key.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import secrets
-import sqlite3
 import threading
 import time
 import uuid

@@ -9,7 +9,6 @@ set the same ``app.state`` attributes, no global singletons involved.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 
 from fastapi import Header, Request
 

@@ -20,12 +20,11 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from hypernix.gatekeeper import Gatekeeper  # noqa: E402
-from hypernix.keymaster import KeyScope, KeyType, Keymaster  # noqa: E402
+from hypernix.keymaster import Keymaster, KeyScope, KeyType  # noqa: E402
 from hypernix.t1api.app import create_app  # noqa: E402
 from hypernix.t1api.config import T1APIConfig  # noqa: E402
 from hypernix.t1api.registry import ModelRegistry, ModelStatus  # noqa: E402
 from hypernix.t1api.storage import UsageStore  # noqa: E402
-
 
 _FREE_TIER_MODELS = [
     "nanonix-mini-plus", "nanonanonano-n3", "nanonix-mini-lite",

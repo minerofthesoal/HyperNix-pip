@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import T1APIError, T1ErrorCode
-from .registry import ModelEntry, ModelRegistry
+from .registry import ModelRegistry
 from .usage import UsageMeter
 
 logger = logging.getLogger(__name__)

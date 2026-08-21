@@ -18,7 +18,7 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from hypernix.gatekeeper import Gatekeeper  # noqa: E402
-from hypernix.keymaster import KeyScope, KeyType, Keymaster  # noqa: E402
+from hypernix.keymaster import Keymaster, KeyScope, KeyType  # noqa: E402
 from hypernix.t1api.app import create_app  # noqa: E402
 from hypernix.t1api.config import T1APIConfig  # noqa: E402
 from hypernix.t1api.registry import ModelRegistry  # noqa: E402

@@ -33,10 +33,11 @@ import threading
 import time
 import traceback
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Callable
+from typing import Any
 
 from .db import SQLiteBackend
 from .errors import T1APIError, T1ErrorCode

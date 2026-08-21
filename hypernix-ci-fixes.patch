@@ -1,0 +1,366 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 7451ad2..d7b8a0a 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -51,7 +51,7 @@ jobs:
+         run: pip install "rich>=13"
+ 
+       - name: Editable install + dev extras
+-        run: pip install -e ".[dev]"
++        run: pip install -e ".[dev,security]"
+ 
+       - name: pytest
+         run: pytest -q
+diff --git a/ruff.toml b/ruff.toml
+index 4e68df5..5d607c9 100644
+--- a/ruff.toml
++++ b/ruff.toml
+@@ -5,6 +5,22 @@ target-version = "py312"
+ select = ["E", "F", "I", "UP", "B"]
+ ignore = ["E501"]
+ 
++# FastAPI's dependency-injection pattern relies on calling Depends()/File()
++# etc. in argument defaults; ruff's bugbear check flags this by default
++# (B008) even though FastAPI treats these calls as idempotent markers, not
++# actual eager evaluation. This is the documented FastAPI/ruff exception.
++[lint.flake8-bugbear]
++extend-immutable-calls = [
++    "fastapi.Depends",
++    "fastapi.Query",
++    "fastapi.Path",
++    "fastapi.Header",
++    "fastapi.Body",
++    "fastapi.File",
++    "fastapi.Form",
++    "fastapi.Cookie",
++]
++
+ # These deprecated shims intentionally print a warning before their
+ # imports so the message fires even if the rest of the module fails
+ # to load; that ordering is the point, not an oversight.
+diff --git a/src/hypernix/cli.py b/src/hypernix/cli.py
+index fee16f5..39b5f4d 100644
+--- a/src/hypernix/cli.py
++++ b/src/hypernix/cli.py
+@@ -28,6 +28,17 @@ import sys
+ from collections.abc import Iterable
+ from pathlib import Path
+ 
++
++def _safe_print(text: str, **kwargs) -> None:
++    """print() that degrades gracefully instead of crashing when the
++    console encoding (e.g. Windows cp1252) can't represent the model's
++    output. Falls back to replacing unencodable characters."""
++    try:
++        print(text, **kwargs)
++    except UnicodeEncodeError:
++        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
++        print(text.encode(enc, errors="replace").decode(enc), **kwargs)
++
+ DEFAULT_QUANTS: list[str] = ["fp32", "fp16"]
+ 
+ _ALIAS: dict[str, str] = {
+@@ -768,7 +779,7 @@ def _run_chat(raw: list[str]) -> int:
+         return reply
+ 
+     if ns.message is not None:
+-        print(turn(ns.message))
++        _safe_print(turn(ns.message))
+         return 0
+ 
+     print("[hypernix chat] Ctrl-D or empty line to exit.", file=sys.stderr)
+@@ -810,7 +821,7 @@ def _run_generate(raw: list[str]) -> int:
+         top_k=ns.top_k, top_p=ns.top_p, seed=ns.seed,
+         device=ns.device, dtype=ns.dtype,
+     )
+-    print(text)
++    _safe_print(text)
+     return 0
+ 
+ 
+diff --git a/src/hypernix/t1api/auth.py b/src/hypernix/t1api/auth.py
+index beeb1bf..6b6103c 100644
+--- a/src/hypernix/t1api/auth.py
++++ b/src/hypernix/t1api/auth.py
+@@ -34,10 +34,10 @@ import hmac
+ import json
+ import logging
+ import time
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ 
+ from ..gatekeeper import Gatekeeper, QuotaViolation
+-from ..keymaster import KeyMeta, KeyScope, KeyType, Keymaster
++from ..keymaster import Keymaster, KeyMeta, KeyScope, KeyType
+ from .errors import T1APIError, T1ErrorCode
+ 
+ logger = logging.getLogger(__name__)
+diff --git a/src/hypernix/t1api/billing.py b/src/hypernix/t1api/billing.py
+index 8ca0c0c..bbc2f83 100644
+--- a/src/hypernix/t1api/billing.py
++++ b/src/hypernix/t1api/billing.py
+@@ -27,10 +27,8 @@ every account is a T1 key.
+ from __future__ import annotations
+ 
+ import hashlib
+-import json
+ import logging
+ import secrets
+-import sqlite3
+ import threading
+ import time
+ import uuid
+diff --git a/src/hypernix/t1api/deps.py b/src/hypernix/t1api/deps.py
+index 845b25f..291d0df 100644
+--- a/src/hypernix/t1api/deps.py
++++ b/src/hypernix/t1api/deps.py
+@@ -9,7 +9,6 @@ set the same ``app.state`` attributes, no global singletons involved.
+ from __future__ import annotations
+ 
+ import uuid
+-from dataclasses import dataclass
+ 
+ from fastapi import Header, Request
+ 
+diff --git a/src/hypernix/t1api/events.py b/src/hypernix/t1api/events.py
+index 019d640..2ac3b71 100644
+--- a/src/hypernix/t1api/events.py
++++ b/src/hypernix/t1api/events.py
+@@ -19,8 +19,9 @@ import threading
+ import time
+ import uuid
+ from collections import deque
++from collections.abc import Iterator
+ from dataclasses import dataclass
+-from typing import Any, Iterator
++from typing import Any
+ 
+ 
+ @dataclass
+diff --git a/src/hypernix/t1api/jobs.py b/src/hypernix/t1api/jobs.py
+index 8d929c0..ee70e15 100644
+--- a/src/hypernix/t1api/jobs.py
++++ b/src/hypernix/t1api/jobs.py
+@@ -33,10 +33,11 @@ import threading
+ import time
+ import traceback
+ import uuid
++from collections.abc import Callable
+ from concurrent.futures import Future, ThreadPoolExecutor
+ from dataclasses import dataclass
+ from enum import StrEnum
+-from typing import Any, Callable
++from typing import Any
+ 
+ from .db import SQLiteBackend
+ from .errors import T1APIError, T1ErrorCode
+diff --git a/src/hypernix/t1api/registry.py b/src/hypernix/t1api/registry.py
+index e507a20..fd009c9 100644
+--- a/src/hypernix/t1api/registry.py
++++ b/src/hypernix/t1api/registry.py
+@@ -33,7 +33,7 @@ from __future__ import annotations
+ import json
+ import logging
+ import threading
+-from dataclasses import dataclass, field, asdict
++from dataclasses import asdict, dataclass
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any
+diff --git a/src/hypernix/t1api/routers/jobs.py b/src/hypernix/t1api/routers/jobs.py
+index ff8f82f..e8cb047 100644
+--- a/src/hypernix/t1api/routers/jobs.py
++++ b/src/hypernix/t1api/routers/jobs.py
+@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
+ from ..auth import AuthContext
+ from ..deps import get_auth_context, get_job_queue, get_request_id
+ from ..jobs import JobQueue
+-from ..schemas import JobCreateRequest, JobDetailResponse, JobItem, JobListResponse
++from ..schemas import JobCreateRequest, JobDetailResponse, JobItem
+ 
+ router = APIRouter(prefix="/jobs", tags=["jobs"])
+ 
+diff --git a/src/hypernix/t1api/routers/models.py b/src/hypernix/t1api/routers/models.py
+index 7446e7e..d0f3e3a 100644
+--- a/src/hypernix/t1api/routers/models.py
++++ b/src/hypernix/t1api/routers/models.py
+@@ -3,7 +3,13 @@ from __future__ import annotations
+ from fastapi import APIRouter, Depends
+ 
+ from ..auth import AuthContext
+-from ..deps import get_auth_context, get_registry, get_request_id, get_routing_engine, get_usage_meter
++from ..deps import (
++    get_auth_context,
++    get_registry,
++    get_request_id,
++    get_routing_engine,
++    get_usage_meter,
++)
+ from ..registry import ModelRegistry
+ from ..schemas import (
+     ModelAvailabilityResponse,
+diff --git a/src/hypernix/t1api/routers/servers.py b/src/hypernix/t1api/routers/servers.py
+index 0598a70..1dafe33 100644
+--- a/src/hypernix/t1api/routers/servers.py
++++ b/src/hypernix/t1api/routers/servers.py
+@@ -3,7 +3,13 @@ from __future__ import annotations
+ from fastapi import APIRouter, Depends
+ 
+ from ..auth import AuthContext
+-from ..deps import get_auth_context, get_event_bus, get_request_id, get_server_registry, require_admin
++from ..deps import (
++    get_auth_context,
++    get_event_bus,
++    get_request_id,
++    get_server_registry,
++    require_admin,
++)
+ from ..schemas import (
+     ServerDetailResponse,
+     ServerItem,
+diff --git a/src/hypernix/t1api/routing.py b/src/hypernix/t1api/routing.py
+index c90cab5..35ce423 100644
+--- a/src/hypernix/t1api/routing.py
++++ b/src/hypernix/t1api/routing.py
+@@ -40,7 +40,7 @@ from pathlib import Path
+ from typing import Any
+ 
+ from .errors import T1APIError, T1ErrorCode
+-from .registry import ModelEntry, ModelRegistry
++from .registry import ModelRegistry
+ from .usage import UsageMeter
+ 
+ logger = logging.getLogger(__name__)
+diff --git a/src/hypernix/t1api/schemas.py b/src/hypernix/t1api/schemas.py
+index d356294..cc7abeb 100644
+--- a/src/hypernix/t1api/schemas.py
++++ b/src/hypernix/t1api/schemas.py
+@@ -11,7 +11,6 @@ from typing import Any
+ 
+ from pydantic import BaseModel, Field
+ 
+-
+ # ---------------------------------------------------------------------------
+ # Envelope
+ # ---------------------------------------------------------------------------
+diff --git a/src/hypernix/t1api/servers.py b/src/hypernix/t1api/servers.py
+index c0dfaa9..f36eb0d 100644
+--- a/src/hypernix/t1api/servers.py
++++ b/src/hypernix/t1api/servers.py
+@@ -18,9 +18,8 @@ import logging
+ import threading
+ import time
+ import uuid
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from enum import StrEnum
+-from pathlib import Path
+ from typing import Any
+ 
+ from .db import SQLiteBackend
+diff --git a/src/hypernix/waiter/cli.py b/src/hypernix/waiter/cli.py
+index 331a0f4..cffe764 100644
+--- a/src/hypernix/waiter/cli.py
++++ b/src/hypernix/waiter/cli.py
+@@ -57,7 +57,7 @@ def _warn(text: str) -> None:
+     if _HAS_RICH:
+         from rich.console import Console
+ 
+-        Console().print(f"[yellow]![/yellow] {text}")
++        Console(stderr=True).print(f"[yellow]![/yellow] {text}")
+     else:
+         print(f"WARNING: {text}", file=sys.stderr)
+ 
+@@ -66,7 +66,7 @@ def _err(text: str) -> None:
+     if _HAS_RICH:
+         from rich.console import Console
+ 
+-        Console().print(f"[red]\u2717[/red] {text}", style="red")
++        Console(stderr=True).print(f"[red]\u2717[/red] {text}", style="red")
+     else:
+         print(f"ERROR: {text}", file=sys.stderr)
+ 
+diff --git a/tests/test_t1api_auth.py b/tests/test_t1api_auth.py
+index b876553..3447d7f 100644
+--- a/tests/test_t1api_auth.py
++++ b/tests/test_t1api_auth.py
+@@ -9,7 +9,7 @@ import time
+ import pytest
+ 
+ from hypernix.gatekeeper import Gatekeeper
+-from hypernix.keymaster import KeyScope, KeyType, Keymaster
++from hypernix.keymaster import Keymaster, KeyScope, KeyType
+ from hypernix.t1api.auth import T1AuthService
+ from hypernix.t1api.errors import T1APIError, T1ErrorCode
+ 
+diff --git a/tests/test_t1api_billing.py b/tests/test_t1api_billing.py
+index f7e5b5b..d6a3c09 100644
+--- a/tests/test_t1api_billing.py
++++ b/tests/test_t1api_billing.py
+@@ -7,9 +7,9 @@ import time
+ 
+ import pytest
+ 
++from hypernix.t1api.billing import BillingLedger, TransactionKind
+ from hypernix.t1api.db import SQLiteBackend
+ from hypernix.t1api.errors import T1APIError, T1ErrorCode
+-from hypernix.t1api.billing import BillingLedger, TransactionKind
+ 
+ 
+ @pytest.fixture
+diff --git a/tests/test_t1api_core.py b/tests/test_t1api_core.py
+index f276f3c..eb380cb 100644
+--- a/tests/test_t1api_core.py
++++ b/tests/test_t1api_core.py
+@@ -18,7 +18,6 @@ from hypernix.t1api.registry import (
+ from hypernix.t1api.storage import UsageStore
+ from hypernix.t1api.usage import UsageMeter
+ 
+-
+ # ===========================================================================
+ # Model Registry
+ # ===========================================================================
+diff --git a/tests/test_t1api_http.py b/tests/test_t1api_http.py
+index f9399b4..1d73852 100644
+--- a/tests/test_t1api_http.py
++++ b/tests/test_t1api_http.py
+@@ -18,7 +18,7 @@ fastapi = pytest.importorskip("fastapi")
+ from fastapi.testclient import TestClient  # noqa: E402
+ 
+ from hypernix.gatekeeper import Gatekeeper  # noqa: E402
+-from hypernix.keymaster import KeyScope, KeyType, Keymaster  # noqa: E402
++from hypernix.keymaster import Keymaster, KeyScope, KeyType  # noqa: E402
+ from hypernix.t1api.app import create_app  # noqa: E402
+ from hypernix.t1api.config import T1APIConfig  # noqa: E402
+ from hypernix.t1api.registry import ModelRegistry  # noqa: E402
+diff --git a/tests/test_t1api_http_beta2.py b/tests/test_t1api_http_beta2.py
+index f593b61..475164a 100644
+--- a/tests/test_t1api_http_beta2.py
++++ b/tests/test_t1api_http_beta2.py
+@@ -20,13 +20,12 @@ fastapi = pytest.importorskip("fastapi")
+ from fastapi.testclient import TestClient  # noqa: E402
+ 
+ from hypernix.gatekeeper import Gatekeeper  # noqa: E402
+-from hypernix.keymaster import KeyScope, KeyType, Keymaster  # noqa: E402
++from hypernix.keymaster import Keymaster, KeyScope, KeyType  # noqa: E402
+ from hypernix.t1api.app import create_app  # noqa: E402
+ from hypernix.t1api.config import T1APIConfig  # noqa: E402
+ from hypernix.t1api.registry import ModelRegistry, ModelStatus  # noqa: E402
+ from hypernix.t1api.storage import UsageStore  # noqa: E402
+ 
+-
+ _FREE_TIER_MODELS = [
+     "nanonix-mini-plus", "nanonanonano-n3", "nanonix-mini-lite",
+     "nanonix-mini", "nanonix-nano", "nanonanonanonano-n4",
+diff --git a/tests/test_t1api_jobs.py b/tests/test_t1api_jobs.py
+index aeb98cc..24bace4 100644
+--- a/tests/test_t1api_jobs.py
++++ b/tests/test_t1api_jobs.py
+@@ -7,7 +7,6 @@ including cancelling a job that's genuinely mid-flight in another thread.
+ """
+ from __future__ import annotations
+ 
+-import threading
+ import time
+ 
+ import pytest

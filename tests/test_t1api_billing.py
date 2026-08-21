@@ -7,9 +7,9 @@ import time
 
 import pytest
 
+from hypernix.t1api.billing import BillingLedger, TransactionKind
 from hypernix.t1api.db import SQLiteBackend
 from hypernix.t1api.errors import T1APIError, T1ErrorCode
-from hypernix.t1api.billing import BillingLedger, TransactionKind
 
 
 @pytest.fixture

@@ -28,6 +28,17 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+
+def _safe_print(text: str, **kwargs) -> None:
+    """print() that degrades gracefully instead of crashing when the
+    console encoding (e.g. Windows cp1252) can't represent the model's
+    output. Falls back to replacing unencodable characters."""
+    try:
+        print(text, **kwargs)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        print(text.encode(enc, errors="replace").decode(enc), **kwargs)
+
 DEFAULT_QUANTS: list[str] = ["fp32", "fp16"]
 
 _ALIAS: dict[str, str] = {
@@ -768,7 +779,7 @@ def _run_chat(raw: list[str]) -> int:
         return reply
 
     if ns.message is not None:
-        print(turn(ns.message))
+        _safe_print(turn(ns.message))
         return 0
 
     print("[hypernix chat] Ctrl-D or empty line to exit.", file=sys.stderr)
@@ -810,7 +821,7 @@ def _run_generate(raw: list[str]) -> int:
         top_k=ns.top_k, top_p=ns.top_p, seed=ns.seed,
         device=ns.device, dtype=ns.dtype,
     )
-    print(text)
+    _safe_print(text)
     return 0
 
 

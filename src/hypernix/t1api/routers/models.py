@@ -3,7 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..auth import AuthContext
-from ..deps import get_auth_context, get_registry, get_request_id, get_routing_engine, get_usage_meter
+from ..deps import (
+    get_auth_context,
+    get_registry,
+    get_request_id,
+    get_routing_engine,
+    get_usage_meter,
+)
 from ..registry import ModelRegistry
 from ..schemas import (
     ModelAvailabilityResponse,

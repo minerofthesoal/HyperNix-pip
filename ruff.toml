@@ -5,6 +5,22 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
 
+# FastAPI's dependency-injection pattern relies on calling Depends()/File()
+# etc. in argument defaults; ruff's bugbear check flags this by default
+# (B008) even though FastAPI treats these calls as idempotent markers, not
+# actual eager evaluation. This is the documented FastAPI/ruff exception.
+[lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Body",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Cookie",
+]
+
 # These deprecated shims intentionally print a warning before their
 # imports so the message fires even if the rest of the module fails
 # to load; that ordering is the point, not an oversight.

@@ -51,7 +51,7 @@ jobs:
         run: pip install "rich>=13"
 
       - name: Editable install + dev extras
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,security]"
 
       - name: pytest
         run: pytest -q

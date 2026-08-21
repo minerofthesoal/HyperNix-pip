@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any

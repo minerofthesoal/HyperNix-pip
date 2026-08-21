@@ -34,10 +34,10 @@ import hmac
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ..gatekeeper import Gatekeeper, QuotaViolation
-from ..keymaster import KeyMeta, KeyScope, KeyType, Keymaster
+from ..keymaster import Keymaster, KeyMeta, KeyScope, KeyType
 from .errors import T1APIError, T1ErrorCode
 
 logger = logging.getLogger(__name__)

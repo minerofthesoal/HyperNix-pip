@@ -57,7 +57,7 @@ def _warn(text: str) -> None:
     if _HAS_RICH:
         from rich.console import Console
 
-        Console().print(f"[yellow]![/yellow] {text}")
+        Console(stderr=True).print(f"[yellow]![/yellow] {text}")
     else:
         print(f"WARNING: {text}", file=sys.stderr)
 
@@ -66,7 +66,7 @@ def _err(text: str) -> None:
     if _HAS_RICH:
         from rich.console import Console
 
-        Console().print(f"[red]\u2717[/red] {text}", style="red")
+        Console(stderr=True).print(f"[red]\u2717[/red] {text}", style="red")
     else:
         print(f"ERROR: {text}", file=sys.stderr)
 

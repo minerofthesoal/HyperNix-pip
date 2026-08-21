@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from ..auth import AuthContext
 from ..deps import get_auth_context, get_job_queue, get_request_id
 from ..jobs import JobQueue
-from ..schemas import JobCreateRequest, JobDetailResponse, JobItem, JobListResponse
+from ..schemas import JobCreateRequest, JobDetailResponse, JobItem
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

@@ -7,7 +7,6 @@ including cancelling a job that's genuinely mid-flight in another thread.
 """
 from __future__ import annotations
 
-import threading
 import time
 
 import pytest

@@ -3,7 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..auth import AuthContext
-from ..deps import get_auth_context, get_event_bus, get_request_id, get_server_registry, require_admin
+from ..deps import (
+    get_auth_context,
+    get_event_bus,
+    get_request_id,
+    get_server_registry,
+    require_admin,
+)
 from ..schemas import (
     ServerDetailResponse,
     ServerItem,
