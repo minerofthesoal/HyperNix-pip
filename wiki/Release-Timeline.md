@@ -305,3 +305,24 @@ timeline
         : 33d668c - 0.71.5a1 and a2
 ```
 
+## Release v0.71.5postr1 (2026-08-21)
+
+```mermaid
+timeline
+    title Release v0.71.5postr1 Commits
+    0.71.5postr1
+        : 49b678b - Adjust sleep durations in timer test cases
+        : 293a22c - ci fixes
+        : e9bcd09 - win fixes
+        : 5b0268e - win fixes
+        : 56c17b9 - Revise trademark section to unique naming
+        : da87eda - Delete hypernix-ci-fixes.patch
+        : bccc73e - fixes
+        : 604ec86 - b2
+        : 9017d71 - chore- update JSON stats (scheduled)
+        : 5e3b3e6 - chore- update JSON stats (scheduled)
+        : f836d29 - 0.71.5b1-part one of four for the api
+        : 1438264 - chore- update JSON stats (scheduled)
+        : 1d75aa0 - chore- update JSON stats (scheduled)
+```
+
