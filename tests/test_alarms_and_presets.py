@@ -213,8 +213,15 @@ def test_modern_alarm_uses_measured_time() -> None:
 
     a = smoke_alarm.modern_alarm(time_budget_seconds=10.0, step_fn=fake_step,
                                  warmup_steps=3)
-    # Should measure ~0.01s per step (may vary on slow CI hardware).
-    assert 0.005 < a.estimate_step_seconds() < 0.1
+    # Should measure ~0.01s per step. The upper bound is deliberately loose
+    # (50x the nominal 10ms) rather than tight (previously 0.1s / 10x):
+    # median-of-3 wall-clock timing is noisy on shared/virtualized CI
+    # runners, especially Windows, where a single slow scheduler tick can
+    # push a 10ms sleep past 100ms and flake a tight bound. We still assert
+    # well below the generic-fallback value of 1.0s (see
+    # test_modern_alarm_falls_back_before_warmup) so a regression that
+    # silently falls back to the default estimate is still caught.
+    assert 0.005 < a.estimate_step_seconds() < 0.5
     # Calculate expected steps based on actual measured time.
     # With 10s budget and 0.9 safety factor, expected steps = 9 / measured_step_seconds
     expected_steps = 9.0 / a.estimate_step_seconds()
