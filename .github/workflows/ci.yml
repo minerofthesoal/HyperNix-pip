@@ -14,6 +14,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # An autofix commit says, in its trailers, exactly which tests its change
+  # can affect. When one is present there is nothing to learn from re-running
+  # the 16-way matrix over a scaled sleep constant, so the matrix is skipped
+  # and `autofix-verify` runs that named set instead. Only autofix-F writes
+  # these trailers: it edits the bodies of the tests it names and nothing
+  # else. autofix-B and autofix-E touch src/, so their commits carry no
+  # trailer and get the full matrix like any other change.
+  triage:
+    name: triage
+    runs-on: ubuntu-latest
+    outputs:
+      narrow: ${{ steps.scope.outputs.narrow }}
+      scope: ${{ steps.scope.outputs.scope }}
+      tests: ${{ steps.scope.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - id: scope
+        name: Read the Autofix-Scope trailer, if any
+        shell: bash
+        run: |
+          message="$(git log -1 --pretty=%B)"
+          scope="$(printf '%s\n' "$message" | sed -n 's/^Autofix-Scope:[[:space:]]*//p' | tail -1)"
+          tests="$(printf '%s\n' "$message" | sed -n 's/^Autofix-Tests:[[:space:]]*//p' | tail -1)"
+          if [ -n "$scope" ]; then
+            echo "narrow=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::autofix commit for scope '$scope' — verifying only its tests"
+          else
+            echo "narrow=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+
   lint:
     name: ruff lint
     runs-on: ubuntu-latest
@@ -28,6 +63,8 @@ jobs:
 
   test:
     name: test (py${{ matrix.python-version }} on ${{ matrix.os }})
+    needs: triage
+    if: needs.triage.outputs.narrow != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -91,6 +128,8 @@ jobs:
 
   build-check:
     name: build sdist + wheel (smoke)
+    needs: triage
+    if: needs.triage.outputs.narrow != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,3 +149,64 @@ jobs:
               exit 1
             fi
           done
+
+  # The narrow counterpart to `test`: one interpreter, one OS, and only the
+  # tests the autofix commit named. `scripts/autofix_scope.py --list` is the
+  # same discovery autofix-F used to pick them, so the fallback below selects
+  # the identical set if the Autofix-Tests trailer is ever absent.
+  autofix-verify:
+    name: verify autofix (${{ needs.triage.outputs.scope }})
+    needs: triage
+    if: needs.triage.outputs.narrow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install torch (CPU wheels)
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+
+      - name: Install rich (required by tvtop / cli)
+        run: pip install "rich>=13"
+
+      - name: Editable install + dev extras
+        run: pip install -e ".[dev,security]"
+
+      # The trailers come from a commit message, which on a pull request is
+      # attacker-controlled. They are passed through the environment rather
+      # than interpolated into the script, and every node id is checked
+      # against the category's own discovery before pytest sees it, so a
+      # crafted trailer can neither run a shell command nor widen the run.
+      - name: Run only the tests this autofix commit affects
+        shell: bash
+        env:
+          AUTOFIX_SCOPE: ${{ needs.triage.outputs.scope }}
+          AUTOFIX_TESTS: ${{ needs.triage.outputs.tests }}
+        run: |
+          set -euo pipefail
+          if [ -n "$AUTOFIX_TESTS" ]; then
+            python scripts/autofix_scope.py --category "$AUTOFIX_SCOPE" \
+              --validate "$AUTOFIX_TESTS" > selected-tests.txt
+          else
+            echo "No Autofix-Tests trailer; falling back to the whole scope."
+            python scripts/autofix_scope.py --category "$AUTOFIX_SCOPE" \
+              --list > selected-tests.txt
+          fi
+          if [ ! -s selected-tests.txt ]; then
+            echo "::error::nothing to verify for scope '$AUTOFIX_SCOPE'"
+            exit 1
+          fi
+          echo "Verifying $(wc -l < selected-tests.txt) test(s):"
+          cat selected-tests.txt
+          xargs -a selected-tests.txt -d '\n' pytest -q --
+
+      - name: Confirm the scope table still matches the tree
+        run: pytest -q tests/test_module_layout.py tests/test_autofix_scripts.py

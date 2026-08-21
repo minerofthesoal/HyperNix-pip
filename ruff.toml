@@ -5,6 +5,13 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
 
+# ``hypernix`` is this project's own code. Say so explicitly rather
+# than letting isort infer it from the filesystem: modules are
+# reachable both as ``hypernix.timer`` and ``hypernix.timing.timer``,
+# and only the second spelling has a matching path on disk.
+[lint.isort]
+known-first-party = ["hypernix"]
+
 # FastAPI's dependency-injection pattern relies on calling Depends()/File()
 # etc. in argument defaults; ruff's bugbear check flags this by default
 # (B008) even though FastAPI treats these calls as idempotent markers, not
@@ -25,7 +32,7 @@ extend-immutable-calls = [
 # imports so the message fires even if the rest of the module fails
 # to load; that ordering is the point, not an oversight.
 [lint.per-file-ignores]
-"src/hypernix/mediocre_fridge.py" = ["E402"]
-"src/hypernix/new_fridge.py" = ["E402"]
-"src/hypernix/old_fridge.py" = ["E402"]
-"src/hypernix/old_oven.py" = ["E402"]
+"src/hypernix/data/mediocre_fridge.py" = ["E402"]
+"src/hypernix/evaluation/new_fridge.py" = ["E402"]
+"src/hypernix/system/old_fridge.py" = ["E402"]
+"src/hypernix/models/old_oven.py" = ["E402"]

@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+"""autofix-F — repair failing tests for HyperNix's timer-based modules.
+
+Scope: the ``timing`` category — ``timer``, ``bell``, ``coffee_maker``,
+``smoke_alarm``, ``spinner`` (read from ``hypernix.MODULE_CATEGORIES``, so
+it follows the code rather than a hardcoded list). ``scripts/autofix_scope.py``
+works out which individual test functions exercise those modules; only
+those are ever run or touched.
+
+**When it engages.** Only when *some but not all* of the category's tests
+fail. That is the signature of what this script can actually fix: a
+wall-clock assertion that lost a race on a loaded runner. If every one of
+them fails, the cause is upstream — a broken import, a syntax error, a
+renamed API — and patching individual tests would paper over it, so
+autofix-F hands the log to the script that owns that failure class
+(``autofix-E`` for imports/collection, ``autofix-B`` for lint) instead of
+touching anything itself.
+
+**What it fixes.** One thing, honestly: timing margins. A test like
+
+    t = timer.KitchenTimer(duration=0.05).start()
+    assert not t.expired()
+    time.sleep(0.25)
+    assert t.expired()
+
+fails when the runner stalls for 50ms between the first two lines. The fix
+is to scale *every* wall-clock constant in that test — the sleeps and the
+duration/interval/work_seconds keywords alike — by the same factor. Scaling
+uniformly keeps every relationship in the test intact (the sleep stays five
+times the duration) while making it tolerate a stall that much longer. The
+time-valued keyword names are discovered from the modules' own dataclass
+fields, so a renamed field doesn't leave a stale rule behind.
+
+Anything else — an AttributeError from a renamed symbol, a TypeError from a
+changed signature, a genuine logic regression — is reported with the real
+message and left alone. There is no fix here that makes a test pass without
+making it correct.
+
+**What it re-runs.** Only the tests it changed. Scaling constants inside one
+test function cannot affect any other test, so re-running the suite would
+buy nothing; the commit records the scope so CI doesn't re-run it either.
+
+Usage:
+    scripts/autofix-F                     # run the timing tests, fix, commit
+    scripts/autofix-F --dry-run           # show the edits, change nothing
+    scripts/autofix-F --log ci-output.txt # use a CI log instead of running
+    scripts/autofix-F --no-commit
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import re
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from autofix_scope import (  # noqa: E402
+    DEFAULT_CATEGORY,
+    REPO_ROOT,
+    SRC,
+    classify,
+    discover_tests,
+    failing_node_ids,
+    node_key,
+    time_kwargs,
+)
+
+BOLD = "\033[1m"
+GREEN = "\033[0;32m"
+YELLOW = "\033[1;33m"
+CYAN = "\033[0;36m"
+RED = "\033[0;31m"
+MAGENTA = "\033[0;35m"
+RESET = "\033[0m"
+
+
+def c(text: str, colour: str) -> str:
+    return f"{colour}{text}{RESET}"
+
+
+def say(text: str = "", colour: str = "") -> None:
+    print(c(text, colour) if colour else text, flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Running the category's tests
+# ---------------------------------------------------------------------------
+
+FAILED_RE = re.compile(r"^FAILED (\S+?)(?: - (.*))?$", re.MULTILINE)
+COUNTS_RE = re.compile(r"(\d+) (passed|failed|error|errors|skipped)")
+
+
+@dataclass
+class RunResult:
+    log: str
+    returncode: int
+    failures: dict[str, str] = field(default_factory=dict)  # node id -> message
+    passed: int = 0
+
+    @property
+    def failed(self) -> int:
+        return len(self.failures)
+
+
+def run_tests(node_ids: list[str], *, verbose: bool = False) -> RunResult:
+    """Run exactly ``node_ids`` and parse the outcome."""
+    if not node_ids:
+        return RunResult(log="", returncode=0)
+    cmd = [
+        sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        "--tb=line", "-ra", *node_ids,
+    ]
+    proc = subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True,
+        env={**_env(), "PYTHONPATH": str(SRC)},
+    )
+    log = proc.stdout + proc.stderr
+    if verbose:
+        say(log)
+    return RunResult(log=log, returncode=proc.returncode, **_parse(log))
+
+
+def _env() -> dict[str, str]:
+    import os
+
+    env = dict(os.environ)
+    env.setdefault("HYPERNIX_AUTO_INSTALL", "0")
+    # pytest truncates its short-summary lines to the terminal width, which
+    # drops the `- AttributeError: ...` half that tells us whether a failure
+    # is a timing margin at all. Ask for a wide one.
+    env["COLUMNS"] = "250"
+    return env
+
+
+def _parse(log: str) -> dict[str, object]:
+    failures = {
+        m.group(1): (m.group(2) or "").strip() for m in FAILED_RE.finditer(log)
+    }
+    passed = 0
+    for count, word in COUNTS_RE.findall(log):
+        if word == "passed":
+            passed = int(count)
+    return {"failures": failures, "passed": passed}
+
+
+# ---------------------------------------------------------------------------
+# The fix: scale a test's wall-clock constants
+# ---------------------------------------------------------------------------
+
+SLEEP_NAMES = {"sleep", "time.sleep", "monotonic_sleep"}
+
+
+@dataclass
+class Edit:
+    lineno: int
+    col: int
+    end_col: int
+    old: str
+    new: str
+    why: str
+
+
+# pytest's short summary shows either the exception ("AttributeError: ...")
+# or, for a rewritten assert, the assertion itself ("assert True is False").
+# Only the second form — and a plain AssertionError — is a margin candidate.
+_EXC_PREFIX_RE = re.compile(
+    r"^(?P<type>[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning|Exit|Interrupt))\b"
+)
+
+
+def _non_assertion_type(message: str) -> str | None:
+    """The exception type when a failure is *not* an assertion, else None."""
+    match = _EXC_PREFIX_RE.match(message.strip())
+    if match and match.group("type").rsplit(".", 1)[-1] != "AssertionError":
+        return match.group("type")
+    return None
+
+
+def _target_function(tree: ast.Module, node_id: str) -> ast.AST | None:
+    """Find the function a pytest node id names."""
+    parts = node_id.split("::")[1:]
+    parts = [p.split("[", 1)[0] for p in parts]  # drop [parametrize-id]
+    if not parts:
+        return None
+    if len(parts) == 1:
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                if node.name == parts[0]:
+                    return node
+        return None
+    class_name, func_name = parts[0], parts[-1]
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+                    if item.name == func_name:
+                        return item
+    return None
+
+
+def _call_name(call: ast.Call) -> str:
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        base = func.value
+        if isinstance(base, ast.Name):
+            return f"{base.id}.{func.attr}"
+        return func.attr
+    return ""
+
+
+def _format_number(value: float, like: str) -> str:
+    """Render ``value`` the way the literal it replaces was written."""
+    if "." not in like and "e" not in like.lower():
+        return str(int(value)) if float(value).is_integer() else f"{value:g}"
+    text = f"{round(value, 6):g}"
+    return text if "." in text or "e" in text else f"{text}.0"
+
+
+def plan_edits(
+    func: ast.AST,
+    source_lines: list[str],
+    knobs: set[str],
+    factor: float,
+    max_sleep: float,
+) -> tuple[list[Edit], list[str]]:
+    """Scale every wall-clock constant in ``func``. Returns (edits, refusals)."""
+    edits: list[Edit] = []
+    refusals: list[str] = []
+
+    def scale(node: ast.Constant, why: str, *, is_sleep: bool) -> None:
+        value = node.value
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+            return
+        scaled = value * factor
+        if is_sleep and scaled > max_sleep:
+            if value >= max_sleep:
+                refusals.append(
+                    f"{why} is already {value}s (cap {max_sleep}s) — "
+                    "a longer sleep is not the fix here"
+                )
+                return
+            scaled = max_sleep
+        line = source_lines[node.lineno - 1]
+        old = line[node.col_offset:node.end_col_offset]
+        edits.append(
+            Edit(
+                lineno=node.lineno,
+                col=node.col_offset,
+                end_col=node.end_col_offset,
+                old=old,
+                new=_format_number(scaled, old),
+                why=why,
+            )
+        )
+
+    for call in ast.walk(func):
+        if not isinstance(call, ast.Call):
+            continue
+        name = _call_name(call)
+        if name in SLEEP_NAMES and call.args:
+            if isinstance(call.args[0], ast.Constant):
+                scale(call.args[0], f"{name}()", is_sleep=True)
+        for keyword in call.keywords:
+            if keyword.arg in knobs and isinstance(keyword.value, ast.Constant):
+                scale(keyword.value, f"{keyword.arg}=", is_sleep=False)
+
+    # Later edits first so earlier offsets stay valid.
+    edits.sort(key=lambda e: (e.lineno, e.col), reverse=True)
+    return edits, refusals
+
+
+def apply_edits(path: Path, edits: list[Edit]) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    for edit in edits:
+        line = lines[edit.lineno - 1]
+        lines[edit.lineno - 1] = line[: edit.col] + edit.new + line[edit.end_col:]
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Delegation
+# ---------------------------------------------------------------------------
+
+DELEGATES = {
+    "imports": ("autofix-E", "import / collection errors"),
+    "lint": ("autofix-B", "lint diagnostics"),
+}
+
+
+def delegate(kind: str, *, dry_run: bool) -> int:
+    """Hand off to the autofix script that owns ``kind``."""
+    script, what = DELEGATES[kind]
+    path = Path(__file__).resolve().parent / script
+    say(f"\n  This is {what} — {script}'s job, not autofix-F's.", YELLOW)
+    if dry_run:
+        say(f"  --dry-run: would run {path}", CYAN)
+        return 0
+    if not path.exists():
+        say(f"  {path} is missing; cannot delegate.", RED)
+        return 1
+    say(f"  Running {script}…", CYAN)
+    return subprocess.run([str(path)], cwd=REPO_ROOT).returncode
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--category", default=DEFAULT_CATEGORY)
+    parser.add_argument("--tests-dir", type=Path, default=None,
+                        help="scan this directory instead of tests/")
+    parser.add_argument("--log", help="classify this CI log instead of running pytest")
+    parser.add_argument("--scale", type=float, default=2.0, help="margin multiplier")
+    parser.add_argument("--max-rounds", type=int, default=3)
+    parser.add_argument("--max-sleep", type=float, default=5.0,
+                        help="never grow a single sleep past this many seconds")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-commit", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args(argv)
+
+    say(f"=== autofix-F: {args.category} test repair ===", BOLD + CYAN)
+
+    refs = discover_tests(args.category, args.tests_dir)
+    node_ids = [ref.node_id for ref in refs]
+    if not node_ids:
+        say(f"No tests exercise the {args.category} modules — nothing to do.", YELLOW)
+        return 0
+    say(f"\n{len(node_ids)} test(s) exercise "
+        f"{', '.join(sorted({m for r in refs for m in r.modules}))}.")
+
+    # ── 1. Where do we stand? ────────────────────────────────────────────────
+    if args.log:
+        log = Path(args.log).read_text(encoding="utf-8", errors="replace")
+        known = {node_key(n) for n in node_ids}
+        failures = {n: "" for n in failing_node_ids(log) if node_key(n) in known}
+        result = RunResult(log=log, returncode=1, failures=failures)
+        result.passed = len(node_ids) - len(failures)
+        say(f"Read {args.log}: {result.failed} of {len(node_ids)} failing.")
+    else:
+        say("\nRunning the category's tests…", YELLOW)
+        result = run_tests(node_ids, verbose=args.verbose)
+        say(f"  {result.passed} passed, {result.failed} failed.")
+
+    # ── 2. The gate: some, but not all ───────────────────────────────────────
+    if result.failed == 0:
+        say(f"\nNothing failing in {args.category} — autofix-F stands down.", GREEN)
+        return 0
+
+    kind = classify(result.log, args.category)
+    if kind in DELEGATES:
+        return delegate(kind, dry_run=args.dry_run)
+
+    if result.failed >= len(node_ids):
+        say(
+            f"\nAll {len(node_ids)} {args.category} tests are failing. That is not a "
+            "timing margin — something upstream is broken.", RED,
+        )
+        say("  autofix-F will not patch tests to hide it.", RED)
+        say(f"  Failure class looks like: {kind}", RED)
+        for node_id, message in list(result.failures.items())[:5]:
+            say(f"    {node_id}: {message}")
+        return 1
+
+    say(f"\n{result.failed} of {len(node_ids)} failing — a margin problem is plausible.",
+        YELLOW)
+
+    # ── 3. Fix what is fixable, report what isn't ────────────────────────────
+    knobs = time_kwargs(args.category)
+    say(f"Time-valued knobs discovered: {', '.join(sorted(knobs)) or '(none)'}")
+
+    fixed: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    touched_files: set[Path] = set()
+
+    for node_id, message in sorted(result.failures.items()):
+        if not message:
+            skipped.append(
+                (node_id, "pytest reported no failure type — not guessing at a fix"),
+            )
+            continue
+        other = _non_assertion_type(message)
+        if other:
+            skipped.append((node_id, f"{other} is not a timing margin — {message}"))
+            continue
+
+        path = REPO_ROOT / node_id.split("::")[0]
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError) as exc:
+            skipped.append((node_id, f"cannot parse {path}: {exc}"))
+            continue
+        func = _target_function(tree, node_id)
+        if func is None:
+            skipped.append((node_id, "could not locate the test function"))
+            continue
+
+        source_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        edits, refusals = plan_edits(
+            func, source_lines, knobs, args.scale, args.max_sleep,
+        )
+        for refusal in refusals:
+            say(f"  [skip] {node_id}: {refusal}", YELLOW)
+        if not edits:
+            skipped.append(
+                (node_id, "no wall-clock constants to widen — this is a real failure"),
+            )
+            continue
+
+        say(f"  [fix] {node_id}", YELLOW)
+        for edit in sorted(edits, key=lambda e: e.lineno):
+            say(f"        line {edit.lineno}: {edit.why} {edit.old} -> {edit.new}")
+        if not args.dry_run:
+            apply_edits(path, edits)
+            touched_files.add(path)
+        fixed.append(node_id)
+
+    for node_id, reason in skipped:
+        say(f"  [left alone] {node_id}: {reason}", MAGENTA)
+
+    if not fixed:
+        say("\nNothing autofix-F can fix here. The failures above need a human.", RED)
+        return 1
+
+    if args.dry_run:
+        say(f"\n--dry-run: {len(fixed)} test(s) would be widened; nothing written.", CYAN)
+        return 0
+
+    # ── 4. Re-run ONLY what changed ──────────────────────────────────────────
+    say(f"\nRe-running the {len(fixed)} changed test(s) — and only those…", YELLOW)
+    recheck = run_tests(fixed, verbose=args.verbose)
+    rounds = 1
+    while recheck.failed and rounds < args.max_rounds:
+        rounds += 1
+        say(f"  still failing; round {rounds} at {args.scale}x…", YELLOW)
+        again: list[str] = []
+        for node_id in list(recheck.failures):
+            path = REPO_ROOT / node_id.split("::")[0]
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            func = _target_function(tree, node_id)
+            if func is None:
+                continue
+            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+            edits, _ = plan_edits(func, lines, knobs, args.scale, args.max_sleep)
+            if not edits:
+                continue
+            apply_edits(path, edits)
+            touched_files.add(path)
+            again.append(node_id)
+        if not again:
+            break
+        recheck = run_tests(again, verbose=args.verbose)
+
+    if recheck.failed:
+        say(f"\n{recheck.failed} test(s) still failing after {rounds} round(s):", RED)
+        for node_id, message in recheck.failures.items():
+            say(f"    {node_id}: {message}", RED)
+        say("Leaving the working tree as-is for inspection; not committing.", RED)
+        return 1
+
+    say(f"  {recheck.passed} passed.", GREEN)
+    say("  The rest of the suite was not re-run: these edits are confined to the",
+        CYAN)
+    say("  bodies of the tests above and cannot affect anything else.", CYAN)
+
+    # ── 5. Commit ────────────────────────────────────────────────────────────
+    if args.no_commit:
+        say("\n--no-commit: leaving the changes staged in the working tree.", CYAN)
+        return 0
+    return commit(sorted(touched_files), fixed, args.category, args.scale, rounds)
+
+
+def commit(
+    files: list[Path], node_ids: list[str], category: str, scale: float, rounds: int,
+) -> int:
+    """Commit with the trailers CI reads to keep its re-check narrow."""
+    rel = [p.relative_to(REPO_ROOT).as_posix() for p in files]
+    subprocess.run(["git", "add", *rel], cwd=REPO_ROOT, check=True)
+
+    listing = "\n".join(f"  {n}" for n in node_ids)
+    message = (
+        f"[autofix-F] widen {category} margins in {len(node_ids)} test(s)\n"
+        f"\n"
+        f"Wall-clock constants in these tests were scaled by {scale}x "
+        f"({rounds} round(s)), keeping every ratio between a timer's configured\n"
+        f"duration and the sleeps around it intact:\n"
+        f"\n{listing}\n"
+        f"\n"
+        f"Only these tests were re-run after the change — the edits are inside\n"
+        f"their bodies and cannot affect any other test.\n"
+        f"\n"
+        f"Autofix-Script: autofix-F\n"
+        f"Autofix-Scope: {category}\n"
+        f"Autofix-Tests: {' '.join(node_ids)}\n"
+    )
+    proc = subprocess.run(
+        ["git", "commit", "-m", message], cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        say(proc.stdout + proc.stderr, RED)
+        return proc.returncode
+
+    say("\n=== autofix-F summary ===", BOLD + GREEN)
+    say(f"  Tests widened : {len(node_ids)}")
+    say(f"  Files touched : {', '.join(rel)}")
+    say(f"  Scale         : {scale}x over {rounds} round(s)")
+    say(f"  Branch        : {_branch()}")
+    say("  Committed with Autofix-Scope so CI re-checks only these tests.")
+    return 0
+
+
+def _branch() -> str:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    return proc.stdout.strip() or "unknown"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

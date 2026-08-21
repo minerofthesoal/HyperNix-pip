@@ -10,7 +10,9 @@ include pytest.ini
 recursive-include src/hypernix *.py py.typed
 recursive-include tests *.py
 recursive-include examples *.py
-recursive-include scripts *.sh
+# The whole scripts/ tree: tests/test_autofix_scripts.py runs the
+# autofix scripts, and the sdist ships tests/.
+recursive-include scripts *
 recursive-include .github/workflows *.yml
 recursive-include wiki *.md
 recursive-include assets *.png *.svg *.jpg

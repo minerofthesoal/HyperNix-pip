@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""autofix — route a CI failure to the script that can fix it.
+
+The three repair scripts each own one failure class:
+
+===============  ==========================================================
+``autofix-B``    ruff diagnostics — lint and import ordering.
+``autofix-E``    imports, syntax, and anything that stops collection.
+``autofix-F``    failing tests for a module category (timing by default).
+===============  ==========================================================
+
+Given a CI log, this reads the failure and runs the right one. Given no
+log, it reproduces the failure itself — cheaply and in the order that
+matters: lint, then whether the tree even collects, then the category's
+tests. Import errors are handled before anything else, because nothing
+else can be diagnosed while the tree doesn't import, and a lint pass over
+a file that doesn't parse tells you nothing.
+
+Nothing here ever runs the full test suite. The most expensive thing it
+does is run one category's tests, which for ``timing`` is about ninety
+tests and a few seconds.
+
+Usage:
+    scripts/autofix                       # reproduce, classify, fix
+    scripts/autofix --log ci-output.txt   # classify an existing log
+    scripts/autofix --log -               # ... from stdin
+    scripts/autofix --dry-run             # say what would run
+    scripts/autofix --category data       # route test failures to another category
+"""
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from autofix_scope import (  # noqa: E402
+    DEFAULT_CATEGORY,
+    REPO_ROOT,
+    SRC,
+    classify,
+    discover_tests,
+)
+
+SCRIPTS = Path(__file__).resolve().parent
+
+BOLD = "\033[1m"
+GREEN = "\033[0;32m"
+YELLOW = "\033[1;33m"
+CYAN = "\033[0;36m"
+RED = "\033[0;31m"
+RESET = "\033[0m"
+
+
+def say(text: str = "", colour: str = "") -> None:
+    print(f"{colour}{text}{RESET}" if colour else text, flush=True)
+
+
+def _env() -> dict[str, str]:
+    import os
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(SRC)
+    env.setdefault("HYPERNIX_AUTO_INSTALL", "0")
+    return env
+
+
+def _run(cmd: list[str]) -> tuple[int, str]:
+    proc = subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, env=_env(),
+    )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# Reproducing the failure, cheapest and most fundamental first
+# ---------------------------------------------------------------------------
+
+def reproduce(category: str) -> tuple[str, str]:
+    """Return ``(kind, log)`` for the first failing check."""
+    say("No log given — reproducing the failure locally.", CYAN)
+
+    say("\n[1/3] ruff check src tests", YELLOW)
+    code, log = _run(["ruff", "check", "src", "tests"])
+    if code != 0:
+        return "lint", log
+    say("      clean.", GREEN)
+
+    say("\n[2/3] pytest --collect-only (does the tree import?)", YELLOW)
+    code, log = _run([
+        sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--collect-only",
+    ])
+    if code != 0:
+        return "imports", log
+    say("      collects.", GREEN)
+
+    node_ids = [ref.node_id for ref in discover_tests(category)]
+    say(f"\n[3/3] pytest — the {len(node_ids)} {category} test(s), and only those",
+        YELLOW)
+    if not node_ids:
+        return "clean", ""
+    code, log = _run([
+        sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        "--tb=line", "-ra", *node_ids,
+    ])
+    if code != 0:
+        return classify(log, category), log
+    say("      pass.", GREEN)
+    return "clean", ""
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+def script_for(kind: str, category: str) -> tuple[str, list[str]] | None:
+    """The script that owns ``kind``, plus the arguments it needs."""
+    if kind == "lint":
+        return "autofix-B", []
+    if kind == "imports":
+        return "autofix-E", []
+    if kind == category:
+        return "autofix-F", ["--category", category]
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--log", help="a CI log to classify ('-' for stdin)")
+    parser.add_argument("--category", default=DEFAULT_CATEGORY)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--classify-only", action="store_true",
+                        help="print the failure class and exit")
+    args, passthrough = parser.parse_known_args(argv)
+
+    say("=== autofix: failure router ===", BOLD + CYAN)
+
+    if args.log:
+        log = sys.stdin.read() if args.log == "-" else Path(args.log).read_text(
+            encoding="utf-8", errors="replace",
+        )
+        kind = classify(log, args.category)
+        say(f"\n{args.log}: failure class is {BOLD}{kind}{RESET}")
+    else:
+        kind, log = reproduce(args.category)
+
+    if args.classify_only:
+        print(kind)
+        return 0
+
+    if kind == "clean":
+        say("\nNothing is failing — no autofix needed.", GREEN)
+        return 0
+
+    chosen = script_for(kind, args.category)
+    if chosen is None:
+        say(f"\nFailures are outside any autofix script's scope ({kind}).", RED)
+        say("These need a human:", RED)
+        for line in log.splitlines():
+            if line.startswith("FAILED "):
+                say(f"  {line}", RED)
+        return 1
+
+    name, extra = chosen
+    path = SCRIPTS / name
+    if not path.exists():
+        say(f"\n{path} is missing.", RED)
+        return 1
+
+    say(f"\n-> {name} owns {kind} failures.", BOLD + CYAN)
+    if args.dry_run:
+        say(f"   --dry-run: would run {path} {' '.join(extra + passthrough)}", CYAN)
+        return 0
+
+    code = subprocess.run(
+        [str(path), *extra, *passthrough], cwd=REPO_ROOT, env=_env(),
+    ).returncode
+    if code != 0:
+        say(f"\n{name} exited {code} — see its output above.", RED)
+        return code
+
+    # Re-check only what failed. Never the whole suite: autofix-B and
+    # autofix-E touch files the rest of the suite covers, but re-running it
+    # here would duplicate the work CI is about to do on the pushed commit.
+    say(f"\nRe-checking the {kind} failure only…", YELLOW)
+    if kind == "lint":
+        code, out = _run(["ruff", "check", "src", "tests"])
+    elif kind == "imports":
+        code, out = _run([
+            sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+            "--collect-only",
+        ])
+    else:
+        # autofix-F already re-ran exactly the tests it changed.
+        code, out = 0, ""
+
+    if code == 0:
+        say("  fixed.", GREEN)
+        return 0
+    say("  still failing:", RED)
+    say(out[-2000:])
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
