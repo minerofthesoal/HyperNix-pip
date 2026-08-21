@@ -28,6 +28,7 @@ See changlog.md
 - [Wiki / deep dives](#wiki--deep-dives)
 - [How the GGUF pipeline works](#how-the-gguf-pipeline-works)
 - [Platform notes](#platform-notes)
+- [CI autofix](#ci-autofix)
 - [Build / release](#build--release)
 - [Usage & Documentation](#usage--documentation)
 - [License](#license)
@@ -515,6 +516,34 @@ k-quant in the plan.
 - **macOS**: Metal for inference, Homebrew for `llama-quantize`. (untested)
 - **Windows**: native support; doctor accepts Windows; `llama-quantize` auto-downloads Windows binaries; use scoop / chocolatey for system deps. (untested)
 - **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal_mode_hints()` returns a dict of recommended settings (batch size, dtype, TF32/SDPA toggles) for the detected card.
+
+## CI autofix
+
+Three scripts in `scripts/`, each owning one failure class, plus a router
+that reads a CI log and runs the right one:
+
+| Script | Owns |
+|---|---|
+| `autofix-B` | ruff diagnostics |
+| `autofix-E` | imports, syntax, anything that stops collection |
+| `autofix-F` | failing tests for a module category (timing by default) |
+
+```bash
+scripts/autofix                      # reproduce the failure, classify, fix
+scripts/autofix --log ci-output.txt  # classify an existing CI log
+scripts/autofix-F --dry-run          # timer-test repair, without writing
+```
+
+`autofix-F` engages only when *some but not all* of the timing tests fail —
+the signature of a wall-clock assertion that lost a race, which is the one
+thing it can fix. It widens the margins in those tests by scaling every time
+constant in them uniformly, re-runs only what it changed, and commits with an
+`Autofix-Scope:` trailer. CI reads that trailer and verifies just those tests
+instead of re-running the 4-OS x 4-Python matrix. Failures it can't honestly
+fix — a renamed symbol, a changed signature, a real regression — are reported
+and left alone.
+
+See [`scripts/README.md`](scripts/README.md) for the full picture.
 
 ## Build / release
 
