@@ -10,11 +10,55 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+
+def _cli_subprocess_env() -> dict[str, str]:
+    """Near-hermetic environment for `hypernix.cli` subprocess tests.
+
+    Deliberately minimal so these tests exercise the CLI's own env
+    handling (e.g. HYPERNIX_AUTO_INSTALL=0) rather than whatever happens
+    to be set in the surrounding shell/CI runner.
+
+    On Windows, though, a handful of OS-level variables aren't optional:
+    without SystemRoot (and friends) Winsock can't load its service
+    provider table, so even `import asyncio` -- pulled in transitively by
+    `torch` -> `unittest.mock` -> `asyncio` -- fails with
+    "WinError 10106: The requested service provider could not be loaded
+    or initialized" before any hypernix code runs. A hardcoded POSIX PATH
+    also leaves Windows unable to resolve system DLLs. Carry over just
+    enough of the real environment to let the interpreter and its
+    dependencies boot on whatever platform we're on.
+    """
+    env = {
+        "PYTHONPATH": str(Path(__file__).resolve().parent.parent / "src"),
+        "HYPERNIX_AUTO_INSTALL": "0",
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "HOME": str(Path.home()),
+    }
+    if sys.platform == "win32":
+        for key in (
+            "SystemRoot", "windir", "SystemDrive", "COMSPEC",
+            "TEMP", "TMP", "USERPROFILE", "PATHEXT",
+            "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+        ):
+            if key in os.environ:
+                env[key] = os.environ[key]
+        system_root = env.get("SystemRoot", r"C:\Windows")
+        env["PATH"] = os.pathsep.join([
+            str(Path(sys.executable).parent),
+            str(Path(sys.executable).parent / "Scripts"),
+            f"{system_root}\\System32",
+            system_root,
+            f"{system_root}\\System32\\Wbem",
+        ])
+        env.setdefault("USERPROFILE", str(Path.home()))
+    return env
 
 # ---------------------------------------------------------------------------
 # microwave — new tiers
@@ -446,12 +490,7 @@ def test_cli_brew_runs_from_json(tiny_snapshot: Path, tmp_path: Path) -> None:
     recipe_path = tmp_path / "recipe.json"
     recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
 
-    env = {
-        "PYTHONPATH": str(Path(__file__).resolve().parent.parent / "src"),
-        "HYPERNIX_AUTO_INSTALL": "0",
-        "PATH": "/usr/bin:/bin:/usr/local/bin",
-        "HOME": str(Path.home()),
-    }
+    env = _cli_subprocess_env()
     cp = subprocess.run(
         [sys.executable, "-m", "hypernix.cli", "brew", str(recipe_path)],
         env=env, capture_output=True, text=True, timeout=180, check=False,
@@ -464,12 +503,7 @@ def test_cli_brew_rejects_bad_override(tmp_path: Path) -> None:
     recipe = {"dataset": "x", "out_dir": "y"}
     rp = tmp_path / "r.json"
     rp.write_text(json.dumps(recipe), encoding="utf-8")
-    env = {
-        "PYTHONPATH": str(Path(__file__).resolve().parent.parent / "src"),
-        "HYPERNIX_AUTO_INSTALL": "0",
-        "PATH": "/usr/bin:/bin:/usr/local/bin",
-        "HOME": str(Path.home()),
-    }
+    env = _cli_subprocess_env()
     cp = subprocess.run(
         [sys.executable, "-m", "hypernix.cli", "brew", str(rp), "--set", "bad_format"],
         env=env, capture_output=True, text=True, timeout=30, check=False,
