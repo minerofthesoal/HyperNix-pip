@@ -77,7 +77,7 @@ const QUICKSTART = [
 ]
 
 // Every entry below is cross-checked against the real argparse definitions in
-// src/hypernix/cli.py (34 real subcommands, dispatched from the `_SUBCOMMANDS`
+// src/hypernix/interfaces/cli.py (34 real subcommands, dispatched from the `_SUBCOMMANDS`
 // set). Commands without a fixed flag set of their own point at `--help`
 // rather than inventing one.
 const CLI_COMMANDS = [
@@ -134,7 +134,7 @@ const COMPANION_SCRIPTS = [
 ]
 
 const MODULES = [
-  { name: 'hypernix.abbicus', src: 'src/hypernix/abbicus.py', fns: [
+  { name: 'hypernix.abbicus', src: 'src/hypernix/training/abbicus.py', fns: [
     { fn: 'AbbicusConfig(model_size=\'7B\', base_context_length=4096, dataset_type=\'text\', curriculum_steps=10000, dynamic_padding=True) -> None', desc: 'Configuration for Abbicus token regulation.' },
     { fn: 'Abbicus(config) -> None', desc: 'The Abbicus Token Regulator.' },
     { fn: 'Abbicus.step(global_step) -> None', desc: 'Update curriculum step.' },
@@ -144,19 +144,19 @@ const MODULES = [
     { fn: 'TurboAbbicus.step(global_step) -> None', desc: 'Update curriculum step and evaluate VRAM safeguards.' },
     { fn: 'TurboAbbicus.regulate(batch) -> dict[str, torch.Tensor]', desc: 'Regulate batch by truncating if it exceeds maximum allowed length.' },
   ]},
-  { name: 'hypernix.apron', src: 'src/hypernix/apron.py', fns: [
+  { name: 'hypernix.apron', src: 'src/hypernix/training/apron.py', fns: [
     { fn: 'Apron()', desc: 'Captured snapshot of every RNG state hypernix knows about.' },
     { fn: 'Apron.snapshot(cls, seed=None) -> Apron', desc: 'Capture the current RNG state, *then* optionally seed.' },
     { fn: 'Apron.restore() -> None', desc: 'Restore every captured RNG.' },
     { fn: 'apron(seed=None) -> Iterator[Apron]', desc: 'Context manager that snapshots every RNG, optionally seeds' },
   ]},
-  { name: 'hypernix.arch', src: 'src/hypernix/arch.py', fns: [
+  { name: 'hypernix.arch', src: 'src/hypernix/models/arch.py', fns: [
     { fn: 'ArchInfo()', desc: 'Dimensions inferred from the state dict.' },
     { fn: 'map_tensor_name(name) -> str | None', desc: 'Map a PyTorch parameter name to a GGUF tensor name.' },
     { fn: 'infer_arch(state_dict, hint_n_head=None) -> ArchInfo', desc: 'Inspect tensor shapes to infer basic architectural dimensions.' },
     { fn: 'iter_state_dict_names(state_dict_keys) -> list[str]', desc: 'Return the list of keys in stable sorted order for deterministic output.' },
   ]},
-  { name: 'hypernix.assistant', src: 'src/hypernix/assistant.py', fns: [
+  { name: 'hypernix.assistant', src: 'src/hypernix/interfaces/assistant.py', fns: [
     { fn: 'check_rich()', desc: 'Check if rich is available.' },
     { fn: 'InteractiveCLI()', desc: 'Interactive TUI/CLI for HyperNix.' },
     { fn: 'InteractiveCLI.run()', desc: 'Main loop for interactive CLI.' },
@@ -169,7 +169,7 @@ const MODULES = [
     { fn: 'InteractiveCLI.cmd_pipeline()', desc: 'ASR→LLM→TTS pipeline.' },
     { fn: '… 3 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.bell', src: 'src/hypernix/bell.py', fns: [
+  { name: 'hypernix.bell', src: 'src/hypernix/timing/bell.py', fns: [
     { fn: 'Bell()', desc: 'Streaming-token + done-notification primitive.' },
     { fn: 'Bell.ring(full_reply) -> None', desc: 'Manually fire the done-callbacks (useful after a non-streamed' },
     { fn: 'Bell.iter_complete(oven, prompt, max_new_tokens=128, temperature=0.7, top_k=40, top_p=0.95, seed=None) -> Iterator[str]', desc: 'Yield decoded tokens as they\'re sampled from a completion.' },
@@ -179,14 +179,14 @@ const MODULES = [
     { fn: 'silent_bell() -> Bell', desc: 'A bell with no callbacks — useful when you want the streaming' },
     { fn: 'bell(stdout=False) -> Bell', desc: 'Construct a bell. ``stdout=True`` returns :func:`stdout_bell`.' },
   ]},
-  { name: 'hypernix.blender', src: 'src/hypernix/blender.py', fns: [
+  { name: 'hypernix.blender', src: 'src/hypernix/data/blender.py', fns: [
     { fn: 'HandBlender()', desc: 'Straight concatenation. Source A, then source B, then C, …' },
     { fn: 'PersonalBlender()', desc: 'Round-robin interleave. Pulls one line from each source in' },
     { fn: 'CountertopBlender()', desc: 'Weighted random sampling with replacement.' },
     { fn: 'HighPowerBlender()', desc: 'Buffers every source into RAM, concatenates, then shuffles.' },
     { fn: 'blender(tier, sources, **kw)', desc: 'Construct a blender tier by name.' },
   ]},
-  { name: 'hypernix.brewer', src: 'src/hypernix/brewer.py', fns: [
+  { name: 'hypernix.brewer', src: 'src/hypernix/training/brewer.py', fns: [
     { fn: 'BrewerConfig()', desc: 'All hyperparameters for a ``hyperNix0x-v2`` style model.' },
     { fn: 'BrewerConfig.approx_params() -> int', desc: 'Rough parameter count estimate (millions would be /1e6).' },
     { fn: 'BrewerRMSNorm(dim, eps=1e-05) -> None', desc: 'Root-mean-square layer normalisation (no bias, no mean subtraction).' },
@@ -199,7 +199,7 @@ const MODULES = [
     { fn: 'hypernix0x_v2_33m() -> BrewerConfig', desc: '``hyperNix0x-v2-33m`` — 6 layers, ~33.6429M params (33,642,900 parameters), ctx=4096.' },
     { fn: '… 16 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.cake_pan', src: 'src/hypernix/cake_pan.py', fns: [
+  { name: 'hypernix.cake_pan', src: 'src/hypernix/training/cake_pan.py', fns: [
     { fn: 'BakeOff(reason, step) -> None', desc: 'Raised when a CakePan detects a corruption-class event' },
     { fn: 'CakePan()', desc: 'Hybrid CPU + GPU training guard. See module docstring.' },
     { fn: 'CakePan.save_pristine() -> None', desc: 'Capture the current state dict on CPU. Every' },
@@ -209,7 +209,7 @@ const MODULES = [
     { fn: 'CakePan.oven(batches, step_fn, on_bake_off=None, max_retries_per_batch=2) -> int', desc: 'Loop over ``batches``, calling ``step_fn(batch)`` under' },
     { fn: 'cake_pan(model, optimizer=None, **kwargs) -> CakePan', desc: 'Construct a :class:`CakePan` with keyword configuration.' },
   ]},
-  { name: 'hypernix.cardboard_box', src: 'src/hypernix/cardboard_box.py', fns: [
+  { name: 'hypernix.cardboard_box', src: 'src/hypernix/data/cardboard_box.py', fns: [
     { fn: 'CardboardBox(filepath, create_if_missing=True) -> None', desc: 'An efficient file-based token storage using memory mapping.' },
     { fn: 'CardboardBox.append(tokens) -> None', desc: 'Pack and append tokens to the file.' },
     { fn: 'CardboardBox.read(start_idx, length) -> np.ndarray', desc: 'Read a slice of valid tokens.' },
@@ -217,10 +217,10 @@ const MODULES = [
     { fn: 'CardboardBox.valid_tokens() -> int', desc: 'The number of currently valid (unpruned) tokens.' },
     { fn: 'CardboardBox.defragment() -> None', desc: 'Reclaim disk space by shifting valid tokens to the start of the file.' },
   ]},
-  { name: 'hypernix.cctvtop', src: 'src/hypernix/cctvtop.py', fns: [
+  { name: 'hypernix.cctvtop', src: 'src/hypernix/monitoring/cctvtop.py', fns: [
     { fn: 'ensure_vnc() -> dict[str, str]', desc: 'Ensure a VNC server is running and return its info.' },
   ]},
-  { name: 'hypernix.coffee_maker', src: 'src/hypernix/coffee_maker.py', fns: [
+  { name: 'hypernix.coffee_maker', src: 'src/hypernix/timing/coffee_maker.py', fns: [
     { fn: 'Brew()', desc: 'One result from a single ``brew_fn()`` call.' },
     { fn: 'CoffeeMaker()', desc: 'Repeat ``brew_fn`` on an interval.' },
     { fn: 'CoffeeMaker.run(cycles) -> list[Brew]', desc: 'Run exactly ``cycles`` brews (sleeping between them).' },
@@ -230,7 +230,7 @@ const MODULES = [
     { fn: 'PercolatorMaker()', desc: 'Cyclic brew: the output of cycle N is passed as the input to' },
     { fn: 'ColdBrewMaker()', desc: 'Long-running single brew with mandatory disk checkpoints.' },
   ]},
-  { name: 'hypernix.compactor', src: 'src/hypernix/compactor.py', fns: [
+  { name: 'hypernix.compactor', src: 'src/hypernix/system/compactor.py', fns: [
     { fn: 'Compactor()', desc: 'Walks a directory and rolls older checkpoints into archives.' },
     { fn: 'Compactor.discover() -> list[Path]', desc: 'Return checkpoint paths sorted oldest-first by step number.' },
     { fn: 'Compactor.plan() -> list[tuple[Path, Path]]', desc: 'Return ``[(src, archive_path), ...]`` for what would be' },
@@ -239,7 +239,7 @@ const MODULES = [
     { fn: 'list_checkpoints(root) -> list[Path]', desc: 'Discover checkpoint paths in ``root``, oldest-first.' },
     { fn: 'discover_old_checkpoints(root, keep_recent=3) -> Iterable[Path]', desc: 'Yield only the checkpoints that *would* be compacted under' },
   ]},
-  { name: 'hypernix.compute_framework', src: 'src/hypernix/compute_framework.py', fns: [
+  { name: 'hypernix.compute_framework', src: 'src/hypernix/training/compute_framework.py', fns: [
     { fn: 'ComputeArch()', desc: 'Hardware architecture type.' },
     { fn: 'ComputeFramework(local_rank=-1, world_size=1, use_ddp=False, use_fsdp=False, zero_stage=0, use_lazy_suzan=False, lazy_suzan_config=None) -> None', desc: 'A high-level framework for training models on different GPUs/CPUs/architectures.' },
     { fn: 'ComputeFramework.prepare_model(model) -> nn.Module', desc: 'Move model to the correct device and wrap it in DDP/FSDP if requested.' },
@@ -249,7 +249,7 @@ const MODULES = [
     { fn: 'ComputeFramework.step(optimizer) -> None', desc: 'Step optimizer and invoke LazySusan synchronization if active.' },
     { fn: 'ComputeFramework.cleanup() -> None', desc: 'Destroy distributed process groups if any.' },
   ]},
-  { name: 'hypernix.config', src: 'src/hypernix/config.py', fns: [
+  { name: 'hypernix.config', src: 'src/hypernix/system/config.py', fns: [
     { fn: 'get_config_value(key) -> Any', desc: 'Public API: get a single config value by key.' },
     { fn: 'set_config_value(key, value) -> None', desc: 'Public API: set a single config value by key.' },
     { fn: 'get_default_model() -> str | None', desc: 'Public API: return the currently configured default model (or None).' },
@@ -260,10 +260,10 @@ const MODULES = [
     { fn: 'clear_provider_key(vendor) -> None', desc: 'Public API: remove a persisted provider key (env var is untouched).' },
     { fn: 'cli_main(raw) -> int', desc: 'Entry point for ``hnx config`` / ``hypernix config``.' },
   ]},
-  { name: 'hypernix.convert', src: 'src/hypernix/convert.py', fns: [
+  { name: 'hypernix.convert', src: 'src/hypernix/quant/convert.py', fns: [
     { fn: 'convert_to_gguf(model_dir, output, dtype=\'fp16\', arch_name=\'hypernix\', name=\'HyperNix\', n_head_hint=None, context_length=None) -> Path', desc: 'Write an uncompressed GGUF file at fp32 or fp16 precision.' },
   ]},
-  { name: 'hypernix.cookbook', src: 'src/hypernix/cookbook.py', fns: [
+  { name: 'hypernix.cookbook', src: 'src/hypernix/chat/cookbook.py', fns: [
     { fn: 'ChatTemplate()', desc: 'A pure-string chat-format renderer.' },
     { fn: 'ChatTemplate.apply(messages, add_generation_prompt=True) -> str', desc: 'Render ``messages`` into a single prompt string.' },
     { fn: 'ChatTemplate.stop_tokens() -> list[str]', desc: 'Best-effort list of strings that mark the end of an' },
@@ -273,7 +273,7 @@ const MODULES = [
     { fn: 'apply_template(messages, template=\'hyper-nix.2\', add_generation_prompt=True) -> str', desc: 'One-shot helper: resolve ``template`` and call ``.apply``.' },
     { fn: 'list_templates() -> dict[str, str]', desc: 'Return ``{name: notes}`` for every registered template.' },
   ]},
-  { name: 'hypernix.countertop', src: 'src/hypernix/countertop.py', fns: [
+  { name: 'hypernix.countertop', src: 'src/hypernix/chat/countertop.py', fns: [
     { fn: 'interactive_cli(use_rich=True) -> int', desc: 'Interactive TUI/CLI menu for all HyperNix operations.' },
     { fn: 'Countertop()', desc: 'A persistent multi-turn chat session bound to an oven.' },
     { fn: 'Countertop.authenticate_t1(t1_key) -> Any', desc: 'Authenticate and bind a T1 API key to this Countertop session.' },
@@ -285,12 +285,12 @@ const MODULES = [
     { fn: 'Countertop.render(add_generation_prompt=True) -> str', desc: 'Render the current transcript through the chat template' },
     { fn: 'countertop(oven, system=None, persona=None, template=None, max_history_tokens=None, bell=None, flour=None, t1_key=None, keymaster=None, gatekeeper=None, **sampling) -> Countertop', desc: 'Build a :class:`Countertop`.' },
   ]},
-  { name: 'hypernix.cutting_board', src: 'src/hypernix/cutting_board.py', fns: [
+  { name: 'hypernix.cutting_board', src: 'src/hypernix/data/cutting_board.py', fns: [
     { fn: 'CuttingBoard()', desc: 'Deterministic random split.' },
     { fn: 'StratifiedBoard()', desc: 'Split a list of dict records while preserving the' },
     { fn: 'cutting_board(source=None, train=0.8, val=0.1, test=0.1, seed=0, shuffle=True) -> CuttingBoard | dict[str, list[str]]', desc: 'If ``source`` is given, return the slice dict directly; else' },
   ]},
-  { name: 'hypernix.deep_fryer', src: 'src/hypernix/deep_fryer.py', fns: [
+  { name: 'hypernix.deep_fryer', src: 'src/hypernix/training/deep_fryer.py', fns: [
     { fn: 'Fryer()', desc: 'Base deep-fryer. Subclasses set noise intensity + sparsity.' },
     { fn: 'Fryer.save_pristine() -> int', desc: 'Store the untouched state dict so :meth:`un_fry` can restore' },
     { fn: 'Fryer.un_fry() -> int', desc: 'Restore the last pristine snapshot. Returns the number of' },
@@ -299,31 +299,31 @@ const MODULES = [
     { fn: 'HeavyFry()', desc: 'Severe perturbation. Defaults: 30% of elements, 0.5× param-std' },
     { fn: 'deep_fryer(tier, model, fraction=None, noise_std=None, patterns=(), seed=0, **extra) -> Fryer', desc: 'Construct a deep-fryer tier by short name.' },
   ]},
-  { name: 'hypernix.deps', src: 'src/hypernix/deps.py', fns: [
+  { name: 'hypernix.deps', src: 'src/hypernix/system/deps.py', fns: [
     { fn: 'disabled() -> bool', desc: 'Return True when env says not to touch pip (HYPERNIX_AUTO_INSTALL=0).' },
     { fn: 'current_version(pkg) -> str | None', desc: 'Return the installed version of ``pkg`` (PyPI name), or ``None``.' },
     { fn: 'pip_install(specs, upgrade=True, quiet=False) -> bool', desc: 'Install / upgrade ``specs`` via pip. Tries a normal install, then ``--user``.' },
     { fn: 'reload_modules(names) -> None', desc: 'Best-effort ``importlib.reload`` for already-imported modules.' },
     { fn: 'ensure(specs, reimport=None, upgrade=True, quiet=False) -> bool', desc: 'Ensure ``specs`` are installed (and at the pinned versions). Reload on success.' },
   ]},
-  { name: 'hypernix.dishwasher', src: 'src/hypernix/dishwasher.py', fns: [
+  { name: 'hypernix.dishwasher', src: 'src/hypernix/system/dishwasher.py', fns: [
     { fn: 'HandWash()', desc: 'Conservative. Logs + __pycache__ only.' },
     { fn: 'QuickWash()', desc: 'HandWash + transient artefacts.' },
     { fn: 'NormalWash()', desc: 'QuickWash + stale checkpoints (keeps the most-recent N).' },
     { fn: 'HeavyDuty()', desc: 'NormalWash + intermediate GGUFs + HF hub cache + build dirs.' },
     { fn: 'wash(tier=\'normal\', root=\'.\', **kw) -> CleanReport', desc: 'One-shot helper. ``wash(\"heavy\", \"./trained\")``.' },
   ]},
-  { name: 'hypernix.doctor', src: 'src/hypernix/doctor.py', fns: [
+  { name: 'hypernix.doctor', src: 'src/hypernix/system/doctor.py', fns: [
     { fn: 'run(fix=False) -> int', desc: 'Run the environment check. If ``fix`` is True, pip-install missing deps.' },
   ]},
-  { name: 'hypernix.download', src: 'src/hypernix/download.py', fns: [
+  { name: 'hypernix.download', src: 'src/hypernix/models/download.py', fns: [
     { fn: 'ModelInfo()', desc: 'Metadata for a known model on the HuggingFace Hub.' },
     { fn: 'resolve_repo_id(name_or_repo_id) -> str', desc: 'Resolve a short name (``\"nano-mini\"``) to a full ``org/repo`` id.' },
     { fn: 'resolve_model_info(name_or_repo_id) -> ModelInfo | None', desc: 'Return the :class:`ModelInfo` for a known short-or-full name, else None.' },
     { fn: 'verify_snapshot(model_dir) -> list[str]', desc: 'Verify a downloaded snapshot contains everything `convert` needs.' },
     { fn: 'download_model(repo_id=\'ray0rf1re/hyper-nix.1\', revision=None, cache_dir=None, local_dir=None, model_dir_name=None, token=None, quiet=False, verify=True) -> Path', desc: 'Download a full HuggingFace model snapshot and return its directory.' },
   ]},
-  { name: 'hypernix.espresso_maker', src: 'src/hypernix/espresso_maker.py', fns: [
+  { name: 'hypernix.espresso_maker', src: 'src/hypernix/evaluation/espresso_maker.py', fns: [
     { fn: 'EspressoMaker()', desc: 'Base espresso maker. Subclasses set sampling parameters.' },
     { fn: 'EspressoMaker.pull(prompts, references=None) -> list[Shot]', desc: 'Generate ``samples_per_prompt`` samples per prompt, score' },
     { fn: 'Ristretto()', desc: 'Shortest pull. Greedy decode, 16 tokens, single sample.' },
@@ -332,18 +332,18 @@ const MODULES = [
     { fn: 'Lungo()', desc: 'Long pull. Many samples, high temperature, 256 tokens. Good' },
     { fn: 'espresso_maker(tier, oven, scorer=None, **kwargs) -> EspressoMaker', desc: 'Construct a tier by name.' },
   ]},
-  { name: 'hypernix.ethanol', src: 'src/hypernix/ethanol.py', fns: [
+  { name: 'hypernix.ethanol', src: 'src/hypernix/system/ethanol.py', fns: [
     { fn: 'Ethanol()', desc: 'Overclock helper. Construct with a level, call :meth:`apply`.' },
     { fn: 'Ethanol.apply(confirm=False, auto_throttle=True) -> OverclockResult', desc: 'Apply the offsets via the detected vendor tool.' },
     { fn: 'Ethanol.reset(confirm=False) -> OverclockResult', desc: 'Convenience: same as ``Ethanol(level=0).apply(...)``.' },
     { fn: 'overclock(level, confirm=False, gpu_index=0) -> OverclockResult', desc: 'One-shot helper. Equivalent to' },
   ]},
-  { name: 'hypernix.fetcher', src: 'src/hypernix/fetcher.py', fns: [
+  { name: 'hypernix.fetcher', src: 'src/hypernix/quant/fetcher.py', fns: [
     { fn: 'cache_dir() -> Path', desc: 'Directory where fetched binaries are stored. Respects XDG / override.' },
     { fn: 'cached_binary() -> Path | None', desc: 'Return the path to a cached ``llama-quantize`` if one exists.' },
     { fn: 'fetch_llama_quantize(force=False, quiet=False, prefer_cached=True, search_releases=10) -> Path', desc: 'Download a prebuilt ``llama-quantize`` binary into the user cache.' },
   ]},
-  { name: 'hypernix.fizzle', src: 'src/hypernix/fizzle.py', fns: [
+  { name: 'hypernix.fizzle', src: 'src/hypernix/training/fizzle.py', fns: [
     { fn: 'FuzedComponent()', desc: 'Represents a component in the Fuzed model.' },
     { fn: 'FuzedModelArch(components, output_dir=None)', desc: 'A fuzed model architecture combining multiple underlying models.' },
     { fn: 'FuzedModelArch.load_components() -> None', desc: 'Load individual models and tokenizers into memory.' },
@@ -352,7 +352,7 @@ const MODULES = [
     { fn: 'FuzedModelArch.save() -> None', desc: 'Save the fuzed architecture to disk.' },
     { fn: 'main(argv) -> int', desc: 'CLI entry point for fizzle module.' },
   ]},
-  { name: 'hypernix.flour', src: 'src/hypernix/flour.py', fns: [
+  { name: 'hypernix.flour', src: 'src/hypernix/chat/flour.py', fns: [
     { fn: 'Flour()', desc: 'Chat-quality logits processor.' },
     { fn: 'Flour.smart_default(cls, template=None) -> Flour', desc: 'Reasonable defaults for chat: 1.1 repetition penalty,' },
     { fn: 'Flour.aggressive(cls, template=None) -> Flour', desc: 'Heavier penalties for models that loop a lot.' },
@@ -363,13 +363,13 @@ const MODULES = [
     { fn: 'Flour.clean_reply(reply) -> str', desc: 'Strip trailing stop sequences, role markers and any' },
     { fn: 'flour(repetition_penalty=1.1, no_repeat_ngram=4, template=\'hyper-nix.2\', aggressive=False) -> Flour', desc: 'Quick constructor. ``aggressive=True`` calls' },
   ]},
-  { name: 'hypernix.food_processor', src: 'src/hypernix/food_processor.py', fns: [
+  { name: 'hypernix.food_processor', src: 'src/hypernix/data/food_processor.py', fns: [
     { fn: 'ChopBlade()', desc: 'Split the file on ``separator`` and yield each non-empty piece.' },
     { fn: 'SliceBlade()', desc: 'Fixed-length character slicing with optional overlap. Good for' },
     { fn: 'ShredBlade()', desc: 'Whitespace-tokenized sliding window.' },
     { fn: 'PureeBlade()', desc: 'The whole file as one output, with internal whitespace' },
   ]},
-  { name: 'hypernix.freezer', src: 'src/hypernix/freezer.py', fns: [
+  { name: 'hypernix.freezer', src: 'src/hypernix/system/freezer.py', fns: [
     { fn: 'VRAMBudget()', desc: 'Snapshot of device memory at one point in time.' },
     { fn: 'probe_vram(device_index=0) -> VRAMBudget', desc: 'Return current VRAM state for the given CUDA device, or a zeroed' },
     { fn: 'compute_capability(device_index=0) -> tuple[int, int] | None', desc: 'Return ``(major, minor)`` for a CUDA device, or ``None`` on CPU-only hosts.' },
@@ -382,7 +382,7 @@ const MODULES = [
     { fn: 'Freezer.suggest_qat_batch_size(bits=6, hint=None) -> int', desc: 'Suggest a QAT-aware batch size.' },
     { fn: '… 11 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.gatekeeper', src: 'src/hypernix/gatekeeper.py', fns: [
+  { name: 'hypernix.gatekeeper', src: 'src/hypernix/security/gatekeeper.py', fns: [
     { fn: 'Quota()', desc: 'A time-windowed usage quota.' },
     { fn: 'QuotaViolation(key_id, reason, limit=None, current=None, window=None) -> None', desc: 'Raised when a request exceeds an enforced quota or rate limit.' },
     { fn: 'RateWindow(window_seconds=60.0) -> None', desc: 'Thread-safe sliding-window counter.' },
@@ -395,27 +395,27 @@ const MODULES = [
     { fn: 'Gatekeeper.check_quota(key_id, endpoint=\'\', model=\'\', tokens_requested=0) -> None', desc: 'Raise :class:`QuotaViolation` if the call would exceed any limit.' },
     { fn: '… 7 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.generate', src: 'src/hypernix/generate.py', fns: [
+  { name: 'hypernix.generate', src: 'src/hypernix/models/generate.py', fns: [
     { fn: 'generate_text(model_dir, prompt=\'\', max_new_tokens=64, temperature=1.0, top_k=50, top_p=0.95, seed=None, device=None, dtype=\'float32\') -> str', desc: 'Sample text from a HyperNix snapshot.' },
   ]},
-  { name: 'hypernix.gkey_cli', src: 'src/hypernix/gkey_cli.py', fns: [
+  { name: 'hypernix.gkey_cli', src: 'src/hypernix/security/gkey_cli.py', fns: [
     { fn: 'main(argv=None) -> int', desc: 'Entry point for the `gkey` console script.' },
   ]},
-  { name: 'hypernix.hyped', src: 'src/hypernix/hyped.py', fns: [
+  { name: 'hypernix.hyped', src: 'src/hypernix/interfaces/hyped.py', fns: [
     { fn: 'SkillManager(storage_dir=SKILLS_DIR) -> None', desc: 'Manages creation, execution, listing, and deletion of custom AI skills.' },
     { fn: 'ToolRegistry(skill_manager) -> None', desc: 'Registry containing 34+ built-in unique tools for code, system, web, git,' },
     { fn: 'estimate_cost(model_short, input_tokens, output_tokens) -> dict[str, float]', desc: 'Estimate price in USD based on model pricing per 1M tokens.' },
     { fn: 'compact_prompt(raw_prompt) -> str', desc: 'Compact a long custom system prompt into a dense, high-impact instruction format.' },
     { fn: 'OvenRunner(entry, config) -> None', desc: 'Unified interface for generating text across Local, OpenAI, Anthropic, REST, and T1 models.' },
   ]},
-  { name: 'hypernix.hyped_pro', src: 'src/hypernix/hyped_pro.py', fns: [
+  { name: 'hypernix.hyped_pro', src: 'src/hypernix/interfaces/hyped_pro.py', fns: [
     { fn: 'resolve_python_for_subprocess(debug=False) -> str', desc: 'Pick the Python interpreter for the bridge/GUI subprocesses to use.' },
   ]},
-  { name: 'hypernix.hyped_pro_bridge', src: 'src/hypernix/hyped_pro_bridge.py', fns: [
+  { name: 'hypernix.hyped_pro_bridge', src: 'src/hypernix/interfaces/hyped_pro_bridge.py', fns: [
     { fn: 'serve() -> int', desc: 'Read JSON requests from stdin, write JSON responses to stdout, forever.' },
     { fn: 'cli_main(argv=None) -> int', desc: 'One-shot mode for scripting/debugging: build a single request from' },
   ]},
-  { name: 'hypernix.hyped_pro_core', src: 'src/hypernix/hyped_pro_core.py', fns: [
+  { name: 'hypernix.hyped_pro_core', src: 'src/hypernix/interfaces/hyped_pro_core.py', fns: [
     { fn: 'HypedProError(code, message)', desc: 'A real, coded failure — never silently swallowed into a fake reply.' },
     { fn: 'ensure_downloaded(model, quiet=False) -> Path', desc: 'Download ``model``\'s weights if they aren\'t already cached.' },
     { fn: 'extract_thinking(text) -> tuple[str, str | None]', desc: 'Split a reply into (visible_text, thinking_text_or_None).' },
@@ -423,23 +423,23 @@ const MODULES = [
     { fn: 'send_chat_message(model_short, messages, system=None, api_key=None, max_tokens=None, max_thinking_tokens=None, hide_thinking=True, enable_tools=True) -> dict[str, str | None]', desc: 'Returns {\"content\": <visible reply>, \"thinking\": <extracted thinking' },
     { fn: 'catalog_json() -> dict[str, Any]', desc: 'Serializable view of MODELS + PROVIDERS for the bridge\'s `catalog` cmd.' },
   ]},
-  { name: 'hypernix.hyped_pro_gui', src: 'src/hypernix/hyped_pro_gui.py', fns: [
+  { name: 'hypernix.hyped_pro_gui', src: 'src/hypernix/interfaces/hyped_pro_gui.py', fns: [
     { fn: 'choose_qt_platform(session) -> str | None', desc: 'Return a QT_QPA_PLATFORM value to try first, or None to let Qt decide.' },
     { fn: 'try_launch_qt() -> bool', desc: 'Attempt to launch the Qt6 GUI. Returns False if Qt6 isn\'t usable at' },
   ]},
-  { name: 'hypernix.hyped_pro_tools', src: 'src/hypernix/hyped_pro_tools.py', fns: [
+  { name: 'hypernix.hyped_pro_tools', src: 'src/hypernix/interfaces/hyped_pro_tools.py', fns: [
     { fn: 'ToolError(code, message)', desc: 'A real, reportable tool failure — fed back to the model as the' },
     { fn: 'execute_tool(name, arguments) -> str', desc: 'Run a tool by name with the given arguments, returning its result as' },
   ]},
-  { name: 'hypernix.hyper_log', src: 'src/hypernix/hyper_log.py', fns: [
+  { name: 'hypernix.hyper_log', src: 'src/hypernix/monitoring/hyper_log.py', fns: [
     { fn: 'HyperLogger(total_steps=1000, checkpoint_dir=\'.\', on_emergency_stop=None)', desc: 'A live-updating rich console logger for training loops.' },
   ]},
-  { name: 'hypernix.industrial_range', src: 'src/hypernix/industrial_range.py', fns: [
+  { name: 'hypernix.industrial_range', src: 'src/hypernix/evaluation/industrial_range.py', fns: [
     { fn: 'IndustrialRange()', desc: 'LLM-as-judge labeler.' },
     { fn: 'IndustrialRange.compare(prompt, a, b) -> str', desc: 'Return ``\"A\"``, ``\"B\"``, or ``\"T\"`` (tie).' },
     { fn: 'industrial_range(judge, **kwargs) -> IndustrialRange', desc: 'Construct an :class:`IndustrialRange` around ``judge``.' },
   ]},
-  { name: 'hypernix.injection', src: 'src/hypernix/injection.py', fns: [
+  { name: 'hypernix.injection', src: 'src/hypernix/chat/injection.py', fns: [
     { fn: 'Injection()', desc: 'One concrete injection event recorded for provenance.' },
     { fn: 'Injector()', desc: 'Base injector — subclasses set the open / close strings and' },
     { fn: 'Injector.inject_text(prompt) -> str', desc: 'Splice into a rendered prompt string. ``prefix`` and' },
@@ -452,10 +452,10 @@ const MODULES = [
     { fn: 'thinking(content)', desc: 'Shortcut: ``thinking(\"hi\") == \"<think>hi</think>\"`` /' },
     { fn: '… 2 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.instant_pot', src: 'src/hypernix/instant_pot.py', fns: [
+  { name: 'hypernix.instant_pot', src: 'src/hypernix/training/instant_pot.py', fns: [
     { fn: 'brew(recipe) -> Path', desc: 'Run the full pipeline described by ``recipe``; return the trained' },
   ]},
-  { name: 'hypernix.keymaster', src: 'src/hypernix/keymaster.py', fns: [
+  { name: 'hypernix.keymaster', src: 'src/hypernix/security/keymaster.py', fns: [
     { fn: 'KeyType()', desc: 'Supported API key types.' },
     { fn: 'KeyScope()', desc: 'Permission scopes a key may be granted.' },
     { fn: 'T1KeyGenerator()', desc: 'Generates and validates T1-format API keys.' },
@@ -468,7 +468,7 @@ const MODULES = [
     { fn: 'Keymaster(store_dir=None, auto_rotate=True, poll_interval=3600.0, server_id=\'00001-A1\') -> None', desc: 'Full-lifecycle API key manager.' },
     { fn: '… 13 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.lazy_suzan', src: 'src/hypernix/lazy_suzan.py', fns: [
+  { name: 'hypernix.lazy_suzan', src: 'src/hypernix/training/lazy_suzan.py', fns: [
     { fn: 'LazySusanConfig(compression=\'fp8\', ring_topology=True, overlap_comm=True, local_steps=1, sparsification_ratio=0.01) -> None', desc: 'Configuration for LazySusan distributed linking.' },
     { fn: 'LazySusan(model, config=None) -> None', desc: 'Lazy Susan: High-efficiency decentralized multi-GPU linking without physical NVLink.' },
     { fn: 'LazySusan.compress_and_aggregate(grad) -> torch.Tensor', desc: 'Compress the gradient, simulate network exchange, and return aggregated gradient.' },
@@ -477,7 +477,7 @@ const MODULES = [
     { fn: 'LazySusan.step() -> None', desc: 'Call this at the end of the local optimization step if using Local SGD.' },
     { fn: 'LazySusan.synchronize_parameters() -> None', desc: 'Average model parameters across all GPUs using Ring communication.' },
   ]},
-  { name: 'hypernix.lunchbox', src: 'src/hypernix/lunchbox.py', fns: [
+  { name: 'hypernix.lunchbox', src: 'src/hypernix/data/lunchbox.py', fns: [
     { fn: 'Lunchbox()', desc: 'Consistent-schema dataset packager.' },
     { fn: 'Lunchbox.add(**fields) -> None', desc: 'Append one record. Extra keys are allowed; missing keys' },
     { fn: 'Lunchbox.normalize() -> list[dict[str, Any]]', desc: 'Return the records with every row having every column,' },
@@ -488,7 +488,7 @@ const MODULES = [
     { fn: 'Lunchbox.for_eval(cls) -> Lunchbox', desc: 'Return a Lunchbox pre-configured with the recommended' },
     { fn: 'lunchbox(records=None, required_columns=None) -> Lunchbox', desc: 'Construct a :class:`Lunchbox`. Accepts an optional records' },
   ]},
-  { name: 'hypernix.map', src: 'src/hypernix/map.py', fns: [
+  { name: 'hypernix.map', src: 'src/hypernix/monitoring/map.py', fns: [
     { fn: 'MapConfigError()', desc: 'Raised for invalid ``hnx map config`` input; message is user-facing.' },
     { fn: 'get_map_config() -> dict[str, Any]', desc: 'Public API: the current persisted map config (with defaults filled in).' },
     { fn: 'parse_acc(value) -> float', desc: 'Parse an ``acc`` string like ``\"1\"``/``\"1k\"``/``\"2.5m\"``/``\"1t\"``' },
@@ -500,18 +500,18 @@ const MODULES = [
     { fn: 'render_engine(glyphs, label, tick, active) -> list[str]', desc: 'A small boiler icon with rising steam above its chimney.' },
     { fn: 'cli_main(argv=None) -> int', desc: 'Entry point for ``hnx map`` / ``hypernix map``.' },
   ]},
-  { name: 'hypernix.mediocre_fridge', src: 'src/hypernix/mediocre_fridge.py', fns: [
+  { name: 'hypernix.mediocre_fridge', src: 'src/hypernix/data/mediocre_fridge.py', fns: [
     { fn: 'synthesize_judge_corpus(n, out_path, seed=0, good_ratio=0.5) -> Path', desc: 'Write ``n`` judge examples to ``out_path`` as newline-separated text.' },
     { fn: 'collect_responses_from(oven, prompts, max_new_tokens=32, temperature=0.7, label_rule=None) -> list[JudgeExample]', desc: 'Sample responses from ``oven.complete(...)`` and wrap them as JudgeExamples.' },
     { fn: 'write_examples(examples, out_path) -> Path', desc: 'Serialize a sequence of JudgeExamples to a plain-text file.' },
   ]},
-  { name: 'hypernix.menu', src: 'src/hypernix/menu.py', fns: [
+  { name: 'hypernix.menu', src: 'src/hypernix/chat/menu.py', fns: [
     { fn: 'Menu()', desc: 'Named system-prompt registry.' },
     { fn: 'Menu.default() -> str', desc: 'Convenience: return the ``\"default\"`` entry, or the first' },
     { fn: 'Menu.find(query) -> str | None', desc: 'Fuzzy-lookup a persona name (v0.61.1).' },
     { fn: 'menu(builtins=True) -> Menu', desc: 'Construct a menu, optionally preloaded with the built-ins.' },
   ]},
-  { name: 'hypernix.microwave', src: 'src/hypernix/microwave.py', fns: [
+  { name: 'hypernix.microwave', src: 'src/hypernix/models/microwave.py', fns: [
     { fn: 'defrost(repo_id_or_dir, device=None, dtype=\'float32\', quiet=True)', desc: 'Tier 1. Preheat and return the oven — no generation. Use this' },
     { fn: 'low_zap(repo_id_or_dir, prompt, max_new_tokens=16, temperature=0.0, top_k=1, top_p=1.0, stop=(\'\\n\',), seed=0, device=None, dtype=\'float32\', quiet=True) -> str', desc: 'Tier 2. Short, deterministic, single-line output. Perfect for' },
     { fn: 'zap(repo_id_or_dir, prompt, max_new_tokens=64, temperature=0.2, top_k=40, top_p=0.95, stop=(), seed=None, device=None, dtype=\'float32\', quiet=True) -> str', desc: 'Tier 3. Standard \"zap\" — 64 tokens, low-temp sampling. The' },
@@ -519,7 +519,7 @@ const MODULES = [
     { fn: 'chat_zap(repo_id_or_dir, message, system=None, max_new_tokens=128, temperature=0.7, top_k=40, top_p=0.95, seed=None, device=None, dtype=\'float32\', quiet=True) -> str', desc: 'Tier 5. Single-turn chat. Uses the tokenizer\'s chat template' },
     { fn: 'reheat(oven, prior_output, continuation_prompt=\'\', max_new_tokens=64, temperature=0.2, stop=(), seed=None) -> str', desc: 'Continue a previous microwave output without reloading the model.' },
   ]},
-  { name: 'hypernix.mtp', src: 'src/hypernix/mtp.py', fns: [
+  { name: 'hypernix.mtp', src: 'src/hypernix/training/mtp.py', fns: [
     { fn: 'MTPConfig()', desc: 'Configuration for Multi-Token Prediction training.' },
     { fn: 'MTPConfig.get_loss_weights() -> list[float]', desc: 'Return loss weights for each token position.' },
     { fn: 'MTPHead(hidden_dim, vocab_size, num_tokens=4, shared=True, dropout=0.0) -> None', desc: 'Multi-Token Prediction head.' },
@@ -530,7 +530,7 @@ const MODULES = [
     { fn: 'MTPTrainer.get_stats() -> dict[str, Any]', desc: 'Get MTP training statistics.' },
     { fn: 'cli_main(argv=None) -> int', desc: 'CLI entry point for MTP configuration.' },
   ]},
-  { name: 'hypernix.multilama', src: 'src/hypernix/multilama.py', fns: [
+  { name: 'hypernix.multilama', src: 'src/hypernix/models/multilama.py', fns: [
     { fn: 'MultiLlamaError(code, message)', desc: 'A real, coded failure — see ``.code``. Never swallowed into a fake reply.' },
     { fn: 'locate_binary(backend) -> Path | None', desc: 'An already-available binary for ``backend`` — env override, then' },
     { fn: 'fetch_binary(backend, quiet=False, search_releases=10) -> Path', desc: 'Download+cache a prebuilt server binary for ``backend``.' },
@@ -542,35 +542,35 @@ const MODULES = [
     { fn: 'auto_select_backend(repo_id, filename) -> str', desc: 'Best-effort default backend for a given GGUF, based on naming' },
     { fn: 'status_json() -> dict[str, Any]', desc: 'Serializable availability report for every registered backend —' },
   ]},
-  { name: 'hypernix.nano_nano', src: 'src/hypernix/nano_nano.py', fns: [
+  { name: 'hypernix.nano_nano', src: 'src/hypernix/models/nano_nano.py', fns: [
     { fn: 'NanoNanoConfig()', desc: 'Config for the nano-nano arch. Field names mirror the upstream repo.' },
     { fn: 'NanoNanoModel(cfg) -> None', desc: 'Minimal standalone port of the upstream ``NanoNanoModel``.' },
   ]},
-  { name: 'hypernix.net', src: 'src/hypernix/net.py', fns: [
+  { name: 'hypernix.net', src: 'src/hypernix/system/net.py', fns: [
     { fn: 'run_cmd(cmd, capture=True) -> str', desc: 'Run a subprocess command and return stdout.' },
     { fn: 'get_tailscale_peers() -> list[str]', desc: 'Return a list of Tailscale peer IPs.' },
   ]},
-  { name: 'hypernix.new_fridge', src: 'src/hypernix/new_fridge.py', fns: [
+  { name: 'hypernix.new_fridge', src: 'src/hypernix/evaluation/new_fridge.py', fns: [
     { fn: 'parse_training_log(text) -> list[tuple[int, float]]', desc: 'Return ``(step, loss)`` pairs parsed from ``hypernix.train`` stdout.' },
     { fn: 'plot_loss_curve(pairs, out_path, title=\'Training loss\') -> Path', desc: 'Save a loss curve as a PNG. Returns the path written.' },
     { fn: 'plot_score_distribution(scores, out_path, title=\'Judge score distribution\', bins=20) -> Path', desc: 'Histogram of judge scores (one pass through a dataset).' },
     { fn: 'plot_round_losses(rounds, out_path, title=\'Multi-round training loss\', round_labels=None) -> Path', desc: 'Plot loss curves for multiple training rounds (e.g. from :mod:`tupperware`).' },
   ]},
-  { name: 'hypernix.new_range', src: 'src/hypernix/new_range.py', fns: [
+  { name: 'hypernix.new_range', src: 'src/hypernix/evaluation/new_range.py', fns: [
     { fn: 'math_lacks_digit(prompt, response) -> bool', desc: 'True if the prompt looks numeric and the response has no digits.' },
     { fn: 'is_repetition(prompt, response, min_run=8) -> bool', desc: 'True if the same character or short token repeats `min_run` times.' },
     { fn: 'NewRange()', desc: 'First-fail rubric labeler.' },
     { fn: 'default_rules() -> Iterable[Rule]', desc: 'The out-of-the-box rule set used when no explicit ``rules`` is given.' },
     { fn: 'new_range(rules=None) -> NewRange', desc: 'Construct a :class:`NewRange` with the given rules (or the defaults).' },
   ]},
-  { name: 'hypernix.old_fridge', src: 'src/hypernix/old_fridge.py', fns: [
+  { name: 'hypernix.old_fridge', src: 'src/hypernix/system/old_fridge.py', fns: [
     { fn: 'freeze(model, patterns=(\'embed_tokens\',)) -> int', desc: 'Set ``requires_grad=False`` on parameters whose names match ``patterns``.' },
     { fn: 'unfreeze(model, patterns=(\'*\',)) -> int', desc: 'Inverse of :func:`freeze`. Default unfreezes everything.' },
     { fn: 'offload_to_cpu(model, patterns=(\'embed_tokens\',)) -> int', desc: 'Move submodules matched by ``patterns`` to CPU. Returns how many moved.' },
     { fn: 'chill_cache() -> None', desc: 'Free unreferenced tensors from the allocator cache.' },
     { fn: 'unwrap_model(model) -> nn.Module', desc: 'Return the inner module, unwrapping DDP / FSDP / DataParallel.' },
   ]},
-  { name: 'hypernix.old_oven', src: 'src/hypernix/old_oven.py', fns: [
+  { name: 'hypernix.old_oven', src: 'src/hypernix/models/old_oven.py', fns: [
     { fn: 'CodeOven()', desc: 'A loaded HyperNix-family model + tokenizer ready for generation.' },
     { fn: 'CodeOven.complete(prompt, max_new_tokens=256, temperature=0.2, top_k=40, top_p=0.95, stop=DEFAULT_STOPS, seed=None) -> str', desc: 'Continue ``prompt`` as code.' },
     { fn: 'CodeOven.fill(prefix, suffix, max_new_tokens=128, temperature=0.2, top_k=40, top_p=0.95, seed=None) -> str', desc: 'Fill-in-the-middle: generate text that fits between ``prefix``' },
@@ -583,7 +583,7 @@ const MODULES = [
     { fn: 'fill_middle(source, prefix, suffix, **kwargs) -> str', desc: 'Convenience FIM API — accepts a preheated oven or a snapshot path.' },
     { fn: '… 1 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.old_range', src: 'src/hypernix/old_range.py', fns: [
+  { name: 'hypernix.old_range', src: 'src/hypernix/evaluation/old_range.py', fns: [
     { fn: 'length_score(prompt, response, ctx) -> Score', desc: '1.0 for responses in [min_chars, soft_max_chars], 0.0 if empty,' },
     { fn: 'refusal_score(prompt, response, ctx) -> Score', desc: '0.0 if the response contains a refusal phrase, 1.0 otherwise.' },
     { fn: 'math_digit_score(prompt, response, ctx) -> Score', desc: 'For math-y prompts: 1.0 if the response has digits, else 0.0.' },
@@ -593,7 +593,7 @@ const MODULES = [
     { fn: 'OldRange()', desc: 'Weighted-mean scored rubric with fatal-rule short-circuit.' },
     { fn: 'OldRange.label_with_breakdown(prompt, response) -> tuple[str, float, list[tuple[str, float | None, str]]]', desc: 'Return ``(label, aggregate_score, [(rule_name, score, reason), ...])``.' },
   ]},
-  { name: 'hypernix.optimizer_framework', src: 'src/hypernix/optimizer_framework.py', fns: [
+  { name: 'hypernix.optimizer_framework', src: 'src/hypernix/optimizers/optimizer_framework.py', fns: [
     { fn: 'ScheduleConfig()', desc: 'LR schedule: linear warmup → plateau → cosine cooldown.' },
     { fn: 'GradStats()', desc: 'Statistics returned by :meth:`OptimizerBase.gradient_clip`.' },
     { fn: 'StepProfile()', desc: 'Timing / throughput measurements for a single optimizer step.' },
@@ -601,7 +601,7 @@ const MODULES = [
     { fn: 'OptimizerBase(params, defaults, schedule=None, grad_clip=None, grad_clip_mode=\'norm\', enable_profiling=False) -> None', desc: 'Schedule-aware base class for HyperNix optimizers.' },
     { fn: 'fused_adamw_step(params, grads, exp_avgs, exp_avg_sqs, lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.01, step) -> None', desc: 'In-place AdamW parameter update (CPU-safe, no CUDA fusion required).' },
   ]},
-  { name: 'hypernix.outage', src: 'src/hypernix/outage.py', fns: [
+  { name: 'hypernix.outage', src: 'src/hypernix/system/outage.py', fns: [
     { fn: 'Outage()', desc: 'Display blanker / restorer.' },
     { fn: 'Outage.black_out() -> OutageResult', desc: 'Turn the display off.' },
     { fn: 'Outage.restore() -> OutageResult', desc: 'Turn the display back on. Always callable, even if' },
@@ -610,7 +610,7 @@ const MODULES = [
     { fn: 'detect_backend() -> str', desc: 'Return the backend that would be used on this host.' },
     { fn: 'platform_summary() -> dict[str, Any]', desc: 'Diagnostic helper for bug reports.' },
   ]},
-  { name: 'hypernix.pans', src: 'src/hypernix/pans.py', fns: [
+  { name: 'hypernix.pans', src: 'src/hypernix/data/pans.py', fns: [
     { fn: 'Pan()', desc: 'Abstract pan. Subclasses override :meth:`cook` (one line in,' },
     { fn: 'FryingPan()', desc: 'Lightest tier. Strip trailing whitespace, pass everything else' },
     { fn: 'SaucePan()', desc: 'Reduce. Collapse runs of internal whitespace, drop empty lines,' },
@@ -619,20 +619,20 @@ const MODULES = [
     { fn: 'Wok()', desc: 'Heaviest. Buffers the whole source in memory, shuffles it,' },
     { fn: 'pick_pan(tier, source, **kwargs) -> Pan', desc: 'Return a pan instance by tier name (``\"frying-pan\"``..``\"wok\"``).' },
   ]},
-  { name: 'hypernix.pepper_shaker', src: 'src/hypernix/pepper_shaker.py', fns: [
+  { name: 'hypernix.pepper_shaker', src: 'src/hypernix/data/pepper_shaker.py', fns: [
     { fn: 'SmallShaker()', desc: 'Random word masking at ``rate``. Replaces whole whitespace-' },
     { fn: 'Dish()', desc: 'Typo injection. For each word with probability ``rate``,' },
     { fn: 'TallHandmade()', desc: 'Negation injection. Prepends ``negator`` (\"NOT \" by default)' },
     { fn: 'pepper_shaker(tier, source, **kw) -> Shaker', desc: 'Construct a pepper-shaker tier by short name.' },
   ]},
-  { name: 'hypernix.plasma', src: 'src/hypernix/plasma.py', fns: [
+  { name: 'hypernix.plasma', src: 'src/hypernix/monitoring/plasma.py', fns: [
     { fn: 'PlasmaConfig()', desc: 'Shape of the throwaway model used by the benchmark.' },
     { fn: 'quick_benchmark(config=None, device=None, seed=0) -> PlasmaResult', desc: 'Run the benchmark. Returns a :class:`PlasmaResult`.' },
     { fn: 'calibrate_alarm(alarm, result) -> Any', desc: 'Rebind ``alarm.estimate_step_seconds`` so its ETA reflects' },
     { fn: 'reset_calibration(alarm) -> Any', desc: 'Undo a previous :func:`calibrate_alarm` so' },
     { fn: 'plasma(config=None, device=None, seed=0) -> PlasmaResult', desc: 'Alias for :func:`quick_benchmark`.' },
   ]},
-  { name: 'hypernix.pressure_cooker', src: 'src/hypernix/pressure_cooker.py', fns: [
+  { name: 'hypernix.pressure_cooker', src: 'src/hypernix/optimizers/pressure_cooker.py', fns: [
     { fn: 'PressureCooker(params, peak_lr=0.0003, warmup_steps=200, plateau_steps=1000, cooldown_steps=200, betas=(0.9, 0.95), eps=1e-08, weight_decay=0.1, lookahead_k=0, lookahead_alpha=0.5, grad_scaler=None, grad_accum_steps=1, foreach=None, fused=None, amsgrad=False) -> None', desc: 'AdamW + warmup / plateau / cooldown + optional lookahead + v0.48' },
     { fn: 'StovetopCooker(params, **kwargs) -> None', desc: 'CPU tier 1. Minimum-memory path.' },
     { fn: 'ElectricCooker(params, **kwargs) -> None', desc: 'CPU tier 2. Fast multi-tensor path.' },
@@ -644,7 +644,7 @@ const MODULES = [
     { fn: 'pressure_cooker(params, **kwargs) -> PressureCooker', desc: 'Construct a :class:`PressureCooker` from keyword arguments.' },
     { fn: 'universal_cooker(params, prefer_speed=True, variant=\'v5s\', **kw) -> Optimizer', desc: 'Return the best-fit cooker for the detected parameter device.' },
   ]},
-  { name: 'hypernix.pressure_cooker_v3', src: 'src/hypernix/pressure_cooker_v3.py', fns: [
+  { name: 'hypernix.pressure_cooker_v3', src: 'src/hypernix/optimizers/pressure_cooker_v3.py', fns: [
     { fn: 'QuantDtype()', desc: 'Supported quantization dtypes for V3 training.' },
     { fn: 'PressureCookerV3(params, lr=None, peak_lr=None, warmup_steps=200, plateau_steps=1000, cooldown_steps=200, betas=(0.9, 0.95), eps=1e-08, weight_decay=0.1, lookahead_k=0, lookahead_alpha=0.5, grad_scaler=None, grad_accum_steps=1, foreach=None, fused=None, amsgrad=False, use_ema=False, ema_beta=0.999, grad_clip=None, adaptive_grad_clip=True, zero_stage=0) -> None', desc: 'V3 PressureCooker: Faster, ZeRO-aware, bug-free, heavily tested.' },
     { fn: 'PressureCookerV3.get_ema_weights() -> dict[int, torch.Tensor]', desc: 'Return the current EMA weight state dict (keyed by param id).' },
@@ -653,7 +653,7 @@ const MODULES = [
     { fn: 'StovetopV3Cooker(params, **kwargs) -> None', desc: 'PressureCooker variant optimized and enforced for older CUDA 6.1 (Pascal) GPUs.' },
     { fn: 'StovetopV3CookerPlus(params, quant_config=None, calibration_steps=50, dtype=torch.float16, **kwargs) -> None', desc: 'Pascal-safe V3Plus with QAT hooks and tuned defaults for sm_61 (v0.70.3).' },
   ]},
-  { name: 'hypernix.pressure_cooker_v4', src: 'src/hypernix/pressure_cooker_v4.py', fns: [
+  { name: 'hypernix.pressure_cooker_v4', src: 'src/hypernix/optimizers/pressure_cooker_v4.py', fns: [
     { fn: 'PressureCookerV4(params, schedule=None, betas=(0.9, 0.95), eps=1e-08, weight_decay=0.1, grad_clip=None, use_ema=False, ema_beta=0.999, distributed_ema=False, sophia_clipping=False, stochastic_rounding=False, lars_adaptation=False, mpt_support=True, fused=None, **kwargs) -> None', desc: 'Next-generation PressureCooker built on OptimizerBase.' },
     { fn: 'StovetopV4Cooker(params, **kwargs) -> None', desc: 'Port of StovetopV3Cooker to V4 (OptimizerBase).' },
     { fn: 'StovetopV4CookerPlus(params, **kwargs) -> None', desc: 'Port of StovetopV3CookerPlus to V4.' },
@@ -662,7 +662,7 @@ const MODULES = [
     { fn: 'ULTRAagedcookerv4(params, **kwargs) -> None', desc: 'Ultracookerv4 optimized strictly for CUDA 6.1/6.2.' },
     { fn: 'CookerLite(params, **kwargs) -> None', desc: 'Faster CPU-only variant migrated to OptimizerBase.' },
   ]},
-  { name: 'hypernix.pressure_cooker_v5', src: 'src/hypernix/pressure_cooker_v5.py', fns: [
+  { name: 'hypernix.pressure_cooker_v5', src: 'src/hypernix/optimizers/pressure_cooker_v5.py', fns: [
     { fn: 'QATConfig()', desc: 'Configuration for Quantization-Aware Training.' },
     { fn: 'QATConfig.num_levels() -> int', desc: 'Number of quantization levels.' },
     { fn: 'QATConfig.step_size() -> float', desc: 'Default quantization step size.' },
@@ -675,7 +675,7 @@ const MODULES = [
     { fn: 'MTPHead(hidden_dim, vocab_size, num_tokens=4, shared=True, dropout=0.0) -> None', desc: 'Multi-Token Prediction head.' },
     { fn: '… 9 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.pressure_cooker_v5s', src: 'src/hypernix/pressure_cooker_v5s.py', fns: [
+  { name: 'hypernix.pressure_cooker_v5s', src: 'src/hypernix/optimizers/pressure_cooker_v5s.py', fns: [
     { fn: 'DiffusionMode()', desc: 'Constants for the pressure diffusion kernel shape.' },
     { fn: 'pressure_diffuse(g, factor, kernel_width=3, mode=DiffusionMode.GAUSS) -> torch.Tensor', desc: 'Apply pressure diffusion to a gradient tensor.' },
     { fn: 'volumetric_oscillation_score(fast_cos, med_cos, ultra_cos, fast_weight=0.45, med_weight=0.35, ultra_weight=0.2) -> float', desc: 'Combine three cosine-similarity EMAs into a single oscillation score.' },
@@ -688,23 +688,23 @@ const MODULES = [
     { fn: 'PressureCookerV5S.swap_ema_weights(model) -> None', desc: 'Swap live weights with EMA weights for evaluation.' },
     { fn: '… 8 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.pressure_cooker_v6', src: 'src/hypernix/pressure_cooker_v6.py', fns: [
+  { name: 'hypernix.pressure_cooker_v6', src: 'src/hypernix/optimizers/pressure_cooker_v6.py', fns: [
     { fn: 'PressureCookerV6(params, schedule=None, lr=0.0003, momentum_beta=0.9, weight_decay=0.01, nesterov=False, trust_ratio=True, trust_clip=(0.05, 5.0), eps=1e-08, grad_clip=1.0, foreach=True, grad_scaler=None, grad_accum_steps=1, skip_on_nonfinite=False, **kwargs) -> None', desc: 'Speed-first optimizer — single fused momentum buffer, torch._foreach_* multi-tensor updates, LARS/LAMB-style trust ratio, no second moment.' },
     { fn: 'PressureCookerV6.describe() -> dict[str, Any]', desc: 'Return a human-readable description of the optimizer config, including grad_accum_steps/grad_scaler/skipped_steps.' },
   ]},
-  { name: 'hypernix.pressure_cooker_v6v', src: 'src/hypernix/pressure_cooker_v6v.py', fns: [
+  { name: 'hypernix.pressure_cooker_v6v', src: 'src/hypernix/optimizers/pressure_cooker_v6v.py', fns: [
     { fn: 'PressureCookerV6V(params, compile=True, **kwargs) -> None', desc: 'PressureCookerV6 wired for CUDA graph capture and optional torch.compile; requires at least one CUDA parameter.' },
     { fn: 'PressureCookerV6V.warmup_graph(step_fn) -> None', desc: 'Record a CUDA graph from a representative training step (same contract as ProCooker.warmup_graph).' },
     { fn: 'PressureCookerV6V.replay_graph()', desc: 'Replay the captured CUDA graph; returns whatever step_fn returned.' },
   ]},
-  { name: 'hypernix.protect', src: 'src/hypernix/protect.py', fns: [
+  { name: 'hypernix.protect', src: 'src/hypernix/system/protect.py', fns: [
     { fn: 'set_monitor_state(state) -> None', desc: 'Turn the monitor \'on\' or \'off\' using xset on Linux.' },
   ]},
-  { name: 'hypernix.qa', src: 'src/hypernix/qa.py', fns: [
+  { name: 'hypernix.qa', src: 'src/hypernix/data/qa.py', fns: [
     { fn: 'QAProcessor(source, salt_shaker=None, pepper_shaker=None, format_mode=\'question_answer\', question_key=\'question\', answer_key=\'answer\', season_target=\'both\') -> None', desc: 'Formatter and seasoning processor for Q&A datasets.' },
     { fn: 'QAProcessor.process() -> Iterator[str]', desc: 'Process the dataset and yield raw training text strings.' },
   ]},
-  { name: 'hypernix.quantize', src: 'src/hypernix/quantize.py', fns: [
+  { name: 'hypernix.quantize', src: 'src/hypernix/quant/quantize.py', fns: [
     { fn: 'QuantSpec()', desc: 'Metadata for one llama-quantize target type.' },
     { fn: 'resolve_spec(quant_type) -> QuantSpec', desc: 'Look up a :class:`QuantSpec` from any accepted alias.' },
     { fn: 'recommended() -> list[QuantSpec]', desc: 'Return the curated short-list (``F16``, ``Q8_0``, ``Q6_K``,' },
@@ -717,20 +717,20 @@ const MODULES = [
     { fn: 'HyperNixQuantizer(llama_quantize_bin=None, threads=None, auto_fetch=True, auto=False) -> None', desc: 'High-level GGUF quantizer with profiles, batch runs, and size planning.' },
     { fn: '… 6 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.recipe_book', src: 'src/hypernix/recipe_book.py', fns: [
+  { name: 'hypernix.recipe_book', src: 'src/hypernix/training/recipe_book.py', fns: [
     { fn: 'RecipeBook()', desc: 'Named-config registry.' },
     { fn: 'RecipeBook.from_builtins(cls) -> RecipeBook', desc: 'Return a book preloaded with :data:`HYPERNIX_RECIPES`.' },
     { fn: 'RecipeBook.cook(name, **overrides) -> Any', desc: 'Look up ``name``, apply ``overrides`` on top, dispatch to' },
     { fn: 'recipe_book(builtins=False) -> RecipeBook', desc: 'Construct a fresh book, optionally preloaded with' },
   ]},
-  { name: 'hypernix.salt_shaker', src: 'src/hypernix/salt_shaker.py', fns: [
+  { name: 'hypernix.salt_shaker', src: 'src/hypernix/data/salt_shaker.py', fns: [
     { fn: 'Shaker()', desc: 'Abstract seasoning applicator. Subclasses override :meth:`season`.' },
     { fn: 'FromTheBag()', desc: 'Cheapest tier. Per-character substitution at ``rate`` with a' },
     { fn: 'HandCrusher()', desc: 'Middle tier. Token-level adjacent-swap at ``rate``. Produces' },
     { fn: 'PoshSaltDish()', desc: 'Finest tier. Word-aware drop / duplicate / swap at independent' },
     { fn: 'salt_shaker(tier, source, **kw)', desc: 'Construct a salt-shaker tier by short name.' },
   ]},
-  { name: 'hypernix.scavenger', src: 'src/hypernix/scavenger.py', fns: [
+  { name: 'hypernix.scavenger', src: 'src/hypernix/data/scavenger.py', fns: [
     { fn: 'ScavengerCriteria()', desc: 'Criteria for filtering HuggingFace datasets.' },
     { fn: 'ScavengerCriteria.matches(info) -> tuple[bool, str]', desc: 'Check if a dataset info dict matches these criteria.' },
     { fn: 'ScavengerCriteria.check_storage_budget(datasets) -> tuple[bool, float]', desc: 'Check if selected datasets fit within storage constraints.' },
@@ -740,13 +740,13 @@ const MODULES = [
     { fn: 'Scavenger.download_dataset(dataset_id, subset=None, split=None, streaming=True) -> Any', desc: 'Download a dataset from HuggingFace Hub.' },
     { fn: 'cli_main(argv=None) -> int', desc: 'CLI entry point for hnx scavenger.' },
   ]},
-  { name: 'hypernix.sink', src: 'src/hypernix/sink.py', fns: [
+  { name: 'hypernix.sink', src: 'src/hypernix/data/sink.py', fns: [
     { fn: 'Sink()', desc: 'Append-only text sink.' },
     { fn: 'Sink.write(line) -> bool', desc: 'Append ``line`` (newline added if missing). Returns True on' },
     { fn: 'Sink.pour(iterable) -> Path', desc: 'Write every item of ``iterable`` to the sink; return the' },
     { fn: 'Sink.drain() -> None', desc: 'No-op right now — we open/close the file per-write for' },
   ]},
-  { name: 'hypernix.smoke_alarm', src: 'src/hypernix/smoke_alarm.py', fns: [
+  { name: 'hypernix.smoke_alarm', src: 'src/hypernix/timing/smoke_alarm.py', fns: [
     { fn: 'TrainingBudget()', desc: 'Plan returned by every alarm before training starts.' },
     { fn: 'AlarmStatus()', desc: 'Result of a mid-run :meth:`Alarm.check` call.' },
     { fn: 'Alarm()', desc: 'Base class — see the four concrete subclasses below.' },
@@ -759,7 +759,7 @@ const MODULES = [
     { fn: 'detect_cpu_preset() -> CPUPreset | None', desc: 'Best-effort match of /proc/cpuinfo\'s model name against' },
     { fn: '… 2 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.smoker', src: 'src/hypernix/smoker.py', fns: [
+  { name: 'hypernix.smoker', src: 'src/hypernix/training/smoker.py', fns: [
     { fn: 'Smoker()', desc: 'Base smoker. Subclasses override :meth:`smoke`.' },
     { fn: 'Smoker.smoke(dataset, out_dir) -> Path', desc: 'Subclasses implement.' },
     { fn: 'UseableSmoker()', desc: 'Minimum viable smoker. Straight pass-through to ``oven.train``.' },
@@ -768,37 +768,37 @@ const MODULES = [
     { fn: 'HighQualitySmoker()', desc: 'Curriculum: trains in progressive context lengths. Runs three' },
     { fn: 'smoker(tier, oven, **kw) -> Smoker', desc: 'Pick a smoker tier by short name.' },
   ]},
-  { name: 'hypernix.spinner', src: 'src/hypernix/spinner.py', fns: [
+  { name: 'hypernix.spinner', src: 'src/hypernix/timing/spinner.py', fns: [
     { fn: 'Spinner(text=\'Loading\', style=\'dots\', fps=10, color=True, progress=0.0) -> None', desc: 'Thread-based terminal spinner.' },
     { fn: 'Spinner.set_progress(progress) -> None', desc: 'Update the estimated loaded progress (0..1) shown by the' },
     { fn: 'anime_print(text=\'HyperNix\', style=\'banner\', color=True, delay=0.05) -> None', desc: 'Print an animated banner or text effect to the terminal.' },
     { fn: 'print_startup_header(version=\'\') -> None', desc: 'Print the HyperNix startup banner with version and animation.' },
   ]},
-  { name: 'hypernix.stml', src: 'src/hypernix/stml.py', fns: [
+  { name: 'hypernix.stml', src: 'src/hypernix/models/stml.py', fns: [
     { fn: 'calculate_vram_context(vram_gb, model_size_params, batch_size, precision=\'fp16\', num_layers=32, num_heads=32, head_dim=128) -> int', desc: 'Calculate the maximum trained context sequence length that can fit in available VRAM.' },
     { fn: 'STML(trained_context=2048, untrained_max_context=8192, segment_length=512, regulator=None) -> None', desc: 'Short Term Memory Loss (STML) context management tool.' },
     { fn: 'STML.regulate(batch) -> dict[str, torch.Tensor]', desc: 'Regulate context length by first running the curriculum regulator,' },
   ]},
-  { name: 'hypernix.strainer', src: 'src/hypernix/strainer.py', fns: [
+  { name: 'hypernix.strainer', src: 'src/hypernix/data/strainer.py', fns: [
     { fn: 'Colander()', desc: 'Drops empty / None / whitespace-only entries.' },
     { fn: 'FineMesh()', desc: 'Colander + length floor / ceiling.' },
     { fn: 'NutMilkBag()', desc: 'FineMesh + a character-set whitelist.' },
     { fn: 'Cheesecloth()', desc: 'NutMilkBag + 8-gram Jaccard near-duplicate detection.' },
     { fn: 'strain(records, tier=\'fine-mesh\', **kw) -> list[Any]', desc: 'One-shot helper. ``strain(rows, tier=\"cheesecloth\")``.' },
   ]},
-  { name: 'hypernix.table', src: 'src/hypernix/table.py', fns: [
+  { name: 'hypernix.table', src: 'src/hypernix/monitoring/table.py', fns: [
     { fn: 'Table()', desc: 'Minimal tabular view over ``rows``, a list of ``dict[str, Any]``.' },
     { fn: 'Table.from_training_log(cls, path) -> Table', desc: 'Load step/loss pairs from a training stdout capture.' },
     { fn: 'Table.from_judge_corpus(cls, path) -> Table', desc: 'Load ``<JUDGE_PROMPT>...<JUDGE_LABEL>...`` lines.' },
     { fn: 'Table.select(*columns) -> Table', desc: 'Drop every column not in ``columns``.' },
   ]},
-  { name: 'hypernix.thermometer', src: 'src/hypernix/thermometer.py', fns: [
+  { name: 'hypernix.thermometer', src: 'src/hypernix/monitoring/thermometer.py', fns: [
     { fn: 'InstantThermometer()', desc: 'One-shot read, no history.' },
     { fn: 'ProbeThermometer()', desc: 'Keeps a rolling window of recent readings.' },
     { fn: 'InfraredThermometer()', desc: 'Tracks per-source max temperatures plus a warning threshold.' },
     { fn: 'DigitalThermometer()', desc: 'Logs every reading to a JSONL file for later analysis.' },
   ]},
-  { name: 'hypernix.timer', src: 'src/hypernix/timer.py', fns: [
+  { name: 'hypernix.timer', src: 'src/hypernix/timing/timer.py', fns: [
     { fn: 'KitchenTimer()', desc: 'Plain countdown timer.' },
     { fn: 'EggTimer()', desc: 'Countdown with an explicit ``rang`` flag plus an ``on_ring``' },
     { fn: 'EggTimer.check() -> bool', desc: 'Poll the timer. When it first crosses ``duration`` seconds,' },
@@ -807,19 +807,19 @@ const MODULES = [
     { fn: 'PomodoroTimer()', desc: 'Alternates between work and rest blocks. Default: 25 min work,' },
     { fn: 'PomodoroTimer.tick() -> str', desc: 'Advance the timer state if the current phase has elapsed' },
   ]},
-  { name: 'hypernix.toaster', src: 'src/hypernix/toaster.py', fns: [
+  { name: 'hypernix.toaster', src: 'src/hypernix/data/toaster.py', fns: [
     { fn: 'TwoSliceToaster()', desc: 'Two lines in, one entry out. ``line_a`` is treated as the' },
     { fn: 'FourSliceToaster()', desc: 'Four lines in, one 2-turn chat entry out.' },
     { fn: 'ConveyorToaster()', desc: 'Streaming per-line formatter. Wraps every line in a supplied' },
     { fn: 'ToasterOven()', desc: 'Whole-document formatter. Lines are grouped into documents' },
   ]},
-  { name: 'hypernix.torch_compat', src: 'src/hypernix/torch_compat.py', fns: [
+  { name: 'hypernix.torch_compat', src: 'src/hypernix/system/torch_compat.py', fns: [
     { fn: 'is_legacy_torch() -> bool', desc: 'True for torch < 2.0 (the \"old Intel Mac / torch 1.13\" path).' },
     { fn: 'has_native_rmsnorm() -> bool', desc: 'True for torch ≥ 2.4 where ``torch.nn.RMSNorm`` is available.' },
     { fn: 'scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False) -> torch.Tensor', desc: 'Portable attention. On torch ≥ 2.0 dispatches to the native' },
     { fn: 'describe() -> dict[str, object]', desc: 'Return a one-shot summary of the active torch compat state.' },
   ]},
-  { name: 'hypernix.train', src: 'src/hypernix/train.py', fns: [
+  { name: 'hypernix.train', src: 'src/hypernix/training/train.py', fns: [
     { fn: 'HyperNixConfig()', desc: 'HyperNix model shape. Same layout as v1, parametric in every axis.' },
     { fn: 'HyperNixModel(cfg) -> None', desc: 'Llama-shaped HyperNix causal LM. The tensor names match HF conventions' },
     { fn: 'save_snapshot(model, out_dir, tokenizer_source=None) -> Path', desc: 'Write ``out_dir`` in HuggingFace snapshot layout.' },
@@ -828,7 +828,7 @@ const MODULES = [
     { fn: 'train(model_dir, dataset_path, out_dir, steps=1000, batch_size=2, context_length=512, lr=0.0003, weight_decay=0.1, grad_clip=1.0, device=None, dtype=\'float32\', log_every=10, save_every=500, seed=None, use_abbicus=False, use_turbo_abbicus=False, use_stml=False, untrained_max_context=8192, segment_length=512) -> Path', desc: 'Minimal causal-LM training loop.' },
     { fn: 'init_from_scratch(out_dir, cfg, tokenizer_source=None, init_std=0.02, seed=None) -> Path', desc: 'Create a new randomly-initialized HyperNix snapshot at ``out_dir``.' },
   ]},
-  { name: 'hypernix.tupperware', src: 'src/hypernix/tupperware.py', fns: [
+  { name: 'hypernix.tupperware', src: 'src/hypernix/data/tupperware.py', fns: [
     { fn: 'RoundPlan()', desc: 'One round of a multi-phase training schedule.' },
     { fn: 'TupperwareConfig()', desc: 'Configuration for round splitting and step/LR planning.' },
     { fn: 'Tupperware(config=None) -> None', desc: 'Automated dataset round splitter with step/LR planning.' },
@@ -838,17 +838,17 @@ const MODULES = [
     { fn: 'Tupperware.run_rounds(plans, dataset_paths, train_fn, eval_fn=None) -> list[dict[str, Any]]', desc: 'Execute ``train_fn`` per round; optionally ``eval_fn`` after each.' },
     { fn: 'Tupperware.describe() -> dict[str, Any]', desc: 'Return a JSON-serializable summary of the config.' },
   ]},
-  { name: 'hypernix.tv', src: 'src/hypernix/tv.py', fns: [
+  { name: 'hypernix.tv', src: 'src/hypernix/monitoring/tv.py', fns: [
     { fn: 'multi_row_graph(values, width, height, ascii_only=False) -> list[str]', desc: 'Render a btop++-style multi-row block graph.' },
     { fn: 'TVTop.run(max_frames=None) -> None', desc: 'Run the training dashboard.' },
   ]},
-  { name: 'hypernix.tvtop_plus_plus', src: 'src/hypernix/tvtop_plus_plus.py', fns: [
+  { name: 'hypernix.tvtop_plus_plus', src: 'src/hypernix/monitoring/tvtop_plus_plus.py', fns: [
     { fn: 'TVTopPlusPlus.run() -> None', desc: 'Run the tvtop++ dashboard using Rich Live.' },
   ]},
-  { name: 'hypernix.upload', src: 'src/hypernix/upload.py', fns: [
+  { name: 'hypernix.upload', src: 'src/hypernix/quant/upload.py', fns: [
     { fn: 'upload_gguf(files, repo_id=\'ray0rf1re/HyperNix.1-gguf\', token=None, commit_message=\'Add HyperNix GGUF quantizations\', private=False, create_if_missing=True) -> str', desc: 'Upload one or more GGUF files to a HuggingFace model repo.' },
   ]},
-  { name: 'hypernix.ups', src: 'src/hypernix/ups.py', fns: [
+  { name: 'hypernix.ups', src: 'src/hypernix/system/ups.py', fns: [
     { fn: 'ThreatStatus.panic() -> bool', desc: 'Severe weather or a scheduled outage — force an immediate' },
     { fn: 'UPS()', desc: 'Uninterruptible-power-supply guard.' },
     { fn: 'UPS.check(force=False) -> ThreatStatus', desc: 'Sample both signals (or return cached status).' },
@@ -856,7 +856,7 @@ const MODULES = [
     { fn: 'UPS.force_snapshot() -> None', desc: 'Manually fire the configured ``snapshot_fn`` (no-op if' },
     { fn: 'threat_now(latitude=None, longitude=None) -> ThreatStatus', desc: 'One-shot weather check; offline-fallback returns an inactive status.' },
   ]},
-  { name: 'hypernix.utils', src: 'src/hypernix/utils.py', fns: [
+  { name: 'hypernix.utils', src: 'src/hypernix/system/utils.py', fns: [
     { fn: 'HealthReport.is_ok() -> bool', desc: 'Returns True when every *required* dep is present.' },
     { fn: 'diagnostic_info() -> dict[str, Any]', desc: 'Collect a structured diagnostic snapshot — useful for bug' },
     { fn: 'healthcheck(verbose=False) -> HealthReport', desc: 'Convenience wrapper around :func:`diagnostic_info` that' },
@@ -869,7 +869,7 @@ const MODULES = [
     { fn: 'warn_hyper_nix_2(repo_or_short, force=False) -> bool', desc: 'Emit a MAJOR undertrained warning when the user touches' },
     { fn: '… 1 more', desc: 'Additional documented functions/methods in this module — see source.' },
   ]},
-  { name: 'hypernix.vera', src: 'src/hypernix/vera.py', fns: [
+  { name: 'hypernix.vera', src: 'src/hypernix/evaluation/vera.py', fns: [
     { fn: 'VerificationResult()', desc: 'Result of verifying a single module or file.' },
     { fn: 'HyperNixVerifier(strict=False, smoke=False)', desc: 'Verifies HyperNix module syntax, conventions, and runs smoke tests.' },
     { fn: 'HyperNixVerifier.verify_file(file_path) -> VerificationResult', desc: 'Verify a Python file.' },
@@ -879,29 +879,29 @@ const MODULES = [
     { fn: 'HyperNixVerifier.print_summary(results) -> None', desc: 'Print a summary table of all results.' },
     { fn: 'cli_main(argv=None) -> int', desc: 'CLI entry point for hnx vera.' },
   ]},
-  { name: 'hypernix.version_launcher', src: 'src/hypernix/version_launcher.py', fns: [
+  { name: 'hypernix.version_launcher', src: 'src/hypernix/interfaces/version_launcher.py', fns: [
     { fn: 'PythonVersion()', desc: 'Represents a Python version to check.' },
     { fn: 'check_hypernix_installed(py_exe) -> bool', desc: 'Check if hypernix is installed for the given Python executable.' },
     { fn: 'find_best_python() -> str | None', desc: 'Find the best Python executable with hypernix installed.' },
     { fn: 'run_with_selected_python(args) -> int', desc: 'Run hypernix.cli:main with the selected Python version.' },
     { fn: 'main(argv=None) -> int', desc: 'Main entry point for the multi-version launcher.' },
   ]},
-  { name: 'hypernix.websearch', src: 'src/hypernix/websearch.py', fns: [
+  { name: 'hypernix.websearch', src: 'src/hypernix/interfaces/websearch.py', fns: [
     { fn: 'search_web_non_api(query, max_results=10, engine=\'auto\') -> list[dict[str, str]]', desc: 'Perform a non-API web search with automated fallbacks across HTML scrapers.' },
     { fn: 'fetch_web_page(url, max_length=4000) -> dict[str, Any]', desc: 'Fetch content of a web page and convert HTML into clean text and extracted links.' },
     { fn: 'format_search_results(results) -> str', desc: 'Format search results list into a clean readable markdown block.' },
   ]},
-  { name: 'hypernix.whisk', src: 'src/hypernix/whisk.py', fns: [
+  { name: 'hypernix.whisk', src: 'src/hypernix/models/whisk.py', fns: [
     { fn: 'swa_average(items, strict=False) -> dict[str, torch.Tensor]', desc: 'Uniform mean across all inputs. ``strict=False`` ignores keys' },
     { fn: 'ema(items, decay=0.99, strict=False) -> dict[str, torch.Tensor]', desc: 'Exponential moving average. Earlier inputs are weighted by' },
     { fn: 'geometric_mean(items, strict=False, eps=1e-12) -> dict[str, torch.Tensor]', desc: 'Element-wise geometric mean. Negative or zero values are' },
     { fn: 'whisk(items, mode=\'swa\', decay=0.99, strict=False) -> dict[str, torch.Tensor]', desc: 'Pick a whisking mode by name.' },
     { fn: 'whisk_to_snapshot(items, out_dir, tokenizer_source=None, mode=\'swa\', decay=0.99, strict=False) -> Path', desc: 'Whisk + write a full snapshot directory in one call.' },
   ]},
-  { name: 'hypernix.wiki_cli', src: 'src/hypernix/wiki_cli.py', fns: [
+  { name: 'hypernix.wiki_cli', src: 'src/hypernix/interfaces/wiki_cli.py', fns: [
     { fn: 'cli_main(argv=None) -> int', desc: 'Main entry point for the hnx/hypenix CLI.' },
   ]},
-  { name: 'hypernix.workshop', src: 'src/hypernix/workshop.py', fns: [
+  { name: 'hypernix.workshop', src: 'src/hypernix/models/workshop.py', fns: [
     { fn: 'FrameworkConfig()', desc: 'Base configuration for model frameworks.' },
     { fn: 'WorkshopFramework(config=None)', desc: 'Base framework class for creating model templates.' },
     { fn: 'WorkshopFramework.build() -> nn.Module', desc: 'Build and return the model architecture.' },

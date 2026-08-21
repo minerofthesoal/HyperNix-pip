@@ -29,8 +29,9 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..gatekeeper import Gatekeeper
-from ..keymaster import Keymaster
+from hypernix.security.gatekeeper import Gatekeeper
+from hypernix.security.keymaster import Keymaster
+
 from . import __t1api_version__
 from .auth import T1AuthService
 from .billing import BillingLedger
