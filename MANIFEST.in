@@ -7,9 +7,15 @@ include MANIFEST.in
 include ruff.toml
 include pytest.ini
 
-recursive-include src/hypernix *.py py.typed
+# *.json covers the T1 API's shipped model registry and routing policy
+# seed data (src/hypernix/t1api/data/), which package-data installs into
+# the wheel but which MANIFEST.in has to name for the sdist.
+recursive-include src/hypernix *.py *.json py.typed
 recursive-include tests *.py
-recursive-include examples *.py
+# The whole examples/ tree, not just *.py: the T1 API deployment
+# examples are Dockerfiles, compose files, nginx config and .env
+# templates, and an example you can't actually run is not an example.
+recursive-include examples *
 # The whole scripts/ tree: tests/test_autofix_scripts.py runs the
 # autofix scripts, and the sdist ships tests/.
 recursive-include scripts *

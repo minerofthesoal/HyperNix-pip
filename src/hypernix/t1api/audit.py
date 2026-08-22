@@ -223,8 +223,13 @@ class AuditLog:
         self.backend = backend or SQLiteBackend()
         self.enabled = enabled
         self._lock = threading.Lock()
-        if self.enabled:
-            self.backend.executescript(_SCHEMA)
+        # The schema is created even when auditing is disabled. `enabled`
+        # gates *writing*, not the table's existence: a disabled log must
+        # still be readable (returning nothing) so that toggling
+        # T1_AUDIT_ENABLED, or querying GET /audit on a deployment that
+        # has auditing off, produces an empty result rather than a
+        # database error from somewhere deep in the stack.
+        self.backend.executescript(_SCHEMA)
 
     # ------------------------------------------------------------------
     # Writes

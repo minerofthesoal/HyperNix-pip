@@ -35,6 +35,20 @@ llama-cpp-python>=0.2.90
 [security]
 cryptography>=42
 
+[t1api]
+fastapi<1,>=0.110
+uvicorn[standard]<1,>=0.29
+pydantic<3,>=2
+python-dotenv<2,>=1
+python-multipart<1,>=0.0.9
+
+[t1api-pg]
+psycopg[binary,pool]<4,>=3.1
+
+[t1api-test]
+hypernix[dev,t1api]
+httpx<1,>=0.27
+
 [train]
 transformers>=4.44
 accelerate>=0.33
