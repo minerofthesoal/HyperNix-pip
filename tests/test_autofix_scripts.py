@@ -37,12 +37,32 @@ scope = _load("autofix_scope_under_test", "autofix_scope.py")
 autofix_f = _load("autofix_f_under_test", "autofix-F")
 
 
-def _run_script(name: str, *args: str) -> subprocess.CompletedProcess:
+def _subprocess_env() -> dict[str, str]:
+    """Environment for a child pytest or script.
+
+    Inherits the real environment rather than replacing it, and disables
+    pytest plugin autoload. The second part is what was actually broken:
+    with autoload on, anyio's plugin imports asyncio, which on Windows
+    imports ``_overlapped`` and fails on the GitHub runners with ``OSError:
+    [WinError 10106]``, killing the child before it collected anything.
+    autofix-F already sets the same variable for its own inner runs, for
+    the same reason.
+
+    Inheriting rather than hand-building the environment is a separate,
+    smaller point: the hardcoded ``PATH`` this replaced named POSIX
+    directories that do not exist on Windows.
+    """
     import os
 
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC)
     env["HYPERNIX_AUTO_INSTALL"] = "0"
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    return env
+
+
+def _run_script(name: str, *args: str) -> subprocess.CompletedProcess:
+    env = _subprocess_env()
     return subprocess.run(
         [sys.executable, str(SCRIPTS / name), *args],
         cwd=REPO_ROOT, capture_output=True, text=True, timeout=600, env=env,
@@ -117,7 +137,7 @@ class TestDiscovery:
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
              "--collect-only", node_id],
             cwd=REPO_ROOT, capture_output=True, text=True, timeout=300,
-            env={"PYTHONPATH": str(SRC), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+            env=_subprocess_env(),
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
 

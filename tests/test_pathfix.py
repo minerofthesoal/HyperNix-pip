@@ -44,8 +44,11 @@ def not_isolated(monkeypatch):
 
 
 def test_path_entries_drops_empty_segments():
+    """Compared as Paths, not strings: ``str(Path("/a"))`` is ``\\a`` on
+    Windows, so a string comparison would be asserting the separator rather
+    than the property under test."""
     value = os.pathsep.join(["/a", "", "/b"])
-    assert [str(p) for p in pathfix.path_entries(value)] == ["/a", "/b"]
+    assert pathfix.path_entries(value) == [Path("/a"), Path("/b")]
 
 
 def test_is_on_path_matches_resolved_location(tmp_path):
@@ -137,15 +140,30 @@ def test_profile_for_unknown_shell_is_none():
 # ---------------------------------------------------------------------------
 
 
+# The literal a snippet should embed. Taken from the Path rather than
+# written out, because a Path renders with the host's separator — these
+# tests are about the shape of the snippet around the directory, not about
+# which slash the platform uses inside it.
+BIN = Path("/opt/bin")
+BIN_TEXT = str(BIN)
+
+
 def test_posix_snippet_guards_against_duplicate_entries():
-    snippet = pathfix.snippet_for_shell(Path("/opt/bin"), "bash")
+    snippet = pathfix.snippet_for_shell(BIN, "bash")
     assert 'case ":$PATH:" in' in snippet
-    assert '*":/opt/bin:"*' in snippet
-    assert 'export PATH="/opt/bin:$PATH"' in snippet
+    assert f'*":{BIN_TEXT}:"*' in snippet
+    assert f'export PATH="{BIN_TEXT}:$PATH"' in snippet
 
 
 def test_fish_snippet_uses_fish_add_path():
-    assert pathfix.snippet_for_shell(Path("/opt/bin"), "fish") == 'fish_add_path "/opt/bin"'
+    assert pathfix.snippet_for_shell(BIN, "fish") == f'fish_add_path "{BIN_TEXT}"'
+
+
+def test_snippet_embeds_the_directory_it_was_given(tmp_path):
+    """The property that actually matters, exercised with a real
+    platform-native path rather than a POSIX literal."""
+    for shell in ("bash", "sh", "zsh", "fish", "powershell"):
+        assert str(tmp_path) in pathfix.snippet_for_shell(tmp_path, shell)
 
 
 def test_powershell_snippet_uses_env_path():
@@ -154,8 +172,8 @@ def test_powershell_snippet_uses_env_path():
 
 
 def test_session_hint_is_a_single_export():
-    hint = pathfix.session_hint(Path("/opt/bin"), "bash")
-    assert hint == 'export PATH="/opt/bin:$PATH"'
+    hint = pathfix.session_hint(BIN, "bash")
+    assert hint == f'export PATH="{BIN_TEXT}:$PATH"'
     assert "\n" not in hint
 
 

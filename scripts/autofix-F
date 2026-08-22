@@ -54,7 +54,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from autofix_scope import (  # noqa: E402
@@ -190,24 +190,53 @@ def _non_assertion_type(message: str) -> str | None:
     return None
 
 
-def _node_path(node_id: str) -> Path | None:
+def _shape_key(node_id: str) -> str:
+    """A node id reduced to what no platform can change: the file's basename
+    and the ``Class::func`` path under it, minus any ``[parametrize-id]``."""
+    path, _, rest = node_id.partition("::")
+    rest = "::".join(part.split("[", 1)[0] for part in rest.split("::"))
+    return f"{PurePosixPath(path.replace(chr(92), '/')).name}::{rest}"
+
+
+def _node_path(node_id: str, known: dict[str, Path] | None = None) -> Path | None:
     """The test file a node id names, or None if it doesn't name one.
 
-    ``node_id.split("::")[0]`` is the file part, but it is not guaranteed
-    to be one: a malformed short-summary line (a crashed inner run, a
-    wrapped line) can yield an empty path, and ``REPO_ROOT / ""`` is the
-    repo root — a *directory*, which then failed with a bare
-    ``[Errno 13] Permission denied`` several layers away from the actual
-    problem. Checking here turns that into a specific, reportable skip.
+    *known* maps :func:`node_key` to the real ``Path`` discovery found, and
+    is consulted first. That matters because the string pytest prints is
+    not the string discovery produced: pytest reports paths relative to its
+    own rootdir, and on Windows a ``--tests-dir`` under TEMP is typically on
+    a different drive from the repo, where a relative path cannot be
+    expressed at all. Re-deriving a file from pytest's spelling therefore
+    worked on Linux and failed on Windows with "could not resolve a test
+    file from this node id" — for a file we had a ``Path`` to the whole
+    time. Matching on the node id's *function* part instead of its path
+    sidesteps the spelling entirely.
 
-    A ``--tests-dir`` outside the repo produces an absolute path, which
-    ``Path.__truediv__`` already honours over REPO_ROOT.
+    The string-based fallbacks stay for ``--log``, where the log is all
+    there is and discovery may not cover it: repo-relative first, then an
+    absolute path as-is. A node id with an empty file part resolves to
+    neither — ``REPO_ROOT / ""`` is the repo root, a *directory*, which used
+    to surface as a bare ``[Errno 13] Permission denied`` several layers
+    from the cause.
     """
+    if known:
+        match = known.get(node_key(node_id))
+        if match is None:
+            # node_key normalises through REPO_ROOT, which still assumes the
+            # two spellings share a root. When pytest's rootdir is elsewhere
+            # they don't, so fall back to the part of a node id that never
+            # varies by platform: the file's basename and the function path.
+            match = known.get(_shape_key(node_id))
+        if match is not None and match.is_file():
+            return match
+
     file_part = node_id.split("::")[0].strip()
     if not file_part:
         return None
-    path = REPO_ROOT / file_part
-    return path if path.is_file() else None
+    for candidate in (REPO_ROOT / file_part, Path(file_part)):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _target_function(tree: ast.Module, node_id: str) -> ast.AST | None:
@@ -410,6 +439,18 @@ def main(argv: list[str] | None = None) -> int:
     fixed: list[str] = []
     skipped: list[tuple[str, str]] = []
     touched_files: set[Path] = set()
+    # Discovery already knows every candidate's real path; keyed by node_key
+    # so a failure can be matched to it without trusting how pytest spelled
+    # the path back to us.
+    known_paths = {node_key(ref.node_id): ref.path for ref in refs}
+    # The basename+function index is only safe where it is unambiguous; two
+    # test files with the same name and the same test would make it a guess.
+    shapes: dict[str, list[Path]] = {}
+    for ref in refs:
+        shapes.setdefault(_shape_key(ref.node_id), []).append(ref.path)
+    known_paths.update(
+        {shape: paths[0] for shape, paths in shapes.items() if len(set(paths)) == 1}
+    )
 
     for node_id, message in sorted(result.failures.items()):
         if not message:
@@ -422,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
             skipped.append((node_id, f"{other} is not a timing margin — {message}"))
             continue
 
-        path = _node_path(node_id)
+        path = _node_path(node_id, known_paths)
         if path is None:
             skipped.append(
                 (node_id, "could not resolve a test file from this node id"),
