@@ -326,3 +326,26 @@ timeline
         : 1d75aa0 - chore- update JSON stats (scheduled)
 ```
 
+## Release v0.71.5b3 (2026-08-22)
+
+```mermaid
+timeline
+    title Release v0.71.5b3 Commits
+    0.71.5b3
+        : 7a624da - 0.71.5b3- two bugs found by running against a real server
+        : efa5fc8 - 0.71.5b3- deployment examples, documentation, and the security checklist
+        : 47fd89e - 0.71.5b3- Beta 3 test suite, and four bugs it found
+        : 7efe554 - Fix the CI failures on macOS and Windows
+        : 572d4fa - Change logo image in README
+        : 0b7c35c - Change license to HOL-1.0
+        : b83cf1b - Update README for clarity and formatting fixes
+        : 7e35f6e - Correct changelog link in README
+        : f6cfe32 - Fix link to changelog in README
+        : ada8451 - Update roadmap for version 0.72.0
+        : 3e60ff8 - 0.71.5b3 (part 2/3)- complete SDK, full waiter TUI, smoke tool
+        : 604a834 - 0.71.5b3 (part 1/3)- T1 API production hardening core
+        : 8c1fb10 - chore- update JSON stats (scheduled)
+        : d7c0961 - Add autofix-F for timer-test failures, and a router for all three
+        : b24b3e4 - Make the assistant do real work instead of announcing it
+```
+
