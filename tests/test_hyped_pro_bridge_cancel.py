@@ -110,22 +110,46 @@ def served(monkeypatch):
         thread.join(timeout=5)
 
 
+MAX_FAKE_TOKENS = 400
+
+
 @pytest.fixture
 def slow_chat(monkeypatch):
-    """A chat backend that polls should_stop, like the local model path."""
-    state = {"tokens": 0, "started": threading.Event()}
+    """A chat backend that polls should_stop, like the local model path.
+
+    It blocks on an event rather than sleeping per token. A sleep-based
+    loop makes the whole file hostage to timer granularity — Windows
+    rounds a 5ms sleep up to ~15ms, so a 400-token loop that takes 2s on
+    Linux takes 6s there and the tests turn into a race against their own
+    timeouts. Waiting on an event the test controls is exact everywhere:
+    the generation runs until it is cancelled, or until the test releases
+    it, and never on a clock.
+    """
+    state = {
+        "tokens": 0,
+        "started": threading.Event(),
+        "release": threading.Event(),
+        "generated_one": threading.Event(),
+    }
 
     def fake_chat(*, should_stop=None, **_kwargs):
         state["started"].set()
-        for _ in range(400):
+        for _ in range(MAX_FAKE_TOKENS):
             if should_stop is not None and should_stop():
                 break
             state["tokens"] += 1
-            time.sleep(0.005)
+            state["generated_one"].set()
+            # Returns as soon as the test releases it, or polls again.
+            if state["release"].wait(timeout=0.01):
+                break
         return {"content": "tok " * state["tokens"], "thinking": None}
 
     monkeypatch.setattr(core, "send_chat_message", fake_chat)
-    return state
+    try:
+        yield state
+    finally:
+        # Never leave a worker spinning if the test failed mid-way.
+        state["release"].set()
 
 
 @pytest.fixture
@@ -188,8 +212,7 @@ class TestCancel:
     ):
         stdin, stdout = served
         stdin.send(_chat(1))
-        assert slow_chat["started"].wait(timeout=5)
-        time.sleep(0.05)
+        assert slow_chat["generated_one"].wait(timeout=5)
 
         stdin.send({"id": 2, "cmd": "cancel", "target": 1})
         assert stdout.wait_for(2)["data"]["result"] == "stopped"
@@ -197,8 +220,8 @@ class TestCancel:
         reply = stdout.wait_for(1, timeout=10)
         assert reply["ok"] is True
         assert reply["data"]["cancelled"] is True
-        # It stopped well short of the 400 tokens it would otherwise produce.
-        assert slow_chat["tokens"] < 400
+        # It stopped well short of what it would otherwise have produced.
+        assert slow_chat["tokens"] < MAX_FAKE_TOKENS
 
     def test_a_cancelled_turn_keeps_what_was_generated(
         self, served, slow_chat, interruptible
@@ -207,8 +230,7 @@ class TestCancel:
         it would waste the tokens the person already waited for."""
         stdin, stdout = served
         stdin.send(_chat(1))
-        assert slow_chat["started"].wait(timeout=5)
-        time.sleep(0.08)
+        assert slow_chat["generated_one"].wait(timeout=5)
         stdin.send({"id": 2, "cmd": "cancel", "target": 1})
 
         reply = stdout.wait_for(1, timeout=10)

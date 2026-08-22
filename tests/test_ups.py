@@ -177,22 +177,35 @@ class TestCachingAndLifecycle:
 
     def test_the_network_call_is_not_made_under_the_lock(self, monkeypatch):
         """A five-second HTTP timeout held against every other caller
-        would serialize a training loop on the weather."""
+        would serialize a training loop on the weather.
+
+        The probe runs on the same thread as ``check()``. ``_lock`` is a
+        plain ``Lock``, not an ``RLock``, so a successful non-blocking
+        acquire here can only mean this call is *not* holding it — which is
+        the property under test.
+
+        That reasoning only holds while no other thread can touch the lock,
+        and ``check()`` starts the background poller, which calls ``check()``
+        itself and takes the same lock. Leaving it running turned this into
+        a measurement of "was any thread holding the lock at that instant",
+        which is a race — it passed locally and failed on CI. The poller is
+        irrelevant to the property, so it simply doesn't run here.
+        """
         holder: dict[str, bool] = {}
 
-        def slow_query(*_a, **_k):
-            # If check() held the lock across this call, another thread
-            # could not acquire it here.
+        def probing_query(*_a, **_k):
             holder["lock_free"] = guard._lock.acquire(blocking=False)
             if holder["lock_free"]:
                 guard._lock.release()
             return {"weather_code": 0}
 
-        monkeypatch.setattr(ups_mod, "_query_open_meteo", slow_query)
+        monkeypatch.setattr(ups_mod, "_query_open_meteo", probing_query)
+        monkeypatch.setattr(UPS, "_start_bg_thread", lambda self: None)
         guard = UPS(latitude=1.0, longitude=1.0, offline=False)
         guard.check(force=True)
         guard.stop()
         assert holder.get("lock_free") is True, "the weather call ran while holding the lock"
+        assert guard._bg_thread is None, "the poller stub did not take effect"
 
     def test_history_is_bounded(self):
         guard = UPS(offline=True, outage_check_fn=lambda _a: True, check_interval_seconds=0)
