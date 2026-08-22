@@ -37,12 +37,111 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import traceback
 from typing import Any
 
 from hypernix.interfaces import hyped_pro_core as core
 
 BRIDGE_VERSION = "0.71.5rc2"
+
+
+# ---------------------------------------------------------------------------
+# Cancellation
+#
+# Requests used to be dispatched inline, one at a time, straight off the
+# stdin loop. That made "cancel" impossible to even deliver: a `chat` that
+# was going to take ninety seconds held the loop for ninety seconds, so a
+# cancel sent at second two wasn't read until second ninety-one. The TUI's
+# Escape key therefore couldn't stop anything — it could only throw away an
+# answer the model had already finished producing, on a GPU that stayed busy
+# the whole time.
+#
+# So long-running commands now run on their own thread and the stdin loop
+# stays free to read control commands. Each in-flight request owns a
+# threading.Event; `cancel` sets it, and the generation loop polls it once
+# per token.
+#
+# What can actually be interrupted is backend-specific, and the response
+# says which happened rather than implying more than is true:
+#
+#   "stopped"   the generation loop is polling the event and will stop
+#               within a token (local safetensors, via NeoOven.should_stop)
+#   "pending"   the backend has no interruption point — an in-flight cloud
+#               HTTP request, or llama.cpp inside multilama — so the call
+#               runs to completion and its reply is discarded
+#   "unknown"   nothing by that id is in flight (already finished, or a
+#               stale cancel racing the reply)
+# ---------------------------------------------------------------------------
+
+# Commands that can take long enough to be worth cancelling, and are safe to
+# run off the main loop. Everything else is a fast config read/write and
+# stays inline, where it can't interleave with itself.
+BACKGROUND_COMMANDS = frozenset({"chat", "download", "t1api_status"})
+
+# Backends whose generation loop polls should_stop. Anything else can be
+# asked to cancel, but the request will finish first.
+INTERRUPTIBLE_KINDS = frozenset({"local"})
+
+_inflight: dict[Any, threading.Event] = {}
+_inflight_lock = threading.Lock()
+_stdout_lock = threading.Lock()
+
+
+def _interruptible(req: dict[str, Any]) -> bool:
+    """Whether this request's backend polls the cancel event.
+
+    Only the local safetensors path does — NeoOven's generation loop takes
+    a ``should_stop``. A cloud HTTP call and llama.cpp inside multilama have
+    no interruption point, so claiming otherwise would be the same lie the
+    TUI was already telling.
+    """
+    if req.get("cmd") != "chat":
+        return False
+    try:
+        model = core.get_model(req["model"])
+    except Exception:  # noqa: BLE001 - an unknown model fails later, with a real error
+        return False
+    if model.kind not in INTERRUPTIBLE_KINDS:
+        return False
+    # GGUF local models go through multilama, which can't be interrupted.
+    return model.format != "gguf"
+
+
+def _register(id_: Any, req: dict[str, Any]) -> threading.Event:
+    event = threading.Event()
+    event.interruptible = _interruptible(req)  # type: ignore[attr-defined]
+    with _inflight_lock:
+        _inflight[id_] = event
+    return event
+
+
+def _unregister(id_: Any) -> bool:
+    """Drop *id_*; returns whether it had been cancelled."""
+    with _inflight_lock:
+        event = _inflight.pop(id_, None)
+    return bool(event and event.is_set())
+
+
+def _cancel(id_: Any) -> str:
+    with _inflight_lock:
+        event = _inflight.get(id_)
+    if event is None:
+        return "unknown"
+    event.set()
+    return "stopped" if getattr(event, "interruptible", False) else "pending"
+
+
+def _write(payload: dict[str, Any]) -> None:
+    """Serialize one response. Held under a lock because worker threads and
+    the main loop both write to the same pipe, and a half-written line would
+    be unparseable JSON on the other end."""
+    with _stdout_lock:
+        try:
+            sys.stdout.write(json.dumps(payload) + "\n")
+            sys.stdout.flush()
+        except (BrokenPipeError, OSError):
+            pass  # parent is gone; nothing to report to
 
 
 def _err(id_: Any, code: str, message: str) -> dict[str, Any]:
@@ -53,7 +152,7 @@ def _ok(id_: Any, data: Any) -> dict[str, Any]:
     return {"id": id_, "ok": True, "data": data}
 
 
-def dispatch(req: dict[str, Any]) -> dict[str, Any]:
+def dispatch(req: dict[str, Any], cancel: threading.Event | None = None) -> dict[str, Any]:
     id_ = req.get("id")
     cmd = req.get("cmd")
 
@@ -87,8 +186,15 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
                 hide_thinking=req.get("hide_thinking", True),
                 enable_tools=req.get("enable_tools", True),
                 t1_api_model_id=req.get("t1_api_model_id"),
+                should_stop=(cancel.is_set if cancel is not None else None),
             )
-            return _ok(id_, {"reply": result["content"], "thinking": result["thinking"]})
+            return _ok(id_, {
+                "reply": result["content"],
+                "thinking": result["thinking"],
+                # True when the reply is whatever had been generated before
+                # a cancel landed, not a finished answer.
+                "cancelled": bool(cancel is not None and cancel.is_set()),
+            })
 
         if cmd == "key_get":
             from hypernix.system.config import get_provider_key
@@ -122,6 +228,10 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
             core.set_t1_api_url(req["url"])
             return _ok(id_, {"url": core.t1_api_url()})
 
+        if cmd == "cancel":
+            return _ok(id_, {"target": req.get("target"),
+                             "result": _cancel(req.get("target"))})
+
         return _err(id_, "HPB-PROTO-001", f"unknown command {cmd!r}")
 
     except core.HypedProError as exc:
@@ -137,9 +247,30 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
         return _err(id_, "HPB-INTERNAL-001", f"{type(exc).__name__}: {exc}")
 
 
+def _run_background(req: dict[str, Any], event: threading.Event) -> None:
+    """Run one long command off the stdin loop and write its response."""
+    id_ = req.get("id")
+    try:
+        resp = dispatch(req, cancel=event)
+    except Exception as exc:  # noqa: BLE001 - a worker thread must never die silently
+        traceback.print_exc(file=sys.stderr)
+        resp = _err(id_, "HPB-INTERNAL-001", f"{type(exc).__name__}: {exc}")
+    finally:
+        _unregister(id_)
+    _write(resp)
+
+
 def serve() -> int:
-    """Read JSON requests from stdin, write JSON responses to stdout, forever."""
+    """Read JSON requests from stdin, write JSON responses to stdout, forever.
+
+    Long commands (see :data:`BACKGROUND_COMMANDS`) run on their own thread
+    so the loop stays free to read ``cancel``. Everything else — key and URL
+    reads and writes — runs inline: they finish in microseconds and running
+    them concurrently would only add a way for two config writes to
+    interleave.
+    """
     print(f"[hyped-pro-bridge] ready (v{BRIDGE_VERSION}), waiting for requests on stdin", file=sys.stderr)
+    workers: list[threading.Thread] = []
     try:
         for raw_line in sys.stdin:
             line = raw_line.strip()
@@ -149,17 +280,33 @@ def serve() -> int:
                 req = json.loads(line)
             except json.JSONDecodeError as exc:
                 print(f"[hyped-pro-bridge] ERROR HPB-PROTO-001: bad JSON line: {exc}", file=sys.stderr)
-                sys.stdout.write(json.dumps(_err(None, "HPB-PROTO-001", f"invalid JSON: {exc}")) + "\n")
-                sys.stdout.flush()
+                _write(_err(None, "HPB-PROTO-001", f"invalid JSON: {exc}"))
                 continue
-            resp = dispatch(req)
-            sys.stdout.write(json.dumps(resp) + "\n")
-            sys.stdout.flush()
+
+            if req.get("cmd") in BACKGROUND_COMMANDS:
+                event = _register(req.get("id"), req)
+                thread = threading.Thread(
+                    target=_run_background, args=(req, event),
+                    name=f"hyped-pro-{req.get('cmd')}-{req.get('id')}", daemon=True,
+                )
+                workers.append(thread)
+                thread.start()
+                workers = [t for t in workers if t.is_alive()]
+                continue
+
+            _write(dispatch(req))
     except (BrokenPipeError, OSError):
         # The parent (hyped_pro.ts) exited and closed its end of the pipe
         # while we were mid-write — it's gone, there's no one left to
         # report an error to, so exit quietly rather than dump a traceback.
         pass
+
+    # Ask anything still running to stop, then leave. The threads are
+    # daemons, so a backend with no interruption point (a cloud call in
+    # flight) doesn't hold the process open after its parent has gone.
+    with _inflight_lock:
+        for event in _inflight.values():
+            event.set()
     print("[hyped-pro-bridge] stdin closed, exiting", file=sys.stderr)
     return 0
 

@@ -50,6 +50,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -672,13 +673,23 @@ def send_local_chat(
     system: str | None = None,
     max_new_tokens: int = 256,
     temperature: float = 0.7,
+    should_stop: Callable[[], bool] | None = None,
 ) -> str:
+    """One chat turn against a local safetensors snapshot.
+
+    *should_stop* is polled once per generated token by
+    :meth:`hypernix.models.neo_oven.NeoOven.chat`. It is what makes the
+    TUI's Escape real for this backend: without it, cancelling only
+    discarded the answer while the GPU kept producing it. Whatever was
+    generated before the stop is returned rather than thrown away.
+    """
     oven = _get_oven(model)
     full_history = list(messages)
     if system:
         full_history = [{"role": "system", "content": system}] + full_history
     try:
-        return oven.chat(full_history, max_new_tokens=max_new_tokens, temperature=temperature)
+        return oven.chat(full_history, max_new_tokens=max_new_tokens,
+                         temperature=temperature, should_stop=should_stop)
     except Exception as exc:  # noqa: BLE001
         raise HypedProError("HPC-LOCAL-002", f"local inference failed for {model.short!r}: {exc}") from exc
 
@@ -1033,6 +1044,7 @@ def send_t1_api_chat(
     max_tokens: int | None = None,
     enable_tools: bool = True,
     model_id: str | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> str:
     """One chat turn routed by a T1 API server and run locally.
 
@@ -1088,7 +1100,7 @@ def send_t1_api_chat(
                                          enable_tools=enable_tools, **kwargs)
         else:
             reply = send_local_chat(
-                local, messages, system=system,
+                local, messages, system=system, should_stop=should_stop,
                 **({"max_new_tokens": max_tokens} if max_tokens is not None else {}),
             )
 
@@ -1178,6 +1190,7 @@ def send_chat_message(
     hide_thinking: bool = True,
     enable_tools: bool = True,
     t1_api_model_id: str | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, str | None]:
     """Returns {"content": <visible reply>, "thinking": <extracted thinking
     or None>}. When hide_thinking is True, thinking is always None (and
@@ -1196,8 +1209,8 @@ def send_chat_message(
         reply = send_t1_chat(model, messages, t1_key=api_key, system=system, **kwargs)
     elif model.vendor == "t1api":
         reply = send_t1_api_chat(
-            messages, system=system, api_key=api_key,
-            enable_tools=enable_tools, model_id=t1_api_model_id, **kwargs,
+            messages, system=system, api_key=api_key, enable_tools=enable_tools,
+            model_id=t1_api_model_id, should_stop=should_stop, **kwargs,
         )
     elif provider.kind == "cloud":
         cloud_kwargs = dict(kwargs)
@@ -1214,7 +1227,10 @@ def send_chat_message(
             # than fake support that would silently never trigger, tools
             # simply aren't offered on this path. enable_tools is accepted
             # here for a uniform call signature but has no effect.
-            reply = send_local_chat(model, messages, system=system, **{"max_new_tokens": max_tokens} if max_tokens is not None else {})
+            reply = send_local_chat(
+                model, messages, system=system, should_stop=should_stop,
+                **({"max_new_tokens": max_tokens} if max_tokens is not None else {}),
+            )
 
     if hide_thinking:
         return {"content": strip_thinking(reply), "thinking": None}
