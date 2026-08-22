@@ -349,3 +349,26 @@ timeline
         : b24b3e4 - Make the assistant do real work instead of announcing it
 ```
 
+## Release v0.71.5 (2026-08-22)
+
+```mermaid
+timeline
+    title Release v0.71.5 Commits
+    0.71.5
+        : 5b82e76 - Fix the CI failures on Windows, macOS, and one ubuntu job
+        : c1165b3 - hyped-pro- cancellation that cancels; neo_oven- streaming that decodes
+        : 879b000 - 0.71.5rc2 — T1 API Beta 4, hyped-pro, and PATH setup
+        : a846fc2 - Redesign the docs site without touching the palette
+        : 0d3da96 - Make hnx map, eth, and ups actually work
+        : ec50cbd - hypernix v0.71.5b3 [skip ci]
+        : 7a624da - 0.71.5b3- two bugs found by running against a real server
+        : efa5fc8 - 0.71.5b3- deployment examples, documentation, and the security checklist
+        : 47fd89e - 0.71.5b3- Beta 3 test suite, and four bugs it found
+        : 7efe554 - Fix the CI failures on macOS and Windows
+        : 572d4fa - Change logo image in README
+        : 0b7c35c - Change license to HOL-1.0
+        : b83cf1b - Update README for clarity and formatting fixes
+        : 7e35f6e - Correct changelog link in README
+        : f6cfe32 - Fix link to changelog in README
+```
+
