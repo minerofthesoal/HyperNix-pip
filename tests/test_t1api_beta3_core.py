@@ -934,3 +934,69 @@ class TestProductionValidation:
         from hypernix.t1api.ratelimit import DEFAULT_RULES, rules_from_json
 
         assert rules_from_json(config.rate_limit_rules()) == DEFAULT_RULES
+
+
+# ===========================================================================
+# Key store freshness
+# ===========================================================================
+
+
+class TestKeyStoreRefresh:
+    """A key created *after* the server started must still authenticate.
+
+    Keymaster reads its key files once, at construction. That made the
+    documented quickstart wrong whenever the server was already running:
+    `gkey create` writes a new key file, the server never re-reads the
+    directory, and the brand-new key comes back AUTH_INVALID_KEY. Found by
+    running the quickstart against a real uvicorn process rather than a
+    TestClient.
+    """
+
+    @pytest.fixture
+    def service(self, tmp_path):
+        from hypernix.security.gatekeeper import Gatekeeper
+        from hypernix.t1api.auth import T1AuthService
+
+        store = tmp_path / "keymaster"
+        keymaster = Keymaster(store_dir=store, auto_rotate=False)
+        gatekeeper = Gatekeeper(keymaster=keymaster, data_dir=tmp_path / "gk", log_to_file=False)
+        service = T1AuthService(keymaster, gatekeeper, token_secret="x" * 40)
+        return service, store
+
+    def test_a_key_created_by_another_process_is_picked_up(self, service, tmp_path):
+        svc, store = service
+        # A second Keymaster over the same directory stands in for `gkey
+        # create` running while the server is up.
+        other = Keymaster(store_dir=store, auto_rotate=False)
+        fresh = other.create(key_type=KeyType.USER, scopes={KeyScope.READ})
+
+        # The service's own Keymaster has never seen it...
+        assert svc.keymaster.get(fresh.key_id) is None
+        # ...but validating refreshes and finds it.
+        ctx = svc.validate_key(fresh.key)
+        assert ctx.key_id == fresh.key_id
+
+    def test_a_genuinely_invalid_key_still_fails_clearly(self, service):
+        svc, _ = service
+        with pytest.raises(T1APIError) as exc:
+            svc.validate_key("T1_definitely-not-a-real-key")
+        assert exc.value.code is T1ErrorCode.AUTH_INVALID_KEY
+
+    def test_the_refresh_is_throttled(self, service, monkeypatch):
+        """The reload is disk I/O reachable by an unauthenticated caller,
+        so a stream of garbage keys must not force a directory scan per
+        request."""
+        svc, _ = service
+        reloads = 0
+        original = svc.keymaster._load_all
+
+        def counting_load():
+            nonlocal reloads
+            reloads += 1
+            original()
+
+        monkeypatch.setattr(svc.keymaster, "_load_all", counting_load)
+        for _ in range(50):
+            with pytest.raises(T1APIError):
+                svc.validate_key("T1_still-not-real")
+        assert reloads <= 1, f"{reloads} key-store reloads for 50 bad keys"

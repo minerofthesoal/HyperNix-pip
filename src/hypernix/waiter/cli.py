@@ -1148,10 +1148,19 @@ def _cmd_doctor(rest: list[str]) -> int:
     _add_common_connection_args(p)
     args = p.parse_args(rest)
     client, cfg = _client_for(args)
-    status = client.status()
+    # waiter's T1Client overrides status() to return the raw envelope,
+    # because that is what the CLI's table renderers consume. Doctor wants
+    # the typed view, so it builds one rather than reaching past the
+    # override — which is what it used to do, and it crashed with
+    # "'dict' object has no attribute 'environment'" the first time it ran
+    # against a real server.
+    from ..t1sdk.models import ServerStatus
+
+    raw = client.status()
+    status = ServerStatus.from_dict(raw)
 
     if args.as_json:
-        _print_json(status.raw)
+        _print_json(raw)
         return 0
 
     _print_table(

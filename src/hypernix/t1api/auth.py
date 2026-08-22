@@ -105,15 +105,68 @@ class T1AuthService:
             import secrets as _secrets
 
             self._token_secret = _secrets.token_hex(32)
+        # 0.0, not "now": the throttle exists to stop repeated reloads, not
+        # to delay the first one. Starting at the current time would make
+        # the first unknown key — the exact case this refresh is for —
+        # wait out the whole interval before it could be found.
+        self._last_key_reload = 0.0
 
     # ------------------------------------------------------------------
     # Raw T1 key validation
     # ------------------------------------------------------------------
 
+    # Keymaster loads its key files once, at construction. A key created
+    # after the server started — which is exactly what the documented
+    # quickstart tells you to do (`gkey create`, then point waiter at the
+    # already-running server) — is therefore invisible until a restart.
+    # validate_key() reloads once on an unknown key to close that gap.
+    #
+    # The reload is throttled because it is disk I/O reachable by an
+    # unauthenticated caller: without a floor, a stream of garbage keys
+    # would force a directory scan per request, which is a denial-of-
+    # service handed out for free. One reload every few seconds bounds
+    # that to noise while still picking up a newly-minted key promptly.
+    _RELOAD_MIN_INTERVAL_SECONDS = 5.0
+
+    def _maybe_reload_keys(self) -> bool:
+        """Re-read the key store, at most once per interval.
+
+        Returns True if a reload actually happened, so the caller knows
+        whether a retry is worth attempting.
+        """
+        now = time.monotonic()
+        if now - self._last_key_reload < self._RELOAD_MIN_INTERVAL_SECONDS:
+            return False
+        self._last_key_reload = now
+        try:
+            self.keymaster._load_all()
+        except Exception:  # noqa: BLE001 - a failed refresh must not mask the auth error
+            logger.warning("t1api.auth: could not refresh the key store", exc_info=True)
+            return False
+        return True
+
     def validate_key(self, key_str: str) -> AuthContext:
         """Validate a raw T1 key string. Used by POST /auth/t1/validate and
         as the fallback path when a request presents a raw key instead of
         a scoped token."""
+        try:
+            meta = self.gatekeeper.authenticate(key_str)
+        except (ValueError, PermissionError):
+            # Unknown key: it may simply have been created after this
+            # process started. Refresh once and try again — if it is still
+            # unknown, fall through to the normal error handling below so
+            # the caller sees the real message.
+            if self._maybe_reload_keys():
+                try:
+                    meta = self.gatekeeper.authenticate(key_str)
+                except (ValueError, PermissionError):
+                    return self._validate_uncached(key_str)
+                return AuthContext(key_meta=meta, scopes=set(meta.scopes))
+            return self._validate_uncached(key_str)
+        return AuthContext(key_meta=meta, scopes=set(meta.scopes))
+
+    def _validate_uncached(self, key_str: str) -> AuthContext:
+        """The original validation path, raising the stable error codes."""
         try:
             meta = self.gatekeeper.authenticate(key_str)
         except ValueError as exc:

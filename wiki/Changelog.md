@@ -75,6 +75,10 @@ next release header.
 
 🔧 **Tests** — `tests/test_t1api_beta3_security.py`, `test_t1api_beta3_core.py`, `test_t1api_beta3_http.py`: network policy, rate limiting, mTLS, audit scrubbing, PostgreSQL translation (with a real round-trip when `T1_TEST_DATABASE_URL` is set), keys and plan resolution, cost and forecasts, transport signatures, deployment, production validation, and the middleware order. The Beta 1/2 HTTP suites had never actually been executed — their authoring sandbox had no network to install FastAPI — and now run; two assertions that had been asserting the wrong thing are corrected, including one that expected the placeholder registry entries to be routable when the whole point is that they are not.
 
+𖢥 **A key created while the server was running was invisible until restart.** Keymaster reads its key files once, at construction, so the documented quickstart — `gkey create`, then point `waiter` at the already-running server — returned `AUTH_INVALID_KEY` for a brand-new key. `T1AuthService.validate_key` now refreshes the key store once on an unknown key, throttled to at most one reload every five seconds because it is disk I/O an unauthenticated caller can reach. Found by running the quickstart against a real uvicorn process instead of a `TestClient`.
+
+🐛 **`waiter doctor` crashed against a real server** with `'dict' object has no attribute 'environment'`: waiter's client overrides `status()` to return the raw envelope for the CLI's table renderers, and doctor assumed it got the typed object. Same cause as above — nothing in a TestClient-driven suite exercised that path.
+
 ❗ **Known limitation** — module blobs are checksummed and path-sanitized but **not encrypted at rest**; the store relies on filesystem permissions. Everything else that needs at-rest protection has it (T1 keys via Keymaster, payment tokens as hashes, waiter config via `-E`). This is the one Beta 3 line item deliberately left open rather than half-done.
 
 ## 0.71.5b2
