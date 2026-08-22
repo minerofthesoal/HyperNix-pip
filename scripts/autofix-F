@@ -54,7 +54,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from autofix_scope import (  # noqa: E402
@@ -190,24 +190,72 @@ def _non_assertion_type(message: str) -> str | None:
     return None
 
 
-def _node_path(node_id: str) -> Path | None:
+def _func_key(node_id: str) -> str:
+    """Everything after the first ``::`` — the ``Class::func`` path, minus
+    any ``[parametrize-id]``, with no file component at all.
+
+    The last resort, and the only one that survives a reported node id whose
+    path part is *empty* — which is what Windows actually produces here.
+    It is sound because ``run_tests`` is handed an explicit list of node ids
+    and pytest can only report failures from that list, so a failure's
+    function path always names one of the candidates we already hold a
+    ``Path`` for. It is still only used where unambiguous.
+    """
+    _, _, rest = node_id.partition("::")
+    return "::".join(part.split("[", 1)[0] for part in rest.split("::"))
+
+
+def _shape_key(node_id: str) -> str:
+    """A node id reduced to what no platform can change: the file's basename
+    and the ``Class::func`` path under it, minus any ``[parametrize-id]``."""
+    path, _, rest = node_id.partition("::")
+    return f"{PurePosixPath(path.replace(chr(92), '/')).name}::{_func_key(node_id)}"
+
+
+def _node_path(node_id: str, known: dict[str, Path] | None = None) -> Path | None:
     """The test file a node id names, or None if it doesn't name one.
 
-    ``node_id.split("::")[0]`` is the file part, but it is not guaranteed
-    to be one: a malformed short-summary line (a crashed inner run, a
-    wrapped line) can yield an empty path, and ``REPO_ROOT / ""`` is the
-    repo root — a *directory*, which then failed with a bare
-    ``[Errno 13] Permission denied`` several layers away from the actual
-    problem. Checking here turns that into a specific, reportable skip.
+    *known* maps :func:`node_key` to the real ``Path`` discovery found, and
+    is consulted first. That matters because the string pytest prints is
+    not the string discovery produced: pytest reports paths relative to its
+    own rootdir, and on Windows a ``--tests-dir`` under TEMP is typically on
+    a different drive from the repo, where a relative path cannot be
+    expressed at all. Re-deriving a file from pytest's spelling therefore
+    worked on Linux and failed on Windows with "could not resolve a test
+    file from this node id" — for a file we had a ``Path`` to the whole
+    time. Matching on the node id's *function* part instead of its path
+    sidesteps the spelling entirely.
 
-    A ``--tests-dir`` outside the repo produces an absolute path, which
-    ``Path.__truediv__`` already honours over REPO_ROOT.
+    The string-based fallbacks stay for ``--log``, where the log is all
+    there is and discovery may not cover it: repo-relative first, then an
+    absolute path as-is. A node id with an empty file part resolves to
+    neither — ``REPO_ROOT / ""`` is the repo root, a *directory*, which used
+    to surface as a bare ``[Errno 13] Permission denied`` several layers
+    from the cause.
     """
+    if known:
+        # Three tiers, each giving up less of the node id than the last:
+        # the full normalised path, then basename + function path, then the
+        # function path alone. node_key assumes the two spellings share a
+        # root, which fails when pytest's rootdir is on another drive; the
+        # basename tier fails when the reported path is empty, which is what
+        # Windows produces for an out-of-tree --tests-dir.
+        for key, table in (
+            (node_key(node_id), known),
+            (_shape_key(node_id), known),
+            (_func_key(node_id), known),
+        ):
+            match = table.get(key)
+            if match is not None and match.is_file():
+                return match
+
     file_part = node_id.split("::")[0].strip()
     if not file_part:
         return None
-    path = REPO_ROOT / file_part
-    return path if path.is_file() else None
+    for candidate in (REPO_ROOT / file_part, Path(file_part)):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _target_function(tree: ast.Module, node_id: str) -> ast.AST | None:
@@ -410,6 +458,20 @@ def main(argv: list[str] | None = None) -> int:
     fixed: list[str] = []
     skipped: list[tuple[str, str]] = []
     touched_files: set[Path] = set()
+    # Discovery already knows every candidate's real path; keyed by node_key
+    # so a failure can be matched to it without trusting how pytest spelled
+    # the path back to us.
+    known_paths = {node_key(ref.node_id): ref.path for ref in refs}
+    # The looser indexes are only safe where they are unambiguous: two test
+    # files carrying the same test name would make either one a guess, and
+    # guessing which file to edit is worse than reporting a skip.
+    for key_fn in (_shape_key, _func_key):
+        buckets: dict[str, set[Path]] = {}
+        for ref in refs:
+            buckets.setdefault(key_fn(ref.node_id), set()).add(ref.path)
+        known_paths.update(
+            {key: next(iter(paths)) for key, paths in buckets.items() if len(paths) == 1}
+        )
 
     for node_id, message in sorted(result.failures.items()):
         if not message:
@@ -422,10 +484,14 @@ def main(argv: list[str] | None = None) -> int:
             skipped.append((node_id, f"{other} is not a timing margin — {message}"))
             continue
 
-        path = _node_path(node_id)
+        path = _node_path(node_id, known_paths)
         if path is None:
+            # The repr matters: the reason this was unresolvable is almost
+            # always something about the *spelling* that a bare echo of the
+            # id hides — an empty path part, a stray separator, whitespace.
             skipped.append(
-                (node_id, "could not resolve a test file from this node id"),
+                (node_id, "could not resolve a test file from this node id "
+                          f"({node_id!r})"),
             )
             continue
         try:
