@@ -11,7 +11,9 @@
 **End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
 
 ## What's fixed in this update
-See [changelog.md](/wiki/Changelog.md)
+See [Changelog.md](/wiki/Changelog.md)
+for most updates
+
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
