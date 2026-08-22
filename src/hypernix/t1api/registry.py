@@ -121,6 +121,25 @@ class ModelEntry:
     is_example_entry: bool = False
     notes: str = ""
 
+    def __post_init__(self) -> None:
+        """Normalize the enum fields whichever way the entry was built.
+
+        ``from_dict`` coerces these, but direct construction —
+        ``ModelEntry(availability="public", ...)`` — did not, and because
+        both are ``StrEnum`` the plain string compares equal to the member
+        everywhere *except* where ``.value`` is read. That turned a
+        perfectly reasonable construction into an ``AttributeError`` at
+        serialization time, several layers from the call that caused it.
+        Coercing here makes the invariant hold from the moment the entry
+        exists, so there is only one shape of ModelEntry in the system.
+        """
+        if not isinstance(self.availability, ModelAvailabilityFlag):
+            self.availability = ModelAvailabilityFlag(self.availability)
+        if not isinstance(self.status, ModelStatus):
+            self.status = ModelStatus(self.status)
+        if isinstance(self.pricing, dict):
+            self.pricing = ModelPricing.from_dict(self.pricing)
+
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["availability"] = self.availability.value

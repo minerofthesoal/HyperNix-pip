@@ -1,321 +1,147 @@
-"""waiter.client — a stdlib-only HTTP client for the HyperNix T1 API.
+"""waiter.client — the waiter CLI's T1 API client.
 
-Deliberately built on ``urllib.request`` rather than ``requests``/``httpx``
-so the ``waiter`` console script has zero extra runtime dependencies beyond
-what ``hypernix`` already installs — it's a thin client, not the API
-server, and shouldn't need the ``hypernix[t1api]`` extra just to talk to
-one over the network.
+As of Beta 3 this is a **compatibility layer over**
+:mod:`hypernix.t1sdk`, not a second implementation. The SDK owns the
+transport (retries, backoff, mTLS, multipart, error mapping) and the
+complete endpoint surface; this module keeps the method names and the
+dict-returning shape that the Beta 1/2 ``waiter`` CLI was written
+against, so nothing in ``waiter/cli.py`` had to change and any script
+built on ``waiter.client`` keeps working.
 
-Every method returns the parsed JSON body on success and raises
-:class:`T1ClientError` (carrying the server's stable error code when the
-server sent one) on failure — the waiter CLI catches this one exception
-type everywhere instead of a grab-bag of urllib/JSON errors.
+Why keep it at all rather than pointing the CLI at the SDK directly:
+
+* **Names.** ``list_models()`` returning a *dict* (with ``count`` and
+  ``models``) is what the CLI's table renderers consume. The SDK's
+  ``list_models()`` returns typed objects. Renaming across both would
+  churn the CLI for no gain, so the shim translates instead.
+* **One exception type.** The CLI catches :class:`T1ClientError`
+  everywhere. It is now an alias for the SDK's :class:`T1Error`, so that
+  single ``except`` still catches every failure the SDK can raise —
+  including the more specific subclasses.
+
+New code should import :class:`hypernix.t1sdk.T1Client` directly and get
+the typed objects.
 """
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.parse
-import urllib.request
-from dataclasses import dataclass
 from typing import Any
 
+from ..t1sdk import T1Client as _SDKClient
+from ..t1sdk.errors import T1Error
+from ..t1sdk.transport import HTTPTransport, RetryPolicy, TLSConfig
 
-class T1ClientError(Exception):
-    """Raised for any failed T1 API call.
+# The CLI catches exactly this name. Aliasing (rather than subclassing)
+# means every SDK exception — T1AuthError, T1QuotaError, and the rest —
+# is caught by `except T1ClientError`, which is what the CLI wants.
+T1ClientError = T1Error
 
-    Args:
-        message: Human-readable summary.
-        code: The server's stable error code (e.g. ``MODEL_NOT_SUPPORTED``)
-            when the server returned one, else ``None`` (network error,
-            non-JSON response, etc).
-        status: HTTP status code, if a response was received at all.
-        request_id: The server's request ID, if present.
+
+class T1Client(_SDKClient):
+    """Talks to one T1 API server, with the Beta 1/2 method surface.
+
+    ``base_url`` should not include a trailing slash (e.g.
+    ``https://myserver.ts.net:8000``). Constructor arguments are the ones
+    the CLI has always passed; everything else comes from the SDK.
     """
 
     def __init__(
         self,
-        message: str,
+        base_url: str,
+        credential: str | None = None,
+        timeout: float = 15.0,
         *,
-        code: str | None = None,
-        status: int | None = None,
-        request_id: str | None = None,
+        retry: RetryPolicy | None = None,
+        tls: TLSConfig | None = None,
+        transport: HTTPTransport | None = None,
     ) -> None:
-        self.code = code
-        self.status = status
-        self.request_id = request_id
-        super().__init__(message)
-
-
-@dataclass
-class T1Client:
-    """Talks to one T1 API server. ``base_url`` should NOT include a
-    trailing slash (e.g. ``https://myserver.ts.net:8000``)."""
-
-    base_url: str
-    credential: str | None = None  # raw T1 key or scoped token; sent as Bearer
-    timeout: float = 15.0
+        super().__init__(
+            base_url,
+            credential=credential,
+            timeout=timeout,
+            retry=retry,
+            tls=tls,
+            transport=transport,
+            user_agent="hypernix-waiter",
+        )
 
     # ------------------------------------------------------------------
-    # Low-level request
+    # Overrides returning the raw envelope the CLI's renderers expect.
+    # Each one is the SDK call with the typing peeled back off — the
+    # request itself, and all its error handling, is the SDK's.
     # ------------------------------------------------------------------
 
-    def _url(self, path: str) -> str:
-        return f"{self.base_url.rstrip('/')}{path}"
-
-    def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        body: dict[str, Any] | None = None,
-        query: dict[str, str] | None = None,
-        auth: bool = False,
-    ) -> dict[str, Any]:
-        url = self._url(path)
-        if query:
-            url += "?" + urllib.parse.urlencode(query)
-
-        headers = {"Accept": "application/json"}
-        data = None
-        if body is not None:
-            data = json.dumps(body).encode("utf-8")
-            headers["Content-Type"] = "application/json"
-        if auth:
-            if not self.credential:
-                raise T1ClientError(
-                    "This call requires a credential — pass -K/--key or run 'waiter serv -A' first."
-                )
-            headers["Authorization"] = f"Bearer {self.credential}"
-
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read()
-                return json.loads(raw) if raw else {}
-        except urllib.error.HTTPError as exc:
-            raw = exc.read()
-            try:
-                payload = json.loads(raw) if raw else {}
-            except json.JSONDecodeError:
-                payload = {}
-            err = payload.get("error", {})
-            raise T1ClientError(
-                err.get("message", f"HTTP {exc.code} calling {method} {path}"),
-                code=err.get("code"),
-                status=exc.code,
-                request_id=payload.get("request_id"),
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise T1ClientError(f"Could not reach {url}: {exc.reason}") from exc
-        except TimeoutError as exc:
-            raise T1ClientError(f"Timed out calling {method} {path}") from exc
-        except json.JSONDecodeError as exc:
-            raise T1ClientError(f"Server returned non-JSON response for {method} {path}") from exc
-
-    # ------------------------------------------------------------------
-    # Health / status / config
-    # ------------------------------------------------------------------
-
-    def health(self) -> dict[str, Any]:
-        return self._request("GET", "/health")
-
-    def status(self) -> dict[str, Any]:
-        return self._request("GET", "/status")
+    def status(self) -> dict[str, Any]:  # type: ignore[override]
+        return self._get("/status")
 
     def config(self) -> dict[str, Any]:
-        return self._request("GET", "/config")
+        return self._get("/config")
 
-    # ------------------------------------------------------------------
-    # Auth
-    # ------------------------------------------------------------------
+    def list_models(self) -> dict[str, Any]:  # type: ignore[override]
+        return self.list_models_raw()
 
-    def validate(self, key: str | None = None) -> dict[str, Any]:
-        return self._request("POST", "/auth/t1/validate", body={"key": key or self.credential})
+    def get_model(self, model_id: str) -> dict[str, Any]:  # type: ignore[override]
+        from ..t1sdk.client import _q
 
-    def issue_token(
-        self, key: str | None = None, *, ttl_seconds: int | None = None, scopes: list[str] | None = None
-    ) -> dict[str, Any]:
-        body: dict[str, Any] = {"key": key or self.credential}
-        if ttl_seconds is not None:
-            body["ttl_seconds"] = ttl_seconds
-        if scopes is not None:
-            body["scopes"] = scopes
-        return self._request("POST", "/auth/token", body=body)
+        return self._get(f"/models/{_q(model_id)}")
 
-    def rotate(self) -> dict[str, Any]:
-        return self._request("POST", "/auth/t1/rotate", auth=True)
+    def model_usage(self, model_id: str) -> dict[str, Any]:  # type: ignore[override]
+        from ..t1sdk.client import _q
 
-    def admin_rotate(self, target_key_id: str, *, promote_to_admin: bool = False) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/auth/t1/admin/rotate",
-            body={"target_key_id": target_key_id, "promote_to_admin": promote_to_admin},
-            auth=True,
-        )
+        return self._get(f"/models/{_q(model_id)}/usage", auth=True)
 
-    # ------------------------------------------------------------------
-    # Models
-    # ------------------------------------------------------------------
+    def usage_remaining(self, model_id: str) -> dict[str, Any]:  # type: ignore[override]
+        return self._get("/usage/remaining", query={"model_id": model_id}, auth=True)
 
-    def list_models(self) -> dict[str, Any]:
-        return self._request("GET", "/models")
+    def route(self, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        return super().route(**kwargs).raw
 
-    def get_model(self, model_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/models/{urllib.parse.quote(model_id, safe='')}")
+    def list_servers(self) -> dict[str, Any]:  # type: ignore[override]
+        return self._get("/servers", auth=True)
 
-    def model_availability(self, model_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/models/{urllib.parse.quote(model_id, safe='')}/availability")
+    def register_server(self, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        return {"server": super().register_server(**kwargs).raw}
 
-    def model_usage(self, model_id: str) -> dict[str, Any]:
-        return self._request(
-            "GET", f"/models/{urllib.parse.quote(model_id, safe='')}/usage", auth=True
-        )
+    def update_server(self, server_id: str, **fields: Any) -> dict[str, Any]:  # type: ignore[override]
+        from ..t1sdk.client import _q
 
-    # ------------------------------------------------------------------
-    # Usage
-    # ------------------------------------------------------------------
+        return self.transport.request(
+            "PATCH", f"/servers/{_q(server_id)}", body=fields, auth=True
+        ).body
 
-    def usage_current(self) -> dict[str, Any]:
-        return self._request("GET", "/usage/current", auth=True)
+    def list_modules(self) -> dict[str, Any]:  # type: ignore[override]
+        return self._get("/modules", auth=True)
 
-    def usage_remaining(self, model_id: str) -> dict[str, Any]:
-        return self._request("GET", "/usage/remaining", query={"model_id": model_id}, auth=True)
-
-    # ------------------------------------------------------------------
-    # Beta 2: routing
-    # ------------------------------------------------------------------
-
-    def route(
-        self, *, plan: str, model_id: str | None = None, input_tokens: int = 0, automatic_fallback: bool = False
-    ) -> dict[str, Any]:
-        body: dict[str, Any] = {"plan": plan, "input_tokens": input_tokens, "automatic_fallback": automatic_fallback}
-        if model_id is not None:
-            body["model_id"] = model_id
-        return self._request("POST", "/models/route", body=body, auth=True)
-
-    # ------------------------------------------------------------------
-    # Beta 2: servers
-    # ------------------------------------------------------------------
-
-    def list_servers(self) -> dict[str, Any]:
-        return self._request("GET", "/servers", auth=True)
-
-    def register_server(
-        self, *, name: str, address: str, capabilities: list[str] | None = None, allow_private_address: bool = False
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/servers/register",
-            body={
-                "name": name,
-                "address": address,
-                "capabilities": capabilities or [],
-                "allow_private_address": allow_private_address,
-            },
-            auth=True,
-        )
-
-    def update_server(self, server_id: str, **fields: Any) -> dict[str, Any]:
-        return self._request("PATCH", f"/servers/{urllib.parse.quote(server_id, safe='')}", body=fields, auth=True)
-
-    # ------------------------------------------------------------------
-    # Beta 2: modules
-    # ------------------------------------------------------------------
-
-    def list_modules(self) -> dict[str, Any]:
-        return self._request("GET", "/modules", auth=True)
-
-    def create_module(self, *, name: str, version: str) -> dict[str, Any]:
-        return self._request("POST", "/modules/create", body={"name": name, "version": version}, auth=True)
+    def create_module(self, *, name: str, version: str, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        return {"module": super().create_module(name=name, version=version, **kwargs).raw}
 
     def upload_module_local(self, module_id: str, file_path: str) -> dict[str, Any]:
-        """Multipart upload — the one call that doesn't go through
-        ``_request`` (that helper is JSON-only), since a file upload needs
-        a multipart body. Stdlib-only, same constraint as the rest of this
-        client: builds the multipart body by hand instead of adding a
-        `requests` dependency."""
-        import mimetypes
-        import os
-        import uuid as _uuid
+        """Beta 1/2 name for the SDK's ``upload_module``."""
+        return {"module": self.upload_module(module_id, file_path).raw}
 
-        boundary = _uuid.uuid4().hex
-        filename = os.path.basename(file_path)
-        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        with open(file_path, "rb") as f:
-            file_bytes = f.read()
+    def get_job(self, job_id: str) -> dict[str, Any]:  # type: ignore[override]
+        from ..t1sdk.client import _q
 
-        parts = [
-            f"--{boundary}\r\n".encode(),
-            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
-            f"Content-Type: {content_type}\r\n\r\n".encode(),
-            file_bytes,
-            f"\r\n--{boundary}--\r\n".encode(),
-        ]
-        body = b"".join(parts)
+        return self._get(f"/jobs/{_q(job_id)}", auth=True)
 
-        url = self._url(f"/modules/upload/local?module_id={urllib.parse.quote(module_id, safe='')}")
-        headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
-        if not self.credential:
-            raise T1ClientError("Module upload requires a credential — pass -K/--key or run 'waiter serv -A' first.")
-        headers["Authorization"] = f"Bearer {self.credential}"
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=max(self.timeout, 30.0)) as resp:
-                return json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            raw = exc.read()
-            try:
-                payload = json.loads(raw) if raw else {}
-            except json.JSONDecodeError:
-                payload = {}
-            err = payload.get("error", {})
-            raise T1ClientError(
-                err.get("message", f"HTTP {exc.code} uploading module"),
-                code=err.get("code"),
-                status=exc.code,
-                request_id=payload.get("request_id"),
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise T1ClientError(f"Could not reach {url}: {exc.reason}") from exc
+    def cancel_job(self, job_id: str) -> dict[str, Any]:  # type: ignore[override]
+        from ..t1sdk.client import _q
 
-    def sync_module(self, module_id: str, server_id: str) -> dict[str, Any]:
-        return self._request(
-            "POST", f"/modules/{urllib.parse.quote(module_id, safe='')}/sync", body={"server_id": server_id}, auth=True
+        return self._post(f"/jobs/{_q(job_id)}/cancel", auth=True, idempotent=True)
+
+    def list_events(self, *, limit: int = 50, since_id: str | None = None, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        return self._get(
+            "/events",
+            query={"limit": limit, "since_id": since_id, "type": kwargs.get("event_type")},
         )
 
-    # ------------------------------------------------------------------
-    # Beta 2: jobs
-    # ------------------------------------------------------------------
-
-    def get_job(self, job_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/jobs/{urllib.parse.quote(job_id, safe='')}", auth=True)
-
-    def cancel_job(self, job_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/jobs/{urllib.parse.quote(job_id, safe='')}/cancel", auth=True)
-
-    # ------------------------------------------------------------------
-    # Beta 2: events
-    # ------------------------------------------------------------------
-
-    def list_events(self, *, limit: int = 50, since_id: str | None = None) -> dict[str, Any]:
-        query = {"limit": str(limit)}
-        if since_id is not None:
-            query["since_id"] = since_id
-        return self._request("GET", "/events", query=query, auth=True)
-
-    # ------------------------------------------------------------------
-    # Beta 2: billing
-    # ------------------------------------------------------------------
-
     def billing_balance(self) -> dict[str, Any]:
-        return self._request("GET", "/billing/balance", auth=True)
+        return self.balance()
 
     def billing_transactions(self) -> dict[str, Any]:
-        return self._request("GET", "/billing/transactions", auth=True)
+        return self._get("/billing/transactions", auth=True)
 
-    def redeem_payment_token(self, token: str) -> dict[str, Any]:
-        return self._request("POST", "/billing/redeem", body={"token": token}, auth=True)
+    def redeem_payment_token(self, token: str, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        return super().redeem_payment_token(token, **kwargs)
 
 
-__all__ = ["T1Client", "T1ClientError"]
+__all__ = ["T1Client", "T1ClientError", "RetryPolicy", "TLSConfig"]

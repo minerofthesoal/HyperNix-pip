@@ -79,6 +79,17 @@ class T1ErrorCode(StrEnum):
     # --- Beta 2: routing ---------------------------------------------------
     ROUTING_EXHAUSTED = "ROUTING_EXHAUSTED"  # every model in the cascade is exhausted
 
+    # --- Beta 3: network policy / transport / production hardening --------
+    IP_BLOCKED = "IP_BLOCKED"  # client address is on the server's blocklist
+    IP_NOT_ALLOWLISTED = "IP_NOT_ALLOWLISTED"  # server accepts allowlisted clients only
+    MTLS_REQUIRED = "MTLS_REQUIRED"  # no verified client certificate presented
+    MTLS_INVALID = "MTLS_INVALID"  # client certificate present but not acceptable
+    TRANSPORT_FAILED = "TRANSPORT_FAILED"  # remote push/fetch failed at the network layer
+    CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"  # transferred bytes don't match the expected digest
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"  # upload/fetch exceeded the configured size cap
+    CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"  # destructive op needs explicit confirmation
+    CONFIG_INVALID = "CONFIG_INVALID"  # production configuration validation failed
+
 
 class T1APIError(Exception):
     """Raised anywhere in the T1 API stack; carries a stable error code.

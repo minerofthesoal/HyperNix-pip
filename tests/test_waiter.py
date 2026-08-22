@@ -369,3 +369,31 @@ class TestBeta2Subcommands:
         rc = main(["billing", "-I", beta2_server, "-K", "T1_x"])
         assert rc == 0
         assert "42.5" in capsys.readouterr().out
+
+
+class TestDoctorTypedStatus:
+    """`waiter doctor` reads the typed status view.
+
+    waiter's T1Client overrides status() to return the raw envelope,
+    because that is what the CLI's table renderers consume. Doctor wants
+    the typed object and used to assume it got one, which crashed with
+    "'dict' object has no attribute 'environment'" the first time it ran
+    against a real server — a TestClient-only test suite never caught it
+    because nothing exercised that path.
+    """
+
+    def test_status_override_returns_a_dict(self, fake_server):
+        from hypernix.waiter.client import T1Client as WaiterClient
+
+        payload = WaiterClient(base_url=fake_server).status()
+        assert isinstance(payload, dict)
+
+    def test_the_typed_view_is_built_from_it(self, fake_server):
+        from hypernix.t1sdk.models import ServerStatus
+        from hypernix.waiter.client import T1Client as WaiterClient
+
+        status = ServerStatus.from_dict(WaiterClient(base_url=fake_server).status())
+        # Attribute access is what doctor does; this is the assertion that
+        # would have failed before the fix.
+        assert isinstance(status.environment, str)
+        assert isinstance(status.production_warnings, list)

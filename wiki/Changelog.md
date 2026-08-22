@@ -21,6 +21,66 @@ next release header.
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
 ## next version 0.71.5
+## 0.71.5b3
+
+✨ **T1 API — Beta 3: production hardening.** The T1 API is now feature-complete against its spec. PostgreSQL, a durable audit log, mTLS, advanced rate limiting, IP allow/blocklists, real remote multi-server module transport, the key directory, usage cost/estimates/forecasts, the complete SDK, the full `waiter` TUI, and production configuration validation. Full contract in `wiki/T1-API.md`; deployment examples in `examples/t1api/`.
+
+✨ **PostgreSQL for production** — `T1_DATABASE_URL` moves *every* store (usage, servers, modules, jobs, billing, audit, network policy, key assignments) and changes nothing else. The portability lives in one place, `t1api/db.py`: a connection wrapper normalizes placeholders, row-by-name access, DDL dialect and transaction/close semantics, so no store needed an `if postgres:` branch. New `hypernix[t1api-pg]` extra. Existing SQLite databases migrate in place at startup rather than needing a dump and reload.
+
+✨ **The plan is now the server's to decide** — the one deliberately breaking change. Beta 2's `POST /models/route` took `plan` from the request body, which let a client name the most generous plan it could think of. A plan is now a property of an administrator-recorded assignment (`POST /keys/assign`), and a `plan` in the body is an *assertion*: matching is accepted, mismatching returns `AUTH_INSUFFICIENT_SCOPE`. A key can also be narrowed to a subset of registered models, checked on manual selection and on whatever automatic routing lands on.
+
+✨ **Audit logging** — `hypernix.t1api.audit.AuditLog`: durable, queryable, admin-only at `GET /audit`, and reading it is itself audited. Secret-shaped fields are dropped **by name at write time** (`key`, `token`, `secret`, `password`, `authorization`, `dsn`, `credential`), so a future call site that accidentally hands over a raw key cannot write it to disk; identifiers that only look secret by name (`key_id`, `payment_token_id`) are carved out. An audit write never takes down the request it describes.
+
+✨ **Advanced rate limiting** — token bucket *and* sliding window, because they answer different questions: burst-tolerant per-key/per-IP budgets for interactive clients, hard ceilings for operator-forced limits. Runs in **middleware, before the route handler**, which is what "apply rate limits before expensive model operations" has to mean to be true. Expensive endpoints declare a higher cost. Per-process limits are documented as such rather than papered over.
+
+✨ **IP allowlists, blocklists, and the unlisted-client decision** — `hypernix.t1api.netpolicy`, CIDR-matched, persistent. The blocklist wins over the allowlist by design (un-blocking is an *appeal*, which is its own operation), and `T1_ALLOW_UNLISTED_CLIENTS` is the design principle's own "does this server accept non-allowlisted clients at all" as a first-class setting. Blocking your own address is refused — it has no undo through the API.
+
+✨ **mTLS** — direct termination (uvicorn holds the certificates) or proxy termination (nginx forwards `X-Client-*`). The proxy path trusts those headers **only** from an address in `T1_TRUSTED_PROXIES`, because otherwise any client able to reach the process directly could just send `X-Client-Verify: SUCCESS`; proxy mTLS with an empty trusted-proxy list fails closed. Optional subject/fingerprint allowlists, with fingerprints normalized so an allowlist can't silently never match. `/health` stays exempt for load balancers.
+
+✨ **Remote multi-server deployment — real bytes this time.** Beta 2's module sync was bookkeeping and said so. Beta 3 transfers: HMAC-signed over method|path|timestamp|body-digest with a freshness window, SHA-256 verified on both ends, size-capped, and pushed only to a server an admin promoted to trusted — the address comes from the registry, never from the request. Remote fetch refuses redirects, because following one is exactly how an SSRF check gets bypassed. Nothing is ever executed, imported, or interpreted on either side. New `POST /modules/{id}/deploy`, `POST /modules/{id}/fetch`, `POST /modules/receive`.
+
+✨ **The endpoints the spec listed and Beta 1/2 hadn't implemented** — `GET /keys`, `POST /keys/import`, `POST /keys/assign`, `GET /usage/history`, `GET /usage/cost`, `POST /usage/estimate`, plus `GET /usage/by` for the per-model/key/server/module/user/account reports. Cost comes only from recorded usage and the registry's own pricing — there is no second price list, and a model that isn't registered has no price and cannot be costed. Estimates record and reserve nothing; forecasts state the window they extrapolated from and how much to trust it.
+
+✨ **`hypernix.t1sdk` — the complete SDK.** Typed models over every endpoint, an exception hierarchy mapped from the server's stable codes, retries honouring `Retry-After`, mTLS and private CAs, pagination and job-polling helpers, and a `call()` escape hatch so a newer server never blocks on an SDK release. Stdlib only. Non-idempotent POSTs are never retried: replaying `POST /billing/redeem` after a timeout could look like a double redemption. `waiter.client` is now a thin compatibility layer over it rather than a second implementation.
+
+✨ **The full `waiter` TUI** — `waiter tui` / `waiter serv -G`. Eight curses panes covering models, quota, usage and cost, jobs with live progress, servers, modules, an event tail, and settings. Everything comes from the API: a greyed-out model is greyed out because `/models/{id}/availability` said so, and the fallback chain is the cascade the server actually walked, not one reconstructed from registry fields. Refresh runs on a background thread so an unreachable server shows stale data with a banner rather than a frozen terminal.
+
+✨ **Every `waiter serv` flag is now wired.** `-B`/`-W`/`-a`/`-r` call the new security endpoints (and still save locally, which is what survives a non-admin refusal); `-G` opens the TUI; `-Rf` refreshes everything; `-y` mirrors the server's settings into the local config. New subcommands: `keys`, `audit`, `security`, `cost`, `deploy`, `tui`, `doctor`, `smoke`.
+
+✨ **Production configuration validation** — `T1_ENVIRONMENT=production` makes `create_app()` refuse to start on a missing token secret, SQLite, wildcard CORS, no TLS, disabled protections, or the placeholder registry, listing *every* problem at once rather than one per restart. A bad production config should fail the deploy, not surface later as a puzzling 500. The same list is readable without the raising at `GET /status` and via `waiter doctor`.
+
+🛡️ **`waiter smoke`** — the CLI smoke tester (spec deliverable #11). Read-only by default; `--write` adds a self-cleaning module lifecycle check. Expected refusals count as passes, so "non-admin correctly refused `/audit`" passes and "non-admin served `/audit`" fails — the direction a security-relevant tool should be sensitive in.
+
+📚 **Deployment documentation and examples** — `examples/t1api/` ships a two-stage non-root Dockerfile, a compose stack (API + PostgreSQL + nginx, with the API never published to the host), an nginx config that terminates TLS and forwards mTLS headers, a sandboxed systemd unit, local and Tailscale run scripts, and a fully commented `.env.example`. `wiki/T1-API-Security-Checklist.md` is the security audit checklist, ordered by blast radius, with the items `waiter doctor`/`waiter smoke` automate marked as such.
+
+📚 **Generated API examples** — `examples/t1api/API-EXAMPLES.md` and `openapi.json` are produced by `scripts/t1api_examples.py` driving a real server. A hand-written example is a claim about the API; a generated one is a recording of it, and regenerating shows a behaviour change as a diff. Credential-shaped fields are replaced with placeholders before anything is written.
+
+𖢥 **Middleware exceptions were being swallowed.** Starlette only routes exceptions raised inside the application to `@app.exception_handler`; one raised in an outer `@app.middleware("http")` propagates past it. Every Beta 3 security check runs as middleware and signals refusal by raising, so network-policy, mTLS and rate-limit refusals returned a bare 500 with no error code instead of the documented envelope. Found by the new tests.
+
+🐛 **A non-refilling rate-limit rule produced `retry_after=inf`**, which raised `OverflowError` building the `Retry-After` header and would have serialized as a bare `Infinity` — not valid JSON — in the response body. The limiter now reports `None` ("not by waiting") and the header is omitted rather than guessed at.
+
+🐛 **`%` inside SQL string literals wasn't escaped for psycopg**, so a query containing a `LIKE '%…%'` pattern would have been a syntax error on PostgreSQL and nowhere else.
+
+🐛 **`ModelEntry` coerced its enum fields in `from_dict` but not in `__init__`**, so a directly-constructed entry kept plain strings and failed with `AttributeError` at serialization time, far from the construction that caused it. Normalized in `__post_init__`.
+
+🐛 **A disabled `AuditLog` skipped creating its table**, so reading it raised "no such table" instead of returning nothing. `enabled` now gates writes only.
+
+🐛 **Fixed three pre-existing CI failures on macOS and Windows.** `test_assistant.py` asserted a full tmpdir path appeared verbatim in console output, which fails when rich wraps the longer macOS tmpdir path at 80 columns. `test_autofix_scripts.py`'s synthetic "always fails" timer test was itself a race — measured, it lost that race 1997 times in 2000 — so on a fast runner it passed, `autofix-F` correctly stood down, and the tests expecting it to act failed; it now busy-waits a fixed margin and fails 8/8 before the repair and passes 8/8 after. And `autofix-F`'s inner pytest run crashed on Windows before executing a test, because pytest autoloaded anyio's plugin, which imports asyncio, which imports `_overlapped`, which fails on the GitHub Windows runners with `WinError 10106`; that run takes no third-party plugins and now says so.
+
+🔧 **Model limits in `GET /models`** — `context_limit`, `input_token_limit`, `output_token_limit` and `tool_call_limit` are now in the list response, not just the detail one. Displaying model limits is a TUI requirement and a client rendering a list shouldn't need one request per model to fill three columns. Additive.
+
+🔧 **Destructive operations require `?confirm=true`** (`DELETE /servers/{id}`, `DELETE /modules/{id}`), controlled by `T1_REQUIRE_DESTRUCTIVE_CONFIRMATION`.
+
+🔧 **Security response headers** on every response, error responses included: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cache-Control: no-store`, and HSTS when TLS is on.
+
+🔧 **Tests** — `tests/test_t1api_beta3_security.py`, `test_t1api_beta3_core.py`, `test_t1api_beta3_http.py`: network policy, rate limiting, mTLS, audit scrubbing, PostgreSQL translation (with a real round-trip when `T1_TEST_DATABASE_URL` is set), keys and plan resolution, cost and forecasts, transport signatures, deployment, production validation, and the middleware order. The Beta 1/2 HTTP suites had never actually been executed — their authoring sandbox had no network to install FastAPI — and now run; two assertions that had been asserting the wrong thing are corrected, including one that expected the placeholder registry entries to be routable when the whole point is that they are not.
+
+𖢥 **A key created while the server was running was invisible until restart.** Keymaster reads its key files once, at construction, so the documented quickstart — `gkey create`, then point `waiter` at the already-running server — returned `AUTH_INVALID_KEY` for a brand-new key. `T1AuthService.validate_key` now refreshes the key store once on an unknown key, throttled to at most one reload every five seconds because it is disk I/O an unauthenticated caller can reach. Found by running the quickstart against a real uvicorn process instead of a `TestClient`.
+
+🐛 **`waiter doctor` crashed against a real server** with `'dict' object has no attribute 'environment'`: waiter's client overrides `status()` to return the raw envelope for the CLI's table renderers, and doctor assumed it got the typed object. Same cause as above — nothing in a TestClient-driven suite exercised that path.
+
+❗ **Known limitation** — module blobs are checksummed and path-sanitized but **not encrypted at rest**; the store relies on filesystem permissions. Everything else that needs at-rest protection has it (T1 keys via Keymaster, payment tokens as hashes, waiter config via `-E`). This is the one Beta 3 line item deliberately left open rather than half-done.
+
 ## 0.71.5b2
 
 ✨ **T1 API — Beta 2** — Module registry, server registry, async jobs, event streaming, the model routing/quota-cascade engine, and billing/payment-token support. Matches the spec's Beta 2 scope; full contract in `wiki/T1-API.md`.

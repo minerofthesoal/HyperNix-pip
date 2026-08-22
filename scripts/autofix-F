@@ -113,6 +113,15 @@ def run_tests(node_ids: list[str], *, verbose: bool = False) -> RunResult:
         sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
         "--tb=line", "-ra", *node_ids,
     ]
+    # This run executes a handful of wall-clock tests and reads back a
+    # pass/fail list. It needs no third-party pytest plugins, and loading
+    # them is not free: anyio's plugin imports asyncio, which on Windows
+    # imports `_overlapped`, which on the GitHub runners fails with
+    # `OSError: [WinError 10106] The requested service provider could not
+    # be loaded or initialized`. That killed the inner run before a single
+    # test executed, and autofix-F then read the wreckage as a test result.
+    # Autoloading off, and nothing re-enabled, keeps this run dependent on
+    # pytest itself and nothing else.
     proc = subprocess.run(
         cmd, cwd=REPO_ROOT, capture_output=True, text=True,
         env={**_env(), "PYTHONPATH": str(SRC)},
@@ -128,6 +137,8 @@ def _env() -> dict[str, str]:
 
     env = dict(os.environ)
     env.setdefault("HYPERNIX_AUTO_INSTALL", "0")
+    # See run_tests(): the inner run takes no third-party plugins.
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     # pytest truncates its short-summary lines to the terminal width, which
     # drops the `- AttributeError: ...` half that tells us whether a failure
     # is a timing margin at all. Ask for a wide one.
@@ -177,6 +188,26 @@ def _non_assertion_type(message: str) -> str | None:
     if match and match.group("type").rsplit(".", 1)[-1] != "AssertionError":
         return match.group("type")
     return None
+
+
+def _node_path(node_id: str) -> Path | None:
+    """The test file a node id names, or None if it doesn't name one.
+
+    ``node_id.split("::")[0]`` is the file part, but it is not guaranteed
+    to be one: a malformed short-summary line (a crashed inner run, a
+    wrapped line) can yield an empty path, and ``REPO_ROOT / ""`` is the
+    repo root — a *directory*, which then failed with a bare
+    ``[Errno 13] Permission denied`` several layers away from the actual
+    problem. Checking here turns that into a specific, reportable skip.
+
+    A ``--tests-dir`` outside the repo produces an absolute path, which
+    ``Path.__truediv__`` already honours over REPO_ROOT.
+    """
+    file_part = node_id.split("::")[0].strip()
+    if not file_part:
+        return None
+    path = REPO_ROOT / file_part
+    return path if path.is_file() else None
 
 
 def _target_function(tree: ast.Module, node_id: str) -> ast.AST | None:
@@ -391,7 +422,12 @@ def main(argv: list[str] | None = None) -> int:
             skipped.append((node_id, f"{other} is not a timing margin — {message}"))
             continue
 
-        path = REPO_ROOT / node_id.split("::")[0]
+        path = _node_path(node_id)
+        if path is None:
+            skipped.append(
+                (node_id, "could not resolve a test file from this node id"),
+            )
+            continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError) as exc:
@@ -442,7 +478,9 @@ def main(argv: list[str] | None = None) -> int:
         say(f"  still failing; round {rounds} at {args.scale}x…", YELLOW)
         again: list[str] = []
         for node_id in list(recheck.failures):
-            path = REPO_ROOT / node_id.split("::")[0]
+            path = _node_path(node_id)
+            if path is None:
+                continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             func = _target_function(tree, node_id)
             if func is None:

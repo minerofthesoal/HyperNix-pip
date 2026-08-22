@@ -1,14 +1,11 @@
 """Integration tests for the T1 API's HTTP layer (hypernix.t1api.app).
 
 Requires `pip install hypernix[t1api-test]` (fastapi, pydantic, uvicorn,
-httpx). NOTE: these were written against FastAPI 0.115 / Pydantic v2
-conventions but could not be executed in the sandbox this module was
-authored in (no network access to install fastapi/pydantic/httpx there —
-see tests/test_t1api_core.py and tests/test_t1api_auth.py, which exercise
-the same enforcement logic through the dependency-free core and WERE
-executed and passing). Run this file first thing after installing the
-extra and report back anything that doesn't match — the core logic these
-routes call has been verified; the FastAPI wiring itself has not.
+httpx). Executed and passing as of Beta 3; the Beta 1 authoring sandbox
+had no network access to install FastAPI, so this file originally shipped
+unexecuted. Two assertions were corrected when it was first run — see
+test_example_entries_are_not_available (which had asserted the opposite
+of the registry's documented example-entry rule) and test_status.
 """
 from __future__ import annotations
 
@@ -79,7 +76,11 @@ class TestHealthStatus:
         assert resp.status_code == 200
         body = resp.json()
         assert body["model_count"] == len(registry)
-        assert body["beta"] == "beta1"
+        assert body["beta"] == "beta3"
+        # Beta 3 additions: /status reports which protections are on and
+        # which secrets are set — never a secret's value.
+        assert body["secrets_configured"]["token_secret"] is True
+        assert "test-secret" not in resp.text
 
     def test_request_id_header_present(self, client):
         resp = client.get("/health")
@@ -114,7 +115,31 @@ class TestModelsEndpoints:
         assert body["error"]["code"] == "MODEL_NOT_SUPPORTED"
         assert "request_id" in body
 
-    def test_availability(self, client):
+    def test_example_entries_are_not_available(self, client):
+        """The shipped seed entries carry status="example" and are
+        deliberately NOT routable even when made visible with
+        include_examples=True.
+
+        That is the model-registry hard requirement working as intended:
+        the spec calls these models "just examples and... not currently
+        real", so making them visible for local testing must not also
+        make them selectable. Registering a real AVAILABLE entry is what
+        flips availability on — see test_registered_model_is_available.
+        """
+        resp = client.get("/models/nanonix-nano/availability")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["available"] is False
+        assert "not currently routable" in body["reason"]
+
+    def test_registered_model_is_available(self, client, registry):
+        from hypernix.t1api.registry import ModelStatus
+
+        entry = registry.require("nanonix-nano")
+        entry.status = ModelStatus.AVAILABLE
+        entry.is_example_entry = False
+        registry.register(entry)
+
         resp = client.get("/models/nanonix-nano/availability")
         assert resp.status_code == 200
         assert resp.json()["available"] is True

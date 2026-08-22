@@ -16,6 +16,12 @@ venv/
 .env
 .env.local
 .env.*
+# ...but committed *templates* are the point: examples/t1api/.env.example
+# documents every T1 API variable and ships in the sdist. The rule above
+# is for real environment files, which never have a .example suffix.
+!*.env.example
+!.env.example
+!**/.env.example
 
 # Editors
 .vscode/

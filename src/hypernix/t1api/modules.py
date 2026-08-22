@@ -15,11 +15,15 @@ through :func:`t1api.security.sanitize_module_path`; remote source URLs
 always through :func:`t1api.security.validate_remote_address`.
 
 Remote fetch and cross-server sync are asynchronous by design — see
-``t1api.jobs``. This module only tracks *intent* and *state*
-(``PENDING_FETCH``, ``deployed_servers``); the actual network transport
-for "push module bytes to a remote server" isn't implemented, since Beta 2
-has no second real server to test that against (this is called out
-explicitly in ``wiki/T1-API.md``, not hidden).
+``t1api.jobs``. This module tracks *intent* and *state*
+(``PENDING_FETCH``, ``deployed_servers``) and owns the local blob store;
+the network transport that actually moves those bytes between servers
+lives in :mod:`t1api.transport` and is composed with this registry by
+:class:`t1api.deploy.DeploymentCoordinator`. Beta 2 shipped the
+bookkeeping with no transport behind it and said so; Beta 3 supplies the
+transport, and the split is kept deliberately — the registry stays
+testable without a network, and the transport stays reviewable as the
+security-critical piece it is.
 """
 from __future__ import annotations
 
@@ -297,6 +301,128 @@ class ModuleRegistry:
             entry.status = status
         entry.updated_at = time.time()
         self._persist(entry)
+        return entry
+
+    def stage_fetched(
+        self, module_id: str, *, content: bytes, filename: str = "fetched.bin"
+    ) -> ModuleEntry:
+        """Store content fetched from this module's registered remote
+        source and mark it ACTIVE.
+
+        Separate from :meth:`upload_local` because the provenance differs
+        and the entry should keep saying so: ``source_type`` stays
+        ``REMOTE`` and ``source_url`` is preserved, so an operator
+        looking at an active module can still tell whether its bytes were
+        pushed by a client or pulled from a URL. That distinction matters
+        during an incident review, which is the one time anyone reads it.
+        """
+        entry = self.require(module_id)
+        if entry.source_type != SourceType.REMOTE or not entry.source_url:
+            raise T1APIError(
+                T1ErrorCode.MODULE_UPLOAD_REJECTED,
+                f"Module '{module_id}' has no registered remote source to stage.",
+                details={"module_id": module_id, "source_type": entry.source_type.value},
+                http_status=409,
+            )
+        safe_path = sanitize_module_path(f"{module_id}/{filename}", self.storage_dir)
+        safe_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_path.write_bytes(content)
+        entry.storage_path = str(safe_path.relative_to(self.storage_dir.resolve()))
+        entry.checksum = hashlib.sha256(content).hexdigest()
+        entry.size_bytes = len(content)
+        entry.status = ModuleStatus.ACTIVE
+        entry.updated_at = time.time()
+        self._persist(entry)
+        logger.info(
+            "t1api.modules: staged fetched content for %s (%d bytes, sha256=%s)",
+            module_id[:8], entry.size_bytes, entry.checksum[:12],
+        )
+        return entry
+
+    def receive_transfer(
+        self,
+        *,
+        module_id: str,
+        content: bytes,
+        name: str | None = None,
+        version: str | None = None,
+        owner_key_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ModuleEntry:
+        """Accept an inbound module push from another T1 server.
+
+        The caller (``POST /modules/receive``) has already verified the
+        transfer signature — this method assumes an authenticated peer
+        and is not safe to expose without that check. It is idempotent by
+        ``module_id``: re-pushing the same module overwrites its content
+        rather than creating a duplicate, so a retried deployment
+        converges instead of accumulating copies.
+
+        The pushed ``module_id`` is used verbatim so the same module has
+        the same identity on both servers, which is what makes a
+        multi-server deployment inspectable. It is treated as untrusted
+        input: it reaches the filesystem only through
+        :func:`sanitize_module_path`, exactly like a client-supplied
+        filename.
+        """
+        if not module_id or not module_id.strip():
+            raise T1APIError(
+                T1ErrorCode.VALIDATION_ERROR,
+                "An inbound module transfer must carry a module_id.",
+                http_status=422,
+            )
+        now = time.time()
+        existing = self.get(module_id)
+        if existing is None:
+            entry = ModuleEntry(
+                module_id=module_id,
+                name=name or f"received-{module_id[:8]}",
+                version=version or "1.0.0",
+                owner_key_id=owner_key_id,
+                status=ModuleStatus.DRAFT,
+                source_type=SourceType.REMOTE,
+                source_url=None,
+                storage_path=None,
+                checksum=None,
+                size_bytes=None,
+                deployed_servers=[],
+                metadata=metadata or {},
+                created_at=now,
+                updated_at=now,
+            )
+            with self._lock, self.backend.connect() as conn:
+                conn.execute(
+                    """INSERT INTO modules
+                       (module_id, name, version, owner_key_id, status, source_type,
+                        source_url, storage_path, checksum, size_bytes, deployed_servers,
+                        metadata, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        entry.module_id, entry.name, entry.version, entry.owner_key_id,
+                        entry.status.value, entry.source_type.value, entry.source_url,
+                        entry.storage_path, entry.checksum, entry.size_bytes,
+                        json.dumps(entry.deployed_servers), json.dumps(entry.metadata),
+                        entry.created_at, entry.updated_at,
+                    ),
+                )
+        else:
+            entry = existing
+            if metadata:
+                entry.metadata = {**entry.metadata, **metadata}
+
+        safe_path = sanitize_module_path(f"{module_id}/received.bin", self.storage_dir)
+        safe_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_path.write_bytes(content)
+        entry.storage_path = str(safe_path.relative_to(self.storage_dir.resolve()))
+        entry.checksum = hashlib.sha256(content).hexdigest()
+        entry.size_bytes = len(content)
+        entry.status = ModuleStatus.ACTIVE
+        entry.updated_at = now
+        self._persist(entry)
+        logger.info(
+            "t1api.modules: received transfer for %s (%d bytes, sha256=%s)",
+            module_id[:8], entry.size_bytes, entry.checksum[:12],
+        )
         return entry
 
     def mark_synced(self, module_id: str, server_id: str) -> ModuleEntry:

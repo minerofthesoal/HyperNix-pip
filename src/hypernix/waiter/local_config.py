@@ -68,6 +68,12 @@ class WaiterLocalConfig:
     blacklist: list[str] = field(default_factory=list)  # -B
     whitelist: list[str] = field(default_factory=list)  # -W
     extra_config: dict[str, str] = field(default_factory=dict)  # -C
+    # -r, stored as the raw "SUBJECT=COUNT/WINDOW" strings the operator
+    # typed. Keeping the source form rather than the parsed dict means a
+    # re-run of `waiter serv -A` can re-apply them verbatim against a
+    # rebuilt server, and `waiter config` shows what was actually asked
+    # for instead of a normalized shape nobody typed.
+    forced_limits: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -22,6 +22,26 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC = REPO_ROOT / "src"
 
 
+def _unwrapped(text: str) -> str:
+    """Console output with rich's soft wrapping undone.
+
+    ``console.print`` wraps at the terminal width — 80 columns when
+    stdout isn't a tty, as under pytest — so a long path is emitted with
+    a newline inserted mid-string. That is presentation, not content, but
+    it breaks a naive ``in`` check: on Linux CI a tmpdir path
+    (``/tmp/pytest-of-runner/...``) fits in 80 columns and on macOS the
+    same path (``/private/var/folders/df/.../T/pytest-of-runner/...``)
+    does not, so the assertion passed on one runner and failed on the
+    other for reasons that had nothing to do with the code under test.
+
+    Stripping whitespace and box-drawing characters from both sides of
+    the comparison keeps the assertion meaningful — the full path still
+    has to be present, in order — without pinning it to a particular
+    terminal width.
+    """
+    return "".join(ch for ch in text if not ch.isspace() and ch not in "│|")
+
+
 class TestRichlessFallback:
     def test_module_imports_without_rich(self) -> None:
         """`console = Console()` at module scope used to raise NameError."""
@@ -180,7 +200,7 @@ class TestRealOutputs:
         assistant.InteractiveCLI().cmd_tts()
 
         assert out.is_file(), "cmd_tts reported a file it never wrote"
-        assert str(out.resolve()) in capsys.readouterr().out
+        assert _unwrapped(str(out.resolve())) in _unwrapped(capsys.readouterr().out)
 
     def test_tts_command_reports_the_real_error(self, monkeypatch, capsys) -> None:
         import hypernix.models.workshop as workshop

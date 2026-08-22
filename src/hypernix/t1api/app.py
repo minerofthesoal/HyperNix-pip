@@ -1,28 +1,52 @@
 """t1api.app — ``create_app()``, the T1 API's FastAPI factory.
 
-Designed to be "easy to mount into an existing Python server" (spec, HARD
-REQUIREMENTS):
+Designed to be "easy to mount into an existing Python server" (spec,
+HARD REQUIREMENTS)::
 
     from hypernix.t1api import create_app
     app = create_app()                     # standalone
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
     # OR mount into an existing FastAPI app:
-    from hypernix.t1api import create_app
     existing_app.mount("/t1", create_app(mount_prefix="/t1"))
 
-    # OR include just the routers into an existing app's own router tree:
-    from hypernix.t1api import create_app
+    # OR pull the routers into an existing app's own router tree:
     t1 = create_app()
     for route in t1.routes:
         existing_app.router.routes.append(route)
 
-Everything the routers need (auth service, registry, usage meter, config)
-lives on ``app.state`` — see ``t1api/deps.py``.
+Everything the routers need lives on ``app.state`` — see
+``t1api/deps.py`` — so a caller mounting the routers directly can wire
+the same attributes without any global singletons being involved.
+
+The middleware order (Beta 3)
+-----------------------------
+Starlette runs middleware in reverse registration order, so the stack
+below is registered bottom-up and *executes* in this order, which is the
+order that matters:
+
+1. **Request ID + timing** — first, so every later stage (including a
+   rejection) has an id to report and log against.
+2. **Network policy** — is this address allowed to talk to us at all?
+   Cheapest possible check, and the one that should reject a blocked
+   client before anything else spends work on it.
+3. **mTLS** — does this connection carry an acceptable client
+   certificate? Transport-level identity, checked before credential-level
+   identity.
+4. **Rate limiting** — before routing, before the registry, before any
+   model work. This is the spec's "Apply rate limits before expensive
+   model operations", made structural rather than left to each handler
+   to remember.
+5. **The route handler** — authentication, authorization, and the
+   operation itself.
+
+Each stage is skipped only by explicit configuration, never implicitly,
+and a stage that is off says so in ``GET /status``.
 """
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 
@@ -33,19 +57,27 @@ from hypernix.security.gatekeeper import Gatekeeper
 from hypernix.security.keymaster import Keymaster
 
 from . import __t1api_version__
+from .audit import AuditCategory, AuditLog, AuditOutcome
 from .auth import T1AuthService
 from .billing import BillingLedger
 from .config import T1APIConfig
-from .db import SQLiteBackend
+from .cost import CostCalculator
+from .db import SQLBackend, make_backend
+from .deploy import DeploymentCoordinator
 from .errors import T1APIError, T1ErrorCode
 from .events import EventBus
 from .jobs import JobQueue
+from .keys import KeyDirectory
 from .modules import ModuleRegistry
+from .mtls import ClientCertVerifier
+from .netpolicy import NetworkPolicy
+from .ratelimit import RateLimiter, Subject, rules_from_json
 from .registry import ModelRegistry
 from .routers import ALL_ROUTERS
 from .routing import RoutingEngine, RoutingTable
 from .servers import ServerRegistry
 from .storage import UsageStore
+from .transport import ModuleTransport
 from .usage import UsageMeter
 
 logger = logging.getLogger(__name__)
@@ -83,29 +115,52 @@ _STATUS_FOR_CODE: dict[T1ErrorCode, int] = {
     T1ErrorCode.PAYMENT_TOKEN_ALREADY_REDEEMED: 409,
     T1ErrorCode.INSUFFICIENT_BALANCE: 402,
     T1ErrorCode.ROUTING_EXHAUSTED: 429,
+    # Beta 3
+    T1ErrorCode.IP_BLOCKED: 403,
+    T1ErrorCode.IP_NOT_ALLOWLISTED: 403,
+    T1ErrorCode.MTLS_REQUIRED: 403,
+    T1ErrorCode.MTLS_INVALID: 403,
+    T1ErrorCode.TRANSPORT_FAILED: 502,
+    T1ErrorCode.CHECKSUM_MISMATCH: 502,
+    T1ErrorCode.PAYLOAD_TOO_LARGE: 413,
+    T1ErrorCode.CONFIRMATION_REQUIRED: 409,
+    T1ErrorCode.CONFIG_INVALID: 500,
 }
 
+# Error codes worth an audit record on their own. These are the ones that
+# mean somebody was refused, as opposed to somebody made a typo — the
+# spec's "Record security-relevant events in the audit log".
+_AUDITED_ERROR_CODES = frozenset(
+    {
+        T1ErrorCode.AUTH_INVALID_KEY,
+        T1ErrorCode.AUTH_EXPIRED_KEY,
+        T1ErrorCode.AUTH_REVOKED_KEY,
+        T1ErrorCode.AUTH_INVALID_TOKEN,
+        T1ErrorCode.AUTH_EXPIRED_TOKEN,
+        T1ErrorCode.AUTH_INSUFFICIENT_SCOPE,
+        T1ErrorCode.AUTH_ADMIN_REQUIRED,
+        T1ErrorCode.IP_BLOCKED,
+        T1ErrorCode.IP_NOT_ALLOWLISTED,
+        T1ErrorCode.MTLS_REQUIRED,
+        T1ErrorCode.MTLS_INVALID,
+        T1ErrorCode.SSRF_BLOCKED,
+        T1ErrorCode.PATH_TRAVERSAL_REJECTED,
+        T1ErrorCode.RATE_LIMITED,
+        T1ErrorCode.PAYMENT_TOKEN_INVALID,
+        T1ErrorCode.CHECKSUM_MISMATCH,
+    }
+)
 
-def _make_module_sync_handler(module_registry: ModuleRegistry, server_registry: ServerRegistry):
-    """Composes ModuleRegistry + ServerRegistry into the ``module_sync``
-    job handler. Lives here (not in t1api.modules or t1api.jobs) because
-    it's the one place that's allowed to depend on both — keeping that
-    coupling out of the core modules themselves. See the worked example
-    in wiki/T1-API.md#modules for exactly what this does and doesn't do
-    (trust-gates and records the sync; no real byte transport)."""
-
-    def handler(payload: dict, cancel_event) -> dict:
-        module_id = payload["module_id"]
-        server_id = payload["server_id"]
-        server_registry.require_trusted(server_id)
-        entry = module_registry.mark_synced(module_id, server_id)
-        return {
-            "module_id": module_id,
-            "server_id": server_id,
-            "deployed_servers": entry.deployed_servers,
-        }
-
-    return handler
+# Security response headers applied to every response. Modest, and chosen
+# for an API rather than copied from a website checklist: an API serves
+# JSON, so the ones that matter are the sniffing and framing guards plus
+# HSTS when TLS is actually in play.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
 
 
 def create_app(
@@ -121,18 +176,37 @@ def create_app(
     job_queue: JobQueue | None = None,
     event_bus: EventBus | None = None,
     billing_ledger: BillingLedger | None = None,
+    backend: SQLBackend | None = None,
+    audit_log: AuditLog | None = None,
+    network_policy: NetworkPolicy | None = None,
+    rate_limiter: RateLimiter | None = None,
+    key_directory: KeyDirectory | None = None,
+    transport: ModuleTransport | None = None,
     mount_prefix: str | None = None,
+    validate_production: bool | None = None,
 ) -> FastAPI:
     """Build a fully-wired T1 API FastAPI app.
 
-    Every dependency is injectable so tests (and Rayla's own server) can
+    Every dependency is injectable so tests (and an embedding server) can
     swap in an in-memory Keymaster/Gatekeeper or a pre-populated registry
     without monkeypatching. Omit everything and you get a sane
-    local/dev-ready default: SQLite storage under ``~/.hypernix/t1api/``
-    and the example model registry (invisible by default — see
+    local/dev-ready default: SQLite under ``~/.hypernix/t1api/`` and the
+    example model registry (invisible by default — see
     ``T1_ENABLE_EXAMPLE_MODELS``).
+
+    Args:
+        validate_production: Force the production-config check on or off.
+            Default (``None``) validates iff ``T1_ENVIRONMENT`` says
+            production, so this is safe to leave alone.
+
+    Raises:
+        T1APIError: ``CONFIG_INVALID`` when a production deployment is
+            misconfigured. Raised at construction, not at first request —
+            a bad production config should fail the deploy, not surface
+            later as a puzzling 500.
     """
     cfg = config or T1APIConfig.from_env()
+    cfg.validate_for_production(strict=validate_production)
     prefix = mount_prefix if mount_prefix is not None else cfg.mount_prefix
 
     km = keymaster or Keymaster()
@@ -140,25 +214,49 @@ def create_app(
     reg = registry or ModelRegistry.load(
         cfg.registry_path, include_examples=cfg.enable_example_models
     )
-    store = usage_store or UsageStore(cfg.db_path)
+
+    # One backend, shared by every store: switching SQLite → PostgreSQL is
+    # a single environment variable (T1_DATABASE_URL) and nothing else.
+    db = backend or make_backend(database_url=cfg.database_url, db_path=cfg.db_path)
+
+    store = usage_store or UsageStore(backend=db)
     meter = UsageMeter(store, reg, reset_period_seconds=cfg.usage_reset_period_seconds)
     auth_service = T1AuthService(
-        km, gk, token_secret=cfg.token_secret, default_ttl_seconds=cfg.scoped_token_default_ttl_seconds
+        km,
+        gk,
+        token_secret=cfg.token_secret,
+        default_ttl_seconds=cfg.scoped_token_default_ttl_seconds,
     )
 
-    # Beta 2 subsystems. All share one SQLite file by default (same file
-    # UsageStore already writes to) — different tables, one db_path, one
-    # "SQLite for development" story. Pass explicit instances to split
-    # them across files/backends if you'd rather.
-    backend = SQLiteBackend(cfg.db_path)
     table = routing_table or RoutingTable.load(cfg.routing_policy_path)
     routing_engine = RoutingEngine(table, reg, meter)
-    servers = server_registry or ServerRegistry(backend)
-    modules = module_registry or ModuleRegistry(backend)
+    servers = server_registry or ServerRegistry(db)
+    modules = module_registry or ModuleRegistry(db, storage_dir=cfg.module_storage_dir)
     bus = event_bus or EventBus()
-    jobs = job_queue or JobQueue(backend, event_bus=bus)
-    jobs.register_handler("module_sync", _make_module_sync_handler(modules, servers))
-    billing = billing_ledger or BillingLedger(backend)
+    jobs = job_queue or JobQueue(db, event_bus=bus)
+    billing = billing_ledger or BillingLedger(db)
+
+    # Beta 3 subsystems.
+    audit = audit_log or AuditLog(db, enabled=cfg.audit_enabled)
+    policy = network_policy or NetworkPolicy(db, allow_unlisted=cfg.allow_unlisted_clients)
+    limiter = rate_limiter or RateLimiter(
+        rules_from_json(cfg.rate_limit_rules()),
+        forced_limit_lookup=policy.get_limit,
+        enabled=cfg.rate_limit_enabled,
+    )
+    directory = key_directory or KeyDirectory(km, reg, db, default_plan=cfg.default_plan)
+    cost_calculator = CostCalculator(store, reg)
+    module_transport = transport or ModuleTransport(
+        deploy_secret=cfg.deploy_secret,
+        max_bytes=cfg.max_transfer_bytes,
+        allow_private_targets=cfg.allow_private_deploy_targets,
+    )
+    deployment = DeploymentCoordinator(modules, servers, module_transport, audit=audit)
+    jobs.register_handler("module_sync", deployment.module_sync_handler)
+    jobs.register_handler("module_fetch", deployment.module_fetch_handler)
+
+    tls = cfg.tls_settings()
+    cert_verifier = ClientCertVerifier(tls)
 
     app = FastAPI(
         title="HyperNix T1 API",
@@ -168,18 +266,19 @@ def create_app(
             "operation; the server decides what exists, what's available, "
             "and how much is left. See wiki/T1-API.md for the full contract."
         ),
-        docs_url=f"{prefix}/docs",
-        redoc_url=f"{prefix}/redoc",
-        openapi_url=f"{prefix}/openapi.json",
+        docs_url=f"{prefix}/docs" if cfg.expose_docs else None,
+        redoc_url=f"{prefix}/redoc" if cfg.expose_docs else None,
+        openapi_url=f"{prefix}/openapi.json" if cfg.expose_docs else None,
     )
 
-    # Dependency wiring lives on app.state so t1api/deps.py never touches a
-    # module-level global — this is what makes create_app() safe to call
+    # Dependency wiring lives on app.state so t1api/deps.py never touches
+    # a module-level global — this is what makes create_app() safe to call
     # more than once (e.g. once per test) without cross-talk.
     app.state.t1_config = cfg
     app.state.t1_keymaster = km
     app.state.t1_gatekeeper = gk
     app.state.t1_registry = reg
+    app.state.t1_backend = db
     app.state.t1_usage_store = store
     app.state.t1_usage_meter = meter
     app.state.t1_auth_service = auth_service
@@ -189,6 +288,88 @@ def create_app(
     app.state.t1_job_queue = jobs
     app.state.t1_event_bus = bus
     app.state.t1_billing_ledger = billing
+    app.state.t1_audit_log = audit
+    app.state.t1_network_policy = policy
+    app.state.t1_rate_limiter = limiter
+    app.state.t1_key_directory = directory
+    app.state.t1_cost_calculator = cost_calculator
+    app.state.t1_transport = module_transport
+    app.state.t1_deployment = deployment
+    app.state.t1_cert_verifier = cert_verifier
+
+    if cfg.cors_allow_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(cfg.cors_allow_origins),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    # --- Middleware. Registered in reverse execution order; see the
+    # module docstring for what the resulting order is and why. --------
+
+    @app.middleware("http")
+    async def _rate_limit(request: Request, call_next):
+        """Runs before the route handler, so an over-limit caller is
+        turned away before any registry lookup, routing decision, or
+        model work happens."""
+        if limiter.enabled:
+            subjects = [Subject("ip", getattr(request.state, "client_ip", "") or "unknown")]
+            # The key subject needs the caller's identity, which we don't
+            # have yet — authentication is a route dependency. Rather than
+            # authenticate twice, derive a stable pseudonym from the
+            # credential itself: a caller's per-key bucket then tracks
+            # them without this layer ever validating, storing, or logging
+            # the credential. An invalid credential still gets a bucket,
+            # which is the point — unauthenticated floods are exactly what
+            # a limiter is for.
+            credential = _credential_fingerprint(request)
+            if credential:
+                subjects.append(Subject("key", credential))
+            try:
+                limiter.check(
+                    subjects,
+                    path=_unprefixed(request.url.path, prefix),
+                    method=request.method,
+                )
+            except T1APIError as exc:
+                return _error_response(request, exc)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def _mtls(request: Request, call_next):
+        if tls.mtls_enabled:
+            cert = cert_verifier.extract(
+                headers=dict(request.headers),
+                peer_ip=request.client.host if request.client else None,
+                transport_cert=_transport_cert(request),
+            )
+            request.state.client_cert = cert
+            try:
+                cert_verifier.require(cert, path=_unprefixed(request.url.path, prefix))
+            except T1APIError as exc:
+                return _error_response(request, exc)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def _network_policy(request: Request, call_next):
+        """Resolve the client address once, then apply the allow/block
+        decision. The resolved address is cached on ``request.state`` so
+        audit records and rate limiting see the same value this decision
+        was made on."""
+        from .deps import resolve_client_ip
+
+        client_ip = resolve_client_ip(request)
+        request.state.client_ip = client_ip
+        if cfg.network_policy_enabled:
+            try:
+                policy.require_allowed(client_ip)
+            except T1APIError as exc:
+                return _error_response(request, exc)
+        return await call_next(request)
 
     @app.middleware("http")
     async def _request_id_and_timing(request: Request, call_next):
@@ -197,14 +378,30 @@ def create_app(
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-Response-Time-Ms"] = f"{(time.monotonic() - start) * 1000:.1f}"
+        for header, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
+        if tls.tls_enabled:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
         return response
 
-    @app.exception_handler(T1APIError)
-    async def _t1_error_handler(request: Request, exc: T1APIError) -> JSONResponse:
+    def _error_response(request: Request, exc: T1APIError) -> JSONResponse:
+        """Render a T1APIError as the documented JSON envelope.
+
+        Shared by the exception handler *and* the middleware stack.
+        Starlette only routes exceptions raised inside the application to
+        ``@app.exception_handler``; one raised in an outer
+        ``@app.middleware("http")`` propagates past it and surfaces as a
+        bare 500 with no error code. Since every Beta 3 security check
+        (network policy, mTLS, rate limiting) runs as middleware and
+        signals refusal by raising, they each catch and render through
+        this instead of relying on a handler that will never see them.
+        """
         status_code = exc.http_status or _STATUS_FOR_CODE.get(exc.code, 500)
-        request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
-        # Audit-log security-relevant failures. Never log the credential
-        # itself — only the (already-safe) error code/message/request id.
+        request_id = getattr(request.state, "request_id", None) or uuid.uuid4().hex
+        # Never log the credential itself — only the (already-safe) error
+        # code, message, and request id.
         logger.info(
             "t1api.error code=%s status=%s path=%s request_id=%s",
             exc.code.value,
@@ -212,18 +409,93 @@ def create_app(
             request.url.path,
             request_id,
         )
+        if exc.code in _AUDITED_ERROR_CODES:
+            audit.record(
+                f"security.{exc.code.value.lower()}",
+                category=AuditCategory.SECURITY,
+                outcome=AuditOutcome.DENIED,
+                client_ip=getattr(request.state, "client_ip", ""),
+                request_id=request_id,
+                details={"path": request.url.path, "method": request.method},
+            )
+        headers = {"X-Request-ID": request_id}
+        if exc.code == T1ErrorCode.RATE_LIMITED:
+            retry_after = exc.details.get("retry_after_seconds")
+            # None means "not by waiting" (a rule that never refills), and
+            # a non-finite value would raise on the int() below — in both
+            # cases the honest thing is to send no Retry-After at all
+            # rather than a number the client would trust.
+            if retry_after is not None and math.isfinite(float(retry_after)):
+                headers["Retry-After"] = str(max(1, int(float(retry_after)) + 1))
+        for header, value in _SECURITY_HEADERS.items():
+            headers.setdefault(header, value)
         return JSONResponse(
             status_code=status_code,
             content={
                 "error": {"code": exc.code.value, "message": exc.message, "details": exc.details},
                 "request_id": request_id,
             },
+            headers=headers,
         )
+
+    @app.exception_handler(T1APIError)
+    async def _t1_error_handler(request: Request, exc: T1APIError) -> JSONResponse:
+        return _error_response(request, exc)
 
     for router in ALL_ROUTERS:
         app.include_router(router, prefix=prefix)
 
+    if cfg.is_production:
+        logger.info(
+            "t1api: production configuration validated (backend=%s, mtls=%s, rate_limit=%s, audit=%s)",
+            db.describe,
+            tls.public_dict()["mtls_mode"],
+            cfg.rate_limit_enabled,
+            cfg.audit_enabled,
+        )
+
     return app
+
+
+def _unprefixed(path: str, prefix: str) -> str:
+    """Strip a mount prefix so middleware rules written against the
+    canonical paths (``/models/route``) keep matching when the app is
+    mounted at ``/t1``."""
+    if prefix and path.startswith(prefix):
+        return path[len(prefix) :] or "/"
+    return path
+
+
+def _credential_fingerprint(request: Request) -> str:
+    """A stable, non-reversible per-credential bucket id.
+
+    SHA-256 of the Authorization header, truncated. Never stored, never
+    logged, never compared against anything but itself — its only job is
+    to give the same caller the same rate-limit bucket without this layer
+    handling the credential in any recoverable form.
+    """
+    header = request.headers.get("authorization", "")
+    if not header:
+        return ""
+    import hashlib
+
+    return hashlib.sha256(header.encode("utf-8")).hexdigest()[:32]
+
+
+def _transport_cert(request: Request) -> dict | None:
+    """The peer certificate uvicorn negotiated, when it terminated TLS.
+
+    Exposed through the ASGI ``extensions['tls']`` scope extension. Absent
+    behind a proxy (there is no TLS at this hop) and absent on servers
+    that don't implement the extension — both handled by returning None,
+    which sends the verifier down its header path instead.
+    """
+    extensions = request.scope.get("extensions") or {}
+    tls_scope = extensions.get("tls") or {}
+    peercert = tls_scope.get("client_cert_chain") or tls_scope.get("peercert")
+    if isinstance(peercert, dict):
+        return peercert
+    return None
 
 
 __all__ = ["create_app"]

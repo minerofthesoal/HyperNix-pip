@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from ..auth import AuthContext
 from ..deps import (
     get_auth_context,
+    get_key_directory,
     get_registry,
     get_request_id,
     get_routing_engine,
@@ -37,6 +38,10 @@ def _to_summary(entry) -> ModelSummary:
         minimum_plan=entry.minimum_plan,
         free_tier_available=entry.free_tier_available,
         routing_priority=entry.routing_priority,
+        context_limit=entry.context_limit,
+        input_token_limit=entry.input_token_limit,
+        output_token_limit=entry.output_token_limit,
+        tool_call_limit=entry.tool_call_limit,
     )
 
 
@@ -49,10 +54,6 @@ def _to_detail(entry) -> ModelDetail:
         api_available=entry.api_available,
         local_available=entry.local_available,
         remote_available=entry.remote_available,
-        context_limit=entry.context_limit,
-        input_token_limit=entry.input_token_limit,
-        output_token_limit=entry.output_token_limit,
-        tool_call_limit=entry.tool_call_limit,
         pricing=entry.pricing.to_dict(),
         fallback_model=entry.fallback_model,
         license=entry.license,
@@ -90,11 +91,15 @@ def model_availability(
     registry: ModelRegistry = Depends(get_registry),
     request_id: str = Depends(get_request_id),
 ) -> ModelAvailabilityResponse:
-    """Public availability check. Beta 1 reports registry-level
-    availability only; per-caller plan/quota-aware availability (factoring
-    in the requester's plan and remaining quota) lands with the Beta 2
-    routing engine, which is also where ``minimum_plan`` starts being
-    compared against an actual account plan instead of just echoed back.
+    """Registry-level availability: is this model routable at all?
+
+    Deliberately unauthenticated and therefore *not* caller-aware — it
+    answers "does this server offer this model", not "may you use it
+    right now". The caller-specific answer needs a key, and lives in
+    ``GET /models/{id}/usage`` (quota) and ``POST /models/route``
+    (plan + quota + cascade). Splitting them keeps this endpoint usable
+    as a public capability listing without it becoming a way to probe
+    another account's quota state.
     """
     entry = registry.require(model_id)
     available = entry.is_routable and entry.api_available
@@ -124,29 +129,53 @@ def route_model(
     body: RouteRequest,
     ctx: AuthContext = Depends(get_auth_context),
     engine=Depends(get_routing_engine),
+    keys=Depends(get_key_directory),
     request_id: str = Depends(get_request_id),
 ) -> RouteResponse:
-    """Not in the original endpoint list — added to give the Beta 2
-    routing/quota-cascade engine (``t1api.routing``) an HTTP surface,
-    since the spec describes the engine's behavior in detail but doesn't
-    enumerate a specific endpoint for it. See wiki/T1-API.md#routing.
+    """Not in the original endpoint list — added to give the routing/
+    quota-cascade engine (``t1api.routing``) an HTTP surface, since the
+    spec describes the engine's behavior in detail but doesn't enumerate
+    an endpoint for it. See wiki/T1-API.md#routing.
 
     Automatic routing (no ``model_id``) walks the caller's plan cascade.
     Manual routing (``model_id`` set) enforces the exhausted-model rule
-    exactly as the spec describes: raises ``MODEL_QUOTA_EXHAUSTED`` unless
+    exactly as the spec describes: ``MODEL_QUOTA_EXHAUSTED`` unless
     ``automatic_fallback=True``.
+
+    **Beta 3 change, deliberately breaking Beta 2's shape:** the plan is
+    no longer read from the request body. It is resolved from the key's
+    server-side assignment (:meth:`t1api.keys.KeyDirectory.resolve_plan`),
+    and a ``plan`` in the body is treated as an assertion — matching is
+    fine, mismatching is refused. Beta 2 let a client name its own plan,
+    which is the exact thing the design principle forbids: "the server
+    determines... which models the user can access, which limits apply,
+    which fallback models are allowed."
+
+    A key narrowed to a model subset (``allowed_models`` on its
+    assignment) is also checked here, so manual selection can't reach a
+    model the assignment excludes even when the registry and quota would
+    both allow it.
     """
+    plan = keys.resolve_plan(ctx.key_id, requested_plan=body.plan)
     if body.model_id is None:
-        decision = engine.route_automatic(key_id=ctx.key_id, plan=body.plan, input_tokens=body.input_tokens)
+        decision = engine.route_automatic(
+            key_id=ctx.key_id, plan=plan, input_tokens=body.input_tokens
+        )
     else:
+        keys.assert_model_allowed(ctx.key_id, body.model_id)
         decision = engine.route_manual(
             key_id=ctx.key_id,
-            plan=body.plan,
+            plan=plan,
             model_id=body.model_id,
             input_tokens=body.input_tokens,
             automatic_fallback=body.automatic_fallback,
         )
-    return RouteResponse(**decision.to_dict(), request_id=request_id)
+    # An automatic decision can still land on a model the key's
+    # assignment excludes, since the cascade is plan-shaped and the
+    # narrowing is key-shaped. Check the outcome too, rather than
+    # assuming the two always agree.
+    keys.assert_model_allowed(ctx.key_id, decision.model_id)
+    return RouteResponse(**decision.to_dict(), resolved_plan=plan, request_id=request_id)
 
 
 __all__ = ["router"]

@@ -1,0 +1,6970 @@
+{
+  "components": {
+    "schemas": {
+      "AddBalanceRequest": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_type": {
+            "title": "Account Type",
+            "type": "string"
+          },
+          "amount": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_type",
+          "account_id",
+          "amount"
+        ],
+        "title": "AddBalanceRequest",
+        "type": "object"
+      },
+      "AdminRotateRequest": {
+        "properties": {
+          "promote_to_admin": {
+            "default": false,
+            "title": "Promote To Admin",
+            "type": "boolean"
+          },
+          "target_key_id": {
+            "title": "Target Key Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_key_id"
+        ],
+        "title": "AdminRotateRequest",
+        "type": "object"
+      },
+      "AuditItem": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_is_admin": {
+            "title": "Actor Is Admin",
+            "type": "boolean"
+          },
+          "actor_key_id": {
+            "title": "Actor Key Id",
+            "type": "string"
+          },
+          "audit_id": {
+            "title": "Audit Id",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "client_ip": {
+            "title": "Client Ip",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resource_type": {
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "audit_id",
+          "ts",
+          "category",
+          "action",
+          "outcome",
+          "actor_key_id",
+          "actor_is_admin",
+          "resource_type",
+          "resource_id",
+          "client_ip",
+          "request_id",
+          "details"
+        ],
+        "title": "AuditItem",
+        "type": "object"
+      },
+      "AuditListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AuditItem"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "count",
+          "total",
+          "limit",
+          "offset",
+          "request_id"
+        ],
+        "title": "AuditListResponse",
+        "type": "object"
+      },
+      "BillingBalanceResponse": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_type": {
+            "title": "Account Type",
+            "type": "string"
+          },
+          "balance": {
+            "title": "Balance",
+            "type": "number"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_type",
+          "account_id",
+          "balance",
+          "request_id"
+        ],
+        "title": "BillingBalanceResponse",
+        "type": "object"
+      },
+      "Body_upload_local_modules_upload_local_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_local_modules_upload_local_post",
+        "type": "object"
+      },
+      "ConfigResponse": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "config",
+          "request_id"
+        ],
+        "title": "ConfigResponse",
+        "type": "object"
+      },
+      "CostLineItem": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "input_cost": {
+            "title": "Input Cost",
+            "type": "number"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_cost": {
+            "title": "Output Cost",
+            "type": "number"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "total_cost": {
+            "title": "Total Cost",
+            "type": "number"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "value",
+          "requests",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "input_cost",
+          "output_cost",
+          "total_cost",
+          "currency"
+        ],
+        "title": "CostLineItem",
+        "type": "object"
+      },
+      "EventItem": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "number"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "type",
+          "data",
+          "source",
+          "ts"
+        ],
+        "title": "EventItem",
+        "type": "object"
+      },
+      "EventListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventItem"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "count",
+          "request_id"
+        ],
+        "title": "EventListResponse",
+        "type": "object"
+      },
+      "ForcedLimitItem": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requests_per_window": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requests Per Window"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "subject_type": {
+            "title": "Subject Type",
+            "type": "string"
+          },
+          "tokens_per_window": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Per Window"
+          },
+          "window_seconds": {
+            "title": "Window Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "subject_type",
+          "subject_id",
+          "requests_per_window",
+          "tokens_per_window",
+          "window_seconds",
+          "reason",
+          "created_at"
+        ],
+        "title": "ForcedLimitItem",
+        "type": "object"
+      },
+      "ForcedLimitListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/ForcedLimitItem"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "limits",
+          "count",
+          "request_id"
+        ],
+        "title": "ForcedLimitListResponse",
+        "type": "object"
+      },
+      "ForcedLimitRequest": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "requests_per_window": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requests Per Window"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "subject_type": {
+            "description": "'key' or 'server'.",
+            "title": "Subject Type",
+            "type": "string"
+          },
+          "tokens_per_window": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Per Window"
+          },
+          "window_seconds": {
+            "default": 60.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Window Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "subject_type",
+          "subject_id"
+        ],
+        "title": "ForcedLimitRequest",
+        "type": "object"
+      },
+      "ForcedLimitResponse": {
+        "properties": {
+          "limit": {
+            "$ref": "#/components/schemas/ForcedLimitItem"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "limit",
+          "request_id"
+        ],
+        "title": "ForcedLimitResponse",
+        "type": "object"
+      },
+      "ForecastItem": {
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "horizon_seconds": {
+            "title": "Horizon Seconds",
+            "type": "number"
+          },
+          "observed_cost": {
+            "title": "Observed Cost",
+            "type": "number"
+          },
+          "observed_seconds": {
+            "title": "Observed Seconds",
+            "type": "number"
+          },
+          "projected_cost": {
+            "title": "Projected Cost",
+            "type": "number"
+          },
+          "rate_per_day": {
+            "title": "Rate Per Day",
+            "type": "number"
+          }
+        },
+        "required": [
+          "projected_cost",
+          "horizon_seconds",
+          "observed_seconds",
+          "observed_cost",
+          "rate_per_day",
+          "confidence",
+          "currency",
+          "basis"
+        ],
+        "title": "ForecastItem",
+        "type": "object"
+      },
+      "GenericOkResponse": {
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "title": "GenericOkResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "JobCreateRequest": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "JobCreateRequest",
+        "type": "object"
+      },
+      "JobDetailResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/JobItem"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "request_id"
+        ],
+        "title": "JobDetailResponse",
+        "type": "object"
+      },
+      "JobItem": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "payload",
+          "status",
+          "result",
+          "error",
+          "created_by",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "JobItem",
+        "type": "object"
+      },
+      "KeyAssignRequest": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "allowed_models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Narrows this key to a subset of registered models. Every entry is validated against the model registry; an unregistered id is rejected with MODEL_NOT_SUPPORTED.",
+            "title": "Allowed Models"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "server_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Ids"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "key_id"
+        ],
+        "title": "KeyAssignRequest",
+        "type": "object"
+      },
+      "KeyAssignResponse": {
+        "properties": {
+          "assignment": {
+            "$ref": "#/components/schemas/KeyAssignmentItem"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment",
+          "request_id"
+        ],
+        "title": "KeyAssignResponse",
+        "type": "object"
+      },
+      "KeyAssignmentItem": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "allowed_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Models",
+            "type": "array"
+          },
+          "assigned_at": {
+            "title": "Assigned At",
+            "type": "number"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "server_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Server Ids",
+            "type": "array"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "plan",
+          "account_id",
+          "user_id",
+          "server_ids",
+          "allowed_models",
+          "note",
+          "assigned_at"
+        ],
+        "title": "KeyAssignmentItem",
+        "type": "object"
+      },
+      "KeyImportRequest": {
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "description": "A Keymaster export object: {\"keys\": [ ... ]}. Contains raw key material, so it is never logged and never echoed back \u2014 the response carries masked ids only.",
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "KeyImportRequest",
+        "type": "object"
+      },
+      "KeyImportResponse": {
+        "properties": {
+          "imported": {
+            "title": "Imported",
+            "type": "integer"
+          },
+          "imported_key_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Imported Key Ids",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "skipped_key_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped Key Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "imported",
+          "skipped",
+          "imported_key_ids",
+          "skipped_key_ids",
+          "request_id"
+        ],
+        "title": "KeyImportResponse",
+        "type": "object"
+      },
+      "KeyItem": {
+        "description": "Credential-free view of a key. No endpoint ever returns the raw\nkey string for an existing key \u2014 only key rotation, which mints a\nnew one, hands a secret back.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KeyAssignmentItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "key_type": {
+            "title": "Key Type",
+            "type": "string"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "request_count": {
+            "title": "Request Count",
+            "type": "integer"
+          },
+          "request_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Limit"
+          },
+          "rotated_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotated From"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "string"
+          },
+          "usage_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage Cap"
+          },
+          "usage_count": {
+            "title": "Usage Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key_id",
+          "key_type",
+          "scopes",
+          "active",
+          "created_at",
+          "expires_at",
+          "prefix",
+          "server_id",
+          "usage_count",
+          "request_count",
+          "usage_cap",
+          "request_limit",
+          "rotated_from"
+        ],
+        "title": "KeyItem",
+        "type": "object"
+      },
+      "KeyListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/KeyItem"
+            },
+            "title": "Keys",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "own",
+            "description": "'all' for an admin caller, 'own' otherwise \u2014 a non-admin sees only their key.",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keys",
+          "count",
+          "request_id"
+        ],
+        "title": "KeyListResponse",
+        "type": "object"
+      },
+      "ModelAvailabilityResponse": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "minimum_plan": {
+            "title": "Minimum Plan",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "available",
+          "reason",
+          "minimum_plan",
+          "request_id"
+        ],
+        "title": "ModelAvailabilityResponse",
+        "type": "object"
+      },
+      "ModelDetail": {
+        "properties": {
+          "active_parameters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Parameters"
+          },
+          "api_available": {
+            "title": "Api Available",
+            "type": "boolean"
+          },
+          "architecture": {
+            "title": "Architecture",
+            "type": "string"
+          },
+          "availability": {
+            "title": "Availability",
+            "type": "string"
+          },
+          "context_limit": {
+            "default": 0,
+            "title": "Context Limit",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "fallback_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Model"
+          },
+          "free_tier_available": {
+            "title": "Free Tier Available",
+            "type": "boolean"
+          },
+          "input_token_limit": {
+            "default": 0,
+            "title": "Input Token Limit",
+            "type": "integer"
+          },
+          "is_example_entry": {
+            "title": "Is Example Entry",
+            "type": "boolean"
+          },
+          "license": {
+            "title": "License",
+            "type": "string"
+          },
+          "local_available": {
+            "title": "Local Available",
+            "type": "boolean"
+          },
+          "minimum_plan": {
+            "title": "Minimum Plan",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "output_token_limit": {
+            "default": 0,
+            "title": "Output Token Limit",
+            "type": "integer"
+          },
+          "pricing": {
+            "additionalProperties": true,
+            "title": "Pricing",
+            "type": "object"
+          },
+          "remote_available": {
+            "title": "Remote Available",
+            "type": "boolean"
+          },
+          "routing_priority": {
+            "title": "Routing Priority",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "supported_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Tasks",
+            "type": "array"
+          },
+          "tool_call_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Limit"
+          },
+          "total_parameters": {
+            "title": "Total Parameters",
+            "type": "number"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "display_name",
+          "version",
+          "architecture",
+          "status",
+          "availability",
+          "minimum_plan",
+          "free_tier_available",
+          "routing_priority",
+          "total_parameters",
+          "active_parameters",
+          "supported_tasks",
+          "api_available",
+          "local_available",
+          "remote_available",
+          "pricing",
+          "fallback_model",
+          "license",
+          "is_example_entry",
+          "notes"
+        ],
+        "title": "ModelDetail",
+        "type": "object"
+      },
+      "ModelDetailResponse": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelDetail"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "request_id"
+        ],
+        "title": "ModelDetailResponse",
+        "type": "object"
+      },
+      "ModelListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelSummary"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "models",
+          "count",
+          "request_id"
+        ],
+        "title": "ModelListResponse",
+        "type": "object"
+      },
+      "ModelSummary": {
+        "properties": {
+          "architecture": {
+            "title": "Architecture",
+            "type": "string"
+          },
+          "availability": {
+            "title": "Availability",
+            "type": "string"
+          },
+          "context_limit": {
+            "default": 0,
+            "title": "Context Limit",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "free_tier_available": {
+            "title": "Free Tier Available",
+            "type": "boolean"
+          },
+          "input_token_limit": {
+            "default": 0,
+            "title": "Input Token Limit",
+            "type": "integer"
+          },
+          "minimum_plan": {
+            "title": "Minimum Plan",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_token_limit": {
+            "default": 0,
+            "title": "Output Token Limit",
+            "type": "integer"
+          },
+          "routing_priority": {
+            "title": "Routing Priority",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_call_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Limit"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "display_name",
+          "version",
+          "architecture",
+          "status",
+          "availability",
+          "minimum_plan",
+          "free_tier_available",
+          "routing_priority"
+        ],
+        "title": "ModelSummary",
+        "type": "object"
+      },
+      "ModelUsageResponse": {
+        "properties": {
+          "input_remaining": {
+            "title": "Input Remaining",
+            "type": "integer"
+          },
+          "input_token_limit": {
+            "title": "Input Token Limit",
+            "type": "integer"
+          },
+          "input_tokens_used": {
+            "title": "Input Tokens Used",
+            "type": "integer"
+          },
+          "is_exhausted": {
+            "title": "Is Exhausted",
+            "type": "boolean"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_remaining": {
+            "title": "Output Remaining",
+            "type": "integer"
+          },
+          "output_token_limit": {
+            "title": "Output Token Limit",
+            "type": "integer"
+          },
+          "output_tokens_used": {
+            "title": "Output Tokens Used",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model_id",
+          "input_tokens_used",
+          "output_tokens_used",
+          "requests",
+          "input_token_limit",
+          "output_token_limit",
+          "input_remaining",
+          "output_remaining",
+          "is_exhausted",
+          "request_id"
+        ],
+        "title": "ModelUsageResponse",
+        "type": "object"
+      },
+      "ModuleCreateRequest": {
+        "properties": {
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "ModuleCreateRequest",
+        "type": "object"
+      },
+      "ModuleDeployRequest": {
+        "properties": {
+          "server_ids": {
+            "description": "Registered, trusted server_ids to push this module to.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Server Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "server_ids"
+        ],
+        "title": "ModuleDeployRequest",
+        "type": "object"
+      },
+      "ModuleDeployResponse": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "server_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Server Ids",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "server_ids",
+          "request_id"
+        ],
+        "title": "ModuleDeployResponse",
+        "type": "object"
+      },
+      "ModuleDetailResponse": {
+        "properties": {
+          "module": {
+            "$ref": "#/components/schemas/ModuleItem"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "request_id"
+        ],
+        "title": "ModuleDetailResponse",
+        "type": "object"
+      },
+      "ModuleFetchResponse": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "request_id"
+        ],
+        "title": "ModuleFetchResponse",
+        "type": "object"
+      },
+      "ModuleItem": {
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "deployed_servers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deployed Servers",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_key_id": {
+            "title": "Owner Key Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module_id",
+          "name",
+          "version",
+          "owner_key_id",
+          "status",
+          "source_type",
+          "source_url",
+          "checksum",
+          "size_bytes",
+          "deployed_servers",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ModuleItem",
+        "type": "object"
+      },
+      "ModuleListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/ModuleItem"
+            },
+            "title": "Modules",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "modules",
+          "count",
+          "request_id"
+        ],
+        "title": "ModuleListResponse",
+        "type": "object"
+      },
+      "ModuleReceiveResponse": {
+        "description": "Response to an inbound server-to-server push. The pusher compares\n``checksum`` against what it sent \u2014 a mismatch means the bytes changed\nin flight, and it fails the deployment rather than trusting the 200.",
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module_id",
+          "checksum",
+          "size_bytes",
+          "status",
+          "request_id"
+        ],
+        "title": "ModuleReceiveResponse",
+        "type": "object"
+      },
+      "ModuleSyncRequest": {
+        "properties": {
+          "server_id": {
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id"
+        ],
+        "title": "ModuleSyncRequest",
+        "type": "object"
+      },
+      "ModuleSyncResponse": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "request_id"
+        ],
+        "title": "ModuleSyncResponse",
+        "type": "object"
+      },
+      "ModuleUpdateRequest": {
+        "properties": {
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "ModuleUpdateRequest",
+        "type": "object"
+      },
+      "ModuleUploadRemoteRequest": {
+        "properties": {
+          "allow_private": {
+            "default": false,
+            "title": "Allow Private",
+            "type": "boolean"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url"
+        ],
+        "title": "ModuleUploadRemoteRequest",
+        "type": "object"
+      },
+      "NetworkPolicyEntryItem": {
+        "properties": {
+          "cidr": {
+            "title": "Cidr",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "expired": {
+            "default": false,
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "cidr",
+          "kind",
+          "reason",
+          "created_by",
+          "created_at"
+        ],
+        "title": "NetworkPolicyEntryItem",
+        "type": "object"
+      },
+      "NetworkPolicyEntryRequest": {
+        "properties": {
+          "cidr": {
+            "description": "A single IP or a CIDR range, e.g. 10.0.0.0/8.",
+            "title": "Cidr",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional expiry, for a temporary block or a time-boxed grant.",
+            "title": "Ttl Seconds"
+          }
+        },
+        "required": [
+          "cidr"
+        ],
+        "title": "NetworkPolicyEntryRequest",
+        "type": "object"
+      },
+      "NetworkPolicyResponse": {
+        "properties": {
+          "allow_unlisted_clients": {
+            "title": "Allow Unlisted Clients",
+            "type": "boolean"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/NetworkPolicyEntryItem"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries",
+          "count",
+          "allow_unlisted_clients",
+          "enabled",
+          "request_id"
+        ],
+        "title": "NetworkPolicyResponse",
+        "type": "object"
+      },
+      "PaymentTokenMintRequest": {
+        "properties": {
+          "amount": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "default": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl Seconds"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "PaymentTokenMintRequest",
+        "type": "object"
+      },
+      "PaymentTokenMintResponse": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "payment_token_id": {
+            "title": "Payment Token Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "token": {
+            "description": "Raw token \u2014 shown exactly once, never retrievable again.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "payment_token_id",
+          "amount",
+          "currency",
+          "request_id"
+        ],
+        "title": "PaymentTokenMintResponse",
+        "type": "object"
+      },
+      "RateLimitStatusResponse": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules",
+          "enabled",
+          "request_id"
+        ],
+        "title": "RateLimitStatusResponse",
+        "type": "object"
+      },
+      "RedeemRequest": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to the authenticated caller's key_id if omitted.",
+            "title": "Account Id"
+          },
+          "account_type": {
+            "default": "user",
+            "title": "Account Type",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "RedeemRequest",
+        "type": "object"
+      },
+      "RotateResponse": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "key_type": {
+            "title": "Key Type",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "rotated_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotated From"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key_id",
+          "key",
+          "key_type",
+          "scopes",
+          "rotated_from",
+          "request_id"
+        ],
+        "title": "RotateResponse",
+        "type": "object"
+      },
+      "RouteRequest": {
+        "properties": {
+          "automatic_fallback": {
+            "default": false,
+            "description": "Only meaningful with model_id set: fall through the cascade if the requested model is exhausted, instead of raising MODEL_QUOTA_EXHAUSTED.",
+            "title": "Automatic Fallback",
+            "type": "boolean"
+          },
+          "input_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Manual model selection. Omit for automatic routing.",
+            "title": "Model Id"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional assertion of the caller's plan. The server resolves the real plan from the key's assignment; a mismatch is rejected, never silently accepted.",
+            "title": "Plan"
+          }
+        },
+        "title": "RouteRequest",
+        "type": "object"
+      },
+      "RouteResponse": {
+        "properties": {
+          "cascade_position": {
+            "title": "Cascade Position",
+            "type": "integer"
+          },
+          "considered": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Considered",
+            "type": "array"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "policy_name": {
+            "title": "Policy Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "resolved_plan": {
+            "default": "",
+            "description": "The plan the server actually applied, from the key's assignment.",
+            "title": "Resolved Plan",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "reason",
+          "cascade_position",
+          "policy_name",
+          "considered",
+          "request_id"
+        ],
+        "title": "RouteResponse",
+        "type": "object"
+      },
+      "ServerDetailResponse": {
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "server": {
+            "$ref": "#/components/schemas/ServerItem"
+          }
+        },
+        "required": [
+          "server",
+          "request_id"
+        ],
+        "title": "ServerDetailResponse",
+        "type": "object"
+      },
+      "ServerItem": {
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "registered_by": {
+            "title": "Registered By",
+            "type": "string"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          },
+          "trust_level": {
+            "title": "Trust Level",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "server_id",
+          "name",
+          "address",
+          "trust_level",
+          "status",
+          "capabilities",
+          "tags",
+          "registered_by",
+          "created_at",
+          "updated_at",
+          "last_seen"
+        ],
+        "title": "ServerItem",
+        "type": "object"
+      },
+      "ServerListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/ServerItem"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "servers",
+          "count",
+          "request_id"
+        ],
+        "title": "ServerListResponse",
+        "type": "object"
+      },
+      "ServerRegisterRequest": {
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "allow_private_address": {
+            "default": false,
+            "description": "Set True for local/Tailscale addresses.",
+            "title": "Allow Private Address",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "address"
+        ],
+        "title": "ServerRegisterRequest",
+        "type": "object"
+      },
+      "ServerUpdateRequest": {
+        "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "trust_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trust Level"
+          }
+        },
+        "title": "ServerUpdateRequest",
+        "type": "object"
+      },
+      "StatusResponse": {
+        "properties": {
+          "allow_unlisted_clients": {
+            "default": true,
+            "title": "Allow Unlisted Clients",
+            "type": "boolean"
+          },
+          "audit_enabled": {
+            "default": true,
+            "title": "Audit Enabled",
+            "type": "boolean"
+          },
+          "beta": {
+            "title": "Beta",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "hypernix_version": {
+            "title": "Hypernix Version",
+            "type": "string"
+          },
+          "model_count": {
+            "title": "Model Count",
+            "type": "integer"
+          },
+          "mtls_mode": {
+            "default": "off",
+            "title": "Mtls Mode",
+            "type": "string"
+          },
+          "network_policy_enabled": {
+            "default": true,
+            "title": "Network Policy Enabled",
+            "type": "boolean"
+          },
+          "production_ready": {
+            "default": true,
+            "title": "Production Ready",
+            "type": "boolean"
+          },
+          "production_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Production Warnings",
+            "type": "array"
+          },
+          "rate_limit_enabled": {
+            "default": true,
+            "title": "Rate Limit Enabled",
+            "type": "boolean"
+          },
+          "remote_deployment_enabled": {
+            "default": false,
+            "title": "Remote Deployment Enabled",
+            "type": "boolean"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "secrets_configured": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Secrets Configured",
+            "type": "object"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "storage_backend": {
+            "title": "Storage Backend",
+            "type": "string"
+          },
+          "t1_api_version": {
+            "title": "T1 Api Version",
+            "type": "string"
+          },
+          "tls_enabled": {
+            "default": false,
+            "title": "Tls Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "environment",
+          "t1_api_version",
+          "hypernix_version",
+          "beta",
+          "model_count",
+          "storage_backend",
+          "request_id"
+        ],
+        "title": "StatusResponse",
+        "type": "object"
+      },
+      "TokenRequest": {
+        "properties": {
+          "key": {
+            "description": "Raw T1_ key string to exchange.",
+            "minLength": 4,
+            "title": "Key",
+            "type": "string"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subset of the key's scopes to grant. Omit for all scopes.",
+            "title": "Scopes"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl Seconds"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "TokenRequest",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "number"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "key_id",
+          "scopes",
+          "expires_at",
+          "request_id"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "TransactionItem": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_type": {
+            "title": "Account Type",
+            "type": "string"
+          },
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "balance_after": {
+            "title": "Balance After",
+            "type": "number"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "transaction_id": {
+            "title": "Transaction Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "account_type",
+          "account_id",
+          "amount",
+          "kind",
+          "balance_after",
+          "note",
+          "created_by",
+          "created_at"
+        ],
+        "title": "TransactionItem",
+        "type": "object"
+      },
+      "TransactionListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionItem"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "transactions",
+          "count",
+          "request_id"
+        ],
+        "title": "TransactionListResponse",
+        "type": "object"
+      },
+      "UsageAggregateResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "group_by": {
+            "title": "Group By",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/UsageAggregateRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "group_by",
+          "rows",
+          "count",
+          "request_id"
+        ],
+        "title": "UsageAggregateResponse",
+        "type": "object"
+      },
+      "UsageAggregateRow": {
+        "properties": {
+          "group_by": {
+            "title": "Group By",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_by",
+          "value",
+          "requests",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens"
+        ],
+        "title": "UsageAggregateRow",
+        "type": "object"
+      },
+      "UsageCostResponse": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForecastItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CostLineItem"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "total_cost": {
+            "title": "Total Cost",
+            "type": "number"
+          },
+          "unpriced_models": {
+            "description": "Models with recorded usage but no current registry entry. Their usage is reported and priced at zero rather than dropped, so the gap is visible.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unpriced Models",
+            "type": "array"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "total_cost",
+          "currency",
+          "lines",
+          "request_id"
+        ],
+        "title": "UsageCostResponse",
+        "type": "object"
+      },
+      "UsageCurrentResponse": {
+        "properties": {
+          "all_time": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "All Time",
+            "type": "object"
+          },
+          "by_model": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "By Model",
+            "type": "array"
+          },
+          "current_window": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Current Window",
+            "type": "object"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "window_seconds": {
+            "title": "Window Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key_id",
+          "window_seconds",
+          "current_window",
+          "all_time",
+          "by_model",
+          "request_id"
+        ],
+        "title": "UsageCurrentResponse",
+        "type": "object"
+      },
+      "UsageEstimateRequest": {
+        "properties": {
+          "input_tokens": {
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_id": {
+            "description": "Must be a registered model_id.",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit for an upper-bound estimate using the model's output_token_limit.",
+            "title": "Output Tokens"
+          },
+          "requests": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Requests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model_id",
+          "input_tokens"
+        ],
+        "title": "UsageEstimateRequest",
+        "type": "object"
+      },
+      "UsageEstimateResponse": {
+        "properties": {
+          "context_limit": {
+            "title": "Context Limit",
+            "type": "integer"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "estimated_cost": {
+            "title": "Estimated Cost",
+            "type": "number"
+          },
+          "exceeds_context_limit": {
+            "title": "Exceeds Context Limit",
+            "type": "boolean"
+          },
+          "exceeds_input_token_limit": {
+            "title": "Exceeds Input Token Limit",
+            "type": "boolean"
+          },
+          "input_cost": {
+            "title": "Input Cost",
+            "type": "number"
+          },
+          "input_token_limit": {
+            "title": "Input Token Limit",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "output_cost": {
+            "title": "Output Cost",
+            "type": "number"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "output_tokens_assumed": {
+            "title": "Output Tokens Assumed",
+            "type": "boolean"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model_id",
+          "requests",
+          "input_tokens",
+          "output_tokens",
+          "output_tokens_assumed",
+          "input_cost",
+          "output_cost",
+          "estimated_cost",
+          "currency",
+          "exceeds_input_token_limit",
+          "exceeds_context_limit",
+          "input_token_limit",
+          "context_limit",
+          "note",
+          "request_id"
+        ],
+        "title": "UsageEstimateResponse",
+        "type": "object"
+      },
+      "UsageHistoryItem": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "string"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "number"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "model_id",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "requests",
+          "endpoint",
+          "server_id",
+          "module_id",
+          "user_id",
+          "account_id",
+          "ts"
+        ],
+        "title": "UsageHistoryItem",
+        "type": "object"
+      },
+      "UsageHistoryResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/UsageHistoryItem"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "events",
+          "count",
+          "limit",
+          "offset",
+          "request_id"
+        ],
+        "title": "UsageHistoryResponse",
+        "type": "object"
+      },
+      "UsageRemainingResponse": {
+        "properties": {
+          "input_remaining": {
+            "title": "Input Remaining",
+            "type": "integer"
+          },
+          "is_exhausted": {
+            "title": "Is Exhausted",
+            "type": "boolean"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_remaining": {
+            "title": "Output Remaining",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "input_remaining",
+          "output_remaining",
+          "is_exhausted",
+          "request_id"
+        ],
+        "title": "UsageRemainingResponse",
+        "type": "object"
+      },
+      "ValidateKeyRequest": {
+        "properties": {
+          "key": {
+            "description": "Raw T1_ key string.",
+            "minLength": 4,
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ValidateKeyRequest",
+        "type": "object"
+      },
+      "ValidateKeyResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "is_admin": {
+            "title": "Is Admin",
+            "type": "boolean"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "key_type": {
+            "title": "Key Type",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key_id",
+          "key_type",
+          "scopes",
+          "active",
+          "is_admin",
+          "expires_at",
+          "request_id"
+        ],
+        "title": "ValidateKeyResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Controlled gateway into HyperNix-pip. The client requests an operation; the server decides what exists, what's available, and how much is left. See wiki/T1-API.md for the full contract.",
+    "title": "HyperNix T1 API",
+    "version": "0.71.5b3"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/audit": {
+      "get": {
+        "operationId": "list_audit_events_audit_get",
+        "parameters": [
+          {
+            "description": "admin | security | write | billing",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "admin | security | write | billing",
+              "title": "Category"
+            }
+          },
+          {
+            "description": "e.g. 'keys.assign'",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "e.g. 'keys.assign'",
+              "title": "Action"
+            }
+          },
+          {
+            "description": "success | denied | failure",
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "success | denied | failure",
+              "title": "Outcome"
+            }
+          },
+          {
+            "description": "Full key_id; matched by its mask.",
+            "in": "query",
+            "name": "actor_key_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Full key_id; matched by its mask.",
+              "title": "Actor Key Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Audit Events",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/auth/t1/admin/rotate": {
+      "post": {
+        "operationId": "admin_rotate_auth_t1_admin_rotate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRotateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Rotate",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/t1/rotate": {
+      "post": {
+        "description": "A caller may always rotate the key/token they authenticated with.",
+        "operationId": "rotate_own_key_auth_t1_rotate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Own Key",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/t1/validate": {
+      "post": {
+        "operationId": "validate_auth_t1_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateKeyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/token": {
+      "post": {
+        "operationId": "issue_token_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/billing/add-balance": {
+      "post": {
+        "description": "Admin-only \u2014 a direct credit with no payment-token trail is the\nmost trusted billing operation there is.",
+        "operationId": "add_balance_billing_add_balance_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddBalanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingBalanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Balance",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/balance": {
+      "get": {
+        "description": "Returns the caller's own ``user``-account balance. Checking another\naccount's balance is an admin operation, not exposed here \u2014 add a\n``account_type``/``account_id`` query pair gated by ``require_admin``\nif that's needed later.",
+        "operationId": "get_balance_billing_balance_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingBalanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Balance",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/payment-token": {
+      "post": {
+        "description": "Admin-only \u2014 minting a redeemable balance credit is equivalent to\nprinting money in this ledger, so it's gated the same way admin key\nrotation is.",
+        "operationId": "mint_payment_token_billing_payment_token_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentTokenMintRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentTokenMintResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mint Payment Token",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/redeem": {
+      "post": {
+        "operationId": "redeem_billing_redeem_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingBalanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Redeem",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/transactions": {
+      "get": {
+        "operationId": "get_transactions_billing_transactions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Transactions",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/config": {
+      "get": {
+        "description": "Returns only the explicit allowlist in ``T1APIConfig.public_dict()``\n\u2014 never secrets. See ``t1api/config.py`` for why that's an allowlist\nand not a blocklist.",
+        "operationId": "get_public_config_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Public Config",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/events": {
+      "get": {
+        "description": "Polling form of GET /events, matching the spec's endpoint list\nexactly. For a live tail, see GET /events/stream (an addition beyond\nthe spec's list \u2014 see wiki/T1-API.md#events).",
+        "operationId": "list_events_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Events",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/events/stream": {
+      "get": {
+        "description": "Server-Sent-Events live tail. Not in the spec's original endpoint\nlist \u2014 added because \"event streaming\" (the spec's own Beta 2 bullet)\nreads most naturally as a live stream, and GET /events alone can only\nbe a poll. Kept as a separate endpoint rather than overloading GET\n/events so the polling contract stays exactly as specified.",
+        "operationId": "stream_events_events_stream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Events",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/jobs": {
+      "post": {
+        "description": "Submitting a job with an unregistered ``kind`` raises\n``NOT_SUPPORTED`` \u2014 see ``t1api.jobs``'s module docstring for why that's\nthe correct behavior rather than a generic 400/500.",
+        "operationId": "create_job_jobs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/jobs/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancel_job_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/keys": {
+      "get": {
+        "description": "List keys. Admins see every key; everyone else sees only their own.\n\nNot admin-gated outright: a caller checking their own key's scopes,\nexpiry, and assignment is an ordinary self-service operation, and\nrefusing it would push clients toward caching that state locally\nwhere it goes stale.",
+        "operationId": "list_keys_keys_get",
+        "parameters": [
+          {
+            "description": "Filter by 'user' | 'admin' | ...",
+            "in": "query",
+            "name": "key_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by 'user' | 'admin' | ...",
+              "title": "Key Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_inactive",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Inactive",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Keys",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/keys/assign": {
+      "post": {
+        "description": "Bind a key to a plan, account, user, servers, and model subset.\n\nThis is where a key's plan comes from, and therefore where its quota\nand fallback chain come from \u2014 which is exactly why it is admin-only.\nA non-admin able to call this could assign itself a better plan,\nturning \"the server decides which models the user can access\" into\n\"the user decides\".",
+        "operationId": "assign_key_keys_assign_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyAssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyAssignResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assign Key",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/keys/import": {
+      "post": {
+        "description": "Import a Keymaster export into this server's key store.\n\nThe request body carries raw key material. It is never logged, never\nechoed, and never written to the audit record \u2014 the audit entry\nholds counts and masked ids, which is what an operator reviewing the\naction actually needs.",
+        "operationId": "import_keys_keys_import_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Keys",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/models": {
+      "get": {
+        "description": "Public, unauthenticated model listing \u2014 matches the spec's\nendpoint contract (no auth requirement listed for GET /models).",
+        "operationId": "list_models_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Models",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/route": {
+      "post": {
+        "description": "Not in the original endpoint list \u2014 added to give the routing/\nquota-cascade engine (``t1api.routing``) an HTTP surface, since the\nspec describes the engine's behavior in detail but doesn't enumerate\nan endpoint for it. See wiki/T1-API.md#routing.\n\nAutomatic routing (no ``model_id``) walks the caller's plan cascade.\nManual routing (``model_id`` set) enforces the exhausted-model rule\nexactly as the spec describes: ``MODEL_QUOTA_EXHAUSTED`` unless\n``automatic_fallback=True``.\n\n**Beta 3 change, deliberately breaking Beta 2's shape:** the plan is\nno longer read from the request body. It is resolved from the key's\nserver-side assignment (:meth:`t1api.keys.KeyDirectory.resolve_plan`),\nand a ``plan`` in the body is treated as an assertion \u2014 matching is\nfine, mismatching is refused. Beta 2 let a client name its own plan,\nwhich is the exact thing the design principle forbids: \"the server\ndetermines... which models the user can access, which limits apply,\nwhich fallback models are allowed.\"\n\nA key narrowed to a model subset (``allowed_models`` on its\nassignment) is also checked here, so manual selection can't reach a\nmodel the assignment excludes even when the registry and quota would\nboth allow it.",
+        "operationId": "route_model_models_route_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Route Model",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/{model_id}": {
+      "get": {
+        "operationId": "get_model_models__model_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Model",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/{model_id}/availability": {
+      "get": {
+        "description": "Registry-level availability: is this model routable at all?\n\nDeliberately unauthenticated and therefore *not* caller-aware \u2014 it\nanswers \"does this server offer this model\", not \"may you use it\nright now\". The caller-specific answer needs a key, and lives in\n``GET /models/{id}/usage`` (quota) and ``POST /models/route``\n(plan + quota + cascade). Splitting them keeps this endpoint usable\nas a public capability listing without it becoming a way to probe\nanother account's quota state.",
+        "operationId": "model_availability_models__model_id__availability_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Model Availability",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/{model_id}/usage": {
+      "get": {
+        "operationId": "model_usage_models__model_id__usage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelUsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Model Usage",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/modules": {
+      "get": {
+        "operationId": "list_modules_modules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Modules",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/create": {
+      "post": {
+        "operationId": "create_module_modules_create_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Module",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/receive": {
+      "post": {
+        "description": "Beta 3: accept a signed module push from another T1 server.\n\nAuthenticated by the shared deployment secret rather than by a T1\nkey \u2014 a peer server is not a user, holds no key of its own, and\ngiving every deployment target an admin key just to receive bytes\nwould be a much larger grant than this needs.\n\nOrder matters and is enforced here: verify the signature (which\ncovers the body digest, method, path, and a freshness window), then\nverify the declared checksum against the bytes actually received,\nand only then store. Nothing is written to disk before both checks\npass, and nothing is ever executed.",
+        "operationId": "receive_module_modules_receive_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-T1-Signature",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-T1-Signature",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-T1-Timestamp",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-T1-Timestamp",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-T1-Content-SHA256",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-T1-Content-Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-T1-Module-ID",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-T1-Module-Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleReceiveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receive Module",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/upload/local": {
+      "post": {
+        "operationId": "upload_local_modules_upload_local_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_local_modules_upload_local_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Local",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/upload/remote": {
+      "post": {
+        "description": "Validates and *registers* a remote source \u2014 does not fetch it (see\nt1api/modules.py's module docstring). The module is marked\nPENDING_FETCH; actually staging the content is a separate concern not\nwired to a job kind in this beta (no real remote fetch infrastructure\nexists to safely exercise yet \u2014 see wiki/T1-API.md#roadmap).",
+        "operationId": "upload_remote_modules_upload_remote_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleUploadRemoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Remote",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/{module_id}": {
+      "delete": {
+        "description": "Delete a module and its stored bytes.\n\nDestructive and irreversible, so it needs ``?confirm=true`` (see\n``deps.require_confirmation`` / ``T1_REQUIRE_DESTRUCTIVE_CONFIRMATION``)\nand is audited whether it succeeds or is refused.",
+        "operationId": "delete_module_modules__module_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Module",
+        "tags": [
+          "modules"
+        ]
+      },
+      "get": {
+        "operationId": "get_module_modules__module_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Module",
+        "tags": [
+          "modules"
+        ]
+      },
+      "patch": {
+        "operationId": "update_module_modules__module_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Module",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/{module_id}/deploy": {
+      "post": {
+        "description": "Beta 3: push a module's bytes to one or more trusted servers.\n\n``POST /modules/{id}/sync`` remains for the single-server case with\nits Beta 2 payload untouched; this is the multi-target form. Both\nqueue the same ``module_sync`` job kind, so there is one code path\ndoing the actual transfer.\n\nEvery target is trust-checked *here*, before the job is queued, so a\nrequest naming an untrusted server fails immediately with\n``SERVER_UNTRUSTED`` instead of succeeding into a job that fails\nlater somewhere the caller isn't looking.",
+        "operationId": "deploy_module_modules__module_id__deploy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleDeployRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDeployResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deploy Module",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/{module_id}/fetch": {
+      "post": {
+        "description": "Beta 3: stage a module's registered remote source into local storage.\n\nThe URL is not a parameter \u2014 it comes from the registry entry that\n``POST /modules/upload/remote`` validated. Accepting a URL here would\nreopen the SSRF hole that registering it through the validated path\ncloses.",
+        "operationId": "fetch_module_source_modules__module_id__fetch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleFetchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fetch Module Source",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/modules/{module_id}/sync": {
+      "post": {
+        "description": "Queues a ``module_sync`` job rather than syncing inline \u2014 matches\nthe spec's async-job model for cross-system operations. The handler\n(wired in ``t1api.app``) checks server trust before recording the\nsync; see ``wiki/T1-API.md#modules`` for exactly what \"sync\" means in\nthis beta (tracking/trust-gating, not real byte transport).",
+        "operationId": "sync_module_modules__module_id__sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module_id",
+            "required": true,
+            "schema": {
+              "title": "Module Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Module",
+        "tags": [
+          "modules"
+        ]
+      }
+    },
+    "/security/limits": {
+      "get": {
+        "operationId": "list_forced_limits_security_limits_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForcedLimitListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Forced Limits",
+        "tags": [
+          "security"
+        ]
+      },
+      "post": {
+        "description": "``waiter -r`` \u2014 force a limit on one T1 key or one server.\n\nA forced limit only ever tightens: it is applied *in addition to* the\nconfigured rate-limit rules, so it cannot be used to hand a subject\nmore throughput than the defaults allow.",
+        "operationId": "set_forced_limit_security_limits_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForcedLimitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForcedLimitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Forced Limit",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/limits/{subject_type}/{subject_id}": {
+      "delete": {
+        "operationId": "clear_forced_limit_security_limits__subject_type___subject_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_type",
+            "required": true,
+            "schema": {
+              "title": "Subject Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "title": "Subject Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericOkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Forced Limit",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/network": {
+      "get": {
+        "operationId": "get_network_policy_entries_security_network_get",
+        "parameters": [
+          {
+            "description": "'allow' or 'block'; omit for both.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'allow' or 'block'; omit for both.",
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Network Policy Entries",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/network/allow-unlisted": {
+      "post": {
+        "description": "Flip the server between \"open unless blocked\" and \"allowlist only\".\n\nHeld in memory, so a restart returns to whatever\n``T1_ALLOW_UNLISTED_CLIENTS`` says. That's intentional: the\ndeployment's environment is the source of truth for its posture, and\nan API call shouldn't silently outlive the configuration that\ndocuments it.",
+        "operationId": "set_allow_unlisted_security_network_allow_unlisted_post",
+        "parameters": [
+          {
+            "description": "May clients that are on neither list connect?",
+            "in": "query",
+            "name": "enabled",
+            "required": true,
+            "schema": {
+              "description": "May clients that are on neither list connect?",
+              "title": "Enabled",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Allow Unlisted",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/network/blacklist": {
+      "post": {
+        "description": "``waiter -B`` \u2014 block an address or CIDR range.\n\nRefuses to block the caller's own address. Locking yourself out of\nthe server you administer is a mistake with no undo through this API\n(you'd have to reach the database directly), so it's worth one\nguard rather than one incident.",
+        "operationId": "add_to_blacklist_security_network_blacklist_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkPolicyEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add To Blacklist",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/network/whitelist": {
+      "post": {
+        "description": "``waiter -W`` \u2014 allowlist an address or CIDR range.\n\nNote this does not un-block a blocked address: the blocklist wins by\ndesign (see ``t1api.netpolicy``). To restore access to a blocked\naddress, appeal it with ``DELETE /security/network/{cidr}``.",
+        "operationId": "add_to_whitelist_security_network_whitelist_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkPolicyEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add To Whitelist",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/network/{cidr}": {
+      "delete": {
+        "description": "``waiter -a`` \u2014 appeal: remove an allow or block entry.\n\nThe ``{cidr:path}`` converter is deliberate: a CIDR contains a\nslash, and without it ``10.0.0.0/8`` would be parsed as two path\nsegments and never match.",
+        "operationId": "appeal_network_entry_security_network__cidr__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cidr",
+            "required": true,
+            "schema": {
+              "title": "Cidr",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Appeal Network Entry",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/security/rate-limits": {
+      "get": {
+        "description": "The caller's own remaining rate-limit budget.\n\nNot admin-gated: a client that can see how much budget it has left\ncan back off before it gets a 429, which is better for both sides\nthan discovering the limit by hitting it.",
+        "operationId": "rate_limit_status_security_rate_limits_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rate Limit Status",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/servers": {
+      "get": {
+        "operationId": "list_servers_servers_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Servers",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/servers/register": {
+      "post": {
+        "operationId": "register_server_servers_register_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/servers/{server_id}": {
+      "delete": {
+        "description": "Admin-only and destructive: needs ``?confirm=true``.\n\nDeregistering a server orphans every module deployment that pointed\nat it, so it gets the same explicit-confirmation treatment as\ndeleting a module.",
+        "operationId": "delete_server_servers__server_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Server",
+        "tags": [
+          "servers"
+        ]
+      },
+      "patch": {
+        "description": "Admin-only: trust-level changes are a security-relevant escalation\n(\"Verify remote server trust before remote uploads\" only means\nanything if promoting a server to trusted is itself gated).",
+        "operationId": "update_server_servers__server_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/status": {
+      "get": {
+        "operationId": "status_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/usage/by": {
+      "get": {
+        "description": "\"Usage by model / key / server / module / user / account\", as one\nendpoint rather than six near-identical ones.\n\n``group_by`` is checked against the storage layer's allowlist before\nit reaches SQL \u2014 it becomes an identifier, not a bound parameter, so\nit can never be free-form caller input.",
+        "operationId": "usage_by_usage_by_get",
+        "parameters": [
+          {
+            "description": "One of: model_id, key_id, server_id, module_id, user_id, account_id, endpoint",
+            "in": "query",
+            "name": "group_by",
+            "required": true,
+            "schema": {
+              "description": "One of: model_id, key_id, server_id, module_id, user_id, account_id, endpoint",
+              "title": "Group By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Range"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Key Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "server_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Server Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "module_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Module Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageAggregateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage By",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/cost": {
+      "get": {
+        "description": "Actual cost with optional forecast \u2014 totals, date ranges, and\nper-model/per-server breakdowns in one shape.",
+        "operationId": "usage_cost_usage_cost_get",
+        "parameters": [
+          {
+            "description": "One of: model_id, key_id, server_id, module_id, user_id, account_id, endpoint",
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "default": "model_id",
+              "description": "One of: model_id, key_id, server_id, module_id, user_id, account_id, endpoint",
+              "title": "Group By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Range"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Key Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "server_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Server Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "module_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Module Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "description": "Include a spend forecast for the horizon.",
+            "in": "query",
+            "name": "forecast",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include a spend forecast for the horizon.",
+              "title": "Forecast",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "forecast_horizon_seconds",
+            "required": false,
+            "schema": {
+              "default": 2592000.0,
+              "exclusiveMinimum": 0,
+              "title": "Forecast Horizon Seconds",
+              "type": "number"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageCostResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Cost",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/current": {
+      "get": {
+        "operationId": "usage_current_usage_current_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageCurrentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Current",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/estimate": {
+      "post": {
+        "description": "What an operation *would* cost. Records nothing and reserves\nnothing \u2014 see ``t1api.cost``.\n\nPOST rather than GET because it takes a body and, more importantly,\nbecause a cost estimate for a specific prompt size is a question\nabout a proposed operation, not a resource that can be bookmarked.",
+        "operationId": "usage_estimate_usage_estimate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageEstimateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageEstimateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Estimate",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/history": {
+      "get": {
+        "operationId": "usage_history_usage_history_get",
+        "parameters": [
+          {
+            "description": "1h|24h|7d|30d|all",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1h|24h|7d|30d|all",
+              "title": "Range"
+            }
+          },
+          {
+            "description": "POSIX timestamp, inclusive.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "POSIX timestamp, inclusive.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "POSIX timestamp, exclusive.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "POSIX timestamp, exclusive.",
+              "title": "Until"
+            }
+          },
+          {
+            "description": "Admin only; ignored otherwise.",
+            "in": "query",
+            "name": "key_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Admin only; ignored otherwise.",
+              "title": "Key Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "server_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Server Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "module_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Module Id"
+            }
+          },
+          {
+            "description": "Admin only; ignored otherwise.",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Admin only; ignored otherwise.",
+              "title": "User Id"
+            }
+          },
+          {
+            "description": "Admin only; ignored otherwise.",
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Admin only; ignored otherwise.",
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage History",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/remaining": {
+      "get": {
+        "operationId": "usage_remaining_usage_remaining_get",
+        "parameters": [
+          {
+            "description": "Registered model_id to check remaining allowance for.",
+            "in": "query",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "description": "Registered model_id to check remaining allowance for.",
+              "title": "Model Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageRemainingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Remaining",
+        "tags": [
+          "usage"
+        ]
+      }
+    }
+  }
+}

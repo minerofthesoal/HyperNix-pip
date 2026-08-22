@@ -343,6 +343,21 @@ class TestTargetLookup:
 # End to end
 # ---------------------------------------------------------------------------
 
+# The synthetic test autofix-F is supposed to repair. It has to fail
+# *deterministically* before the fix and pass deterministically after it,
+# or the end-to-end tests below become the very thing this suite exists to
+# catch. The original relied on "at least 1µs will have elapsed by the time
+# should_fire() runs", which is a race the test can win: on a fast runner
+# the interval had not elapsed, should_fire() returned False, the test
+# passed, and autofix-F correctly stood down — failing the tests that
+# expected it to act. `_elapse` closes that race by busy-waiting a fixed
+# 100µs, two orders of magnitude past the 1µs interval.
+#
+# It busy-waits rather than calling time.sleep() on purpose: autofix-F
+# scales sleep arguments, and this delay must stay fixed across the repair
+# so the test fails for one reason beforehand and passes for one reason
+# after. plan_edits() only rewrites time.sleep() arguments and time-valued
+# keyword arguments, so a positional call to a local helper is left alone.
 FAILING_TIMER_TEST = textwrap.dedent("""\
     from __future__ import annotations
 
@@ -351,8 +366,15 @@ FAILING_TIMER_TEST = textwrap.dedent("""\
     from hypernix import timer
 
 
+    def _elapse(seconds: float) -> None:
+        deadline = time.perf_counter() + seconds
+        while time.perf_counter() < deadline:
+            pass
+
+
     def test_interval_does_not_fire_immediately() -> None:
         t = timer.IntervalTimer(interval_seconds=1e-06).start()
+        _elapse(1e-04)
         assert t.should_fire() is False
         time.sleep(2e-06)
         assert t.should_fire() is True

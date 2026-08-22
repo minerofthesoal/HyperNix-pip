@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
+from ..audit import AuditCategory, AuditLog, AuditOutcome
 from ..auth import AuthContext
 from ..deps import (
+    get_audit_log,
     get_auth_context,
+    get_client_ip,
     get_event_bus,
     get_request_id,
     get_server_registry,
     require_admin,
+    require_confirmation,
 )
 from ..schemas import (
     ServerDetailResponse,
@@ -60,9 +64,11 @@ def register_server(
 def update_server(
     server_id: str,
     body: ServerUpdateRequest,
+    request: Request,
     ctx: AuthContext = Depends(get_auth_context),
     registry: ServerRegistry = Depends(get_server_registry),
     bus=Depends(get_event_bus),
+    audit: AuditLog = Depends(get_audit_log),
     request_id: str = Depends(get_request_id),
 ) -> ServerDetailResponse:
     """Admin-only: trust-level changes are a security-relevant escalation
@@ -77,6 +83,18 @@ def update_server(
         capabilities=body.capabilities,
         tags=body.tags,
     )
+    audit.record(
+        "server.update",
+        category=AuditCategory.ADMIN,
+        outcome=AuditOutcome.SUCCESS,
+        actor_key_id=ctx.key_id,
+        actor_is_admin=True,
+        resource_type="server",
+        resource_id=server_id,
+        client_ip=get_client_ip(request),
+        request_id=request_id,
+        details={"trust_level": entry.trust_level.value, "status": entry.status.value},
+    )
     bus.publish(
         "server.updated",
         {"server_id": entry.server_id, "trust_level": entry.trust_level.value, "status": entry.status.value},
@@ -88,14 +106,35 @@ def update_server(
 @router.delete("/{server_id}", response_model=ServerDetailResponse)
 def delete_server(
     server_id: str,
+    request: Request,
     ctx: AuthContext = Depends(get_auth_context),
     registry: ServerRegistry = Depends(get_server_registry),
     bus=Depends(get_event_bus),
+    audit: AuditLog = Depends(get_audit_log),
     request_id: str = Depends(get_request_id),
 ) -> ServerDetailResponse:
+    """Admin-only and destructive: needs ``?confirm=true``.
+
+    Deregistering a server orphans every module deployment that pointed
+    at it, so it gets the same explicit-confirmation treatment as
+    deleting a module.
+    """
     require_admin(ctx)
     entry = registry.require(server_id)
+    require_confirmation(request, action="Deleting a server registration")
     registry.delete(server_id)
+    audit.record(
+        "server.delete",
+        category=AuditCategory.ADMIN,
+        outcome=AuditOutcome.SUCCESS,
+        actor_key_id=ctx.key_id,
+        actor_is_admin=True,
+        resource_type="server",
+        resource_id=server_id,
+        client_ip=get_client_ip(request),
+        request_id=request_id,
+        details={"name": entry.name},
+    )
     bus.publish("server.deleted", {"server_id": server_id}, source="servers")
     return ServerDetailResponse(server=_to_item(entry), request_id=request_id)
 

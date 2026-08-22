@@ -1,17 +1,18 @@
 """waiter.cli — argparse-based CLI for the ``waiter`` console script.
 
-Beta 1 scope: everything needed to authenticate against a T1 API server,
-inspect the model registry, and check usage — matching the spec's own
-"Beta 1: ... basic waiter CLI" line. The full curses-style TUI (``-G``)
-and the admin-surface flags that need endpoints the T1 API doesn't expose
-yet (``-B``/``-W``/``-r``/``-a``, full ``-y`` multi-server sync) are Beta
-2/3 — see the spec's own "Beta 3: full waiter TUI" line. Those flags are
-still parsed here (so the command-line contract is stable across betas and
-scripts written against Beta 1 keep working), but they store intent
-locally and print a clear "not wired to a server endpoint yet" message
-instead of silently no-op'ing or pretending to call something that
-doesn't exist — same NOT_SUPPORTED philosophy the spec asks for in
-HyperNix-pip integration, applied to the CLI.
+Complete as of Beta 3: every flag in the spec's ``serv`` list is wired to
+real behaviour. The ones Beta 1/2 could only record locally
+(``-B``/``-W``/``-a``/``-r`` and the full ``-G``/``-Rf``/``-y``) now call
+the server endpoints that Beta 3 added — see ``t1api/routers/security.py``
+for the blacklist/whitelist/appeal/forced-limit surface and
+``waiter/tui.py`` for the curses dashboard.
+
+``-B``/``-W``/``-a``/``-r`` keep writing to the local config *as well as*
+the server. That is deliberate rather than redundant: the local copy is
+what ``waiter config`` shows and what a re-run of ``waiter serv -A``
+re-applies against a rebuilt server, and it is the only record available
+when the operator's key isn't admin (in which case the server call is
+refused and the CLI says so plainly instead of pretending it worked).
 
 Style matches ``hypernix.gkey_cli``: manual dispatch dict, rich-formatted
 output with a plain-text fallback when ``rich`` isn't installed (it's a
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from typing import Any
 
 from .client import T1Client, T1ClientError
@@ -175,10 +177,10 @@ API server. One-shot automatic setup:
 
     waiter serv -A -I <server> -K <T1_TOKEN> -E
 
-Beta 1 wires -A/-I/-K/-E/-F/-s/-L/-P/-H/-R/-g fully. -B/-W/-r/-a/-C/-y/-G
-are accepted (so scripts don't break across betas) but currently only
-store intent locally — see 'ships in Beta N' notes printed at runtime, and
-wiki/Waiter-TUI.md for the up to date list.
+Every flag is wired as of Beta 3. -B/-W/-a/-r apply to the server (admin
+key required) and are also saved locally; -G opens the full TUI; -Rf does
+a complete refresh across models, servers, modules and events; -y
+synchronizes local config against the server's /config and /models.
 """
 
 
@@ -189,15 +191,15 @@ def _build_serv_parser() -> argparse.ArgumentParser:
     p.add_argument("-E", "--encrypt", action="store_true", help="Encrypt the local config/secrets at rest")
     p.add_argument("-s", "--save", action="store_true", help="Save current server/local configuration to a .jsonl file")
     p.add_argument("-L", "--local-only", action="store_true", help="Local/Tailscale/localhost-only mode")
-    p.add_argument("-B", "--blacklist", action="append", default=[], metavar="IP", help="Blacklist an IP address (repeatable)")
-    p.add_argument("-W", "--whitelist", action="append", default=[], metavar="IP", help="Whitelist an IP address (repeatable)")
-    p.add_argument("-r", "--force-limit", action="append", default=[], metavar="KEY_OR_SERVER_ID=LIMIT", help="Force a usage limit on a specific T1 key/server ID")
-    p.add_argument("-a", "--appeal", action="append", default=[], metavar="IP", help="Appeal/remove an IP from the blacklist")
+    p.add_argument("-B", "--blacklist", action="append", default=[], metavar="IP_OR_CIDR", help="Blacklist an IP or CIDR range on the server (repeatable; admin key required)")
+    p.add_argument("-W", "--whitelist", action="append", default=[], metavar="IP_OR_CIDR", help="Allowlist an IP or CIDR range on the server (repeatable; admin key required)")
+    p.add_argument("-r", "--force-limit", action="append", default=[], metavar="SUBJECT=LIMIT", help="Force a limit on a T1 key/server, e.g. key:abc123=60/60s (admin key required)")
+    p.add_argument("-a", "--appeal", action="append", default=[], metavar="IP_OR_CIDR", help="Appeal: remove an IP/CIDR from the server allow/block lists (admin key required)")
     p.add_argument("-C", "--config", dest="extra_config", action="append", default=[], metavar="KEY=VALUE", help="Additional configuration settings")
-    p.add_argument("-G", "--gui", action="store_true", help="Open the full TUI (ships in Beta 3)")
+    p.add_argument("-G", "--gui", action="store_true", help="Open the full curses TUI dashboard")
     p.add_argument("-g", "--cli", action="store_true", help="Open an interactive CLI session")
     p.add_argument("-R", "--refresh", action="store_true", help="Quick refresh: re-validate + re-fetch models")
-    p.add_argument("-Rf", "--force-refresh", dest="force_refresh", action="store_true", help="Force a full refresh (ships in Beta 2 — requires server-push support)")
+    p.add_argument("-Rf", "--force-refresh", dest="force_refresh", action="store_true", help="Force a full refresh: models, servers, modules, events, and config")
     p.add_argument("-y", "--sync", action="store_true", help="Synchronize local config against the server's current /config + /models")
     p.add_argument("--promote-admin", dest="promote_admin", action="store_true", help="After validating, request admin promotion for this key (requires the authenticating key to already be admin-scoped — see POST /auth/t1/admin/rotate)")
     return p
@@ -214,21 +216,124 @@ def _parse_kv_list(items: list[str]) -> dict[str, str]:
     return out
 
 
+def _parse_forced_limit(spec: str) -> dict[str, object] | None:
+    """Parse a ``-r`` value into a forced-limit request.
+
+    Accepted forms (the subject prefix is optional and defaults to
+    ``key``, since capping a key is the common case)::
+
+        key:abc123=60/60s      60 requests per 60 seconds
+        server:srv-1=120/1m    120 requests per minute
+        abc123=1000t/1h        1000 tokens per hour
+
+    Returns None (with a warning) rather than raising on a malformed
+    value: one bad ``-r`` in a long command line should not discard the
+    rest of the setup.
+    """
+    if "=" not in spec:
+        _warn(f"Ignoring malformed -r value (expected SUBJECT=LIMIT/WINDOW): {spec!r}")
+        return None
+    subject, _, limit_spec = spec.partition("=")
+    subject_type, _, subject_id = subject.partition(":")
+    if not subject_id:
+        subject_type, subject_id = "key", subject_type
+    if subject_type not in ("key", "server"):
+        _warn(f"Ignoring -r value with unknown subject type {subject_type!r} (use key: or server:)")
+        return None
+    if "/" not in limit_spec:
+        _warn(f"Ignoring malformed -r limit {limit_spec!r} (expected COUNT/WINDOW, e.g. 60/60s)")
+        return None
+    count_text, _, window_text = limit_spec.partition("/")
+    is_tokens = count_text.strip().lower().endswith("t")
+    try:
+        count = int(count_text.strip().rstrip("tT"))
+        window = _parse_duration(window_text.strip())
+    except ValueError:
+        _warn(f"Ignoring -r value with unparseable numbers: {spec!r}")
+        return None
+    return {
+        "subject_type": subject_type,
+        "subject_id": subject_id,
+        "tokens_per_window" if is_tokens else "requests_per_window": count,
+        "window_seconds": window,
+        "reason": "set via waiter serv -r",
+    }
+
+
+def _parse_duration(text: str) -> float:
+    """``30s`` / ``5m`` / ``2h`` / ``1d`` / a bare number of seconds."""
+    text = text.strip().lower()
+    multipliers = {"s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
+    if text and text[-1] in multipliers:
+        return float(text[:-1]) * multipliers[text[-1]]
+    return float(text)
+
+
+def _apply_network_policy(client: T1Client, args: argparse.Namespace) -> None:
+    """Push -B/-W/-a/-r to the server.
+
+    Each entry is applied independently so one refusal doesn't abort the
+    rest, and an admin-scope refusal is reported once with what it means
+    rather than repeated per entry.
+    """
+    denied_reported = False
+
+    def report(exc: T1ClientError, what: str) -> None:
+        nonlocal denied_reported
+        if exc.code in ("AUTH_ADMIN_REQUIRED", "AUTH_INSUFFICIENT_SCOPE"):
+            if not denied_reported:
+                _err(
+                    "Server refused the network/limit changes: they need an admin-scoped T1 key. "
+                    "They have still been saved to your local config."
+                )
+                denied_reported = True
+        else:
+            _err(f"{what}: {exc}")
+
+    for cidr in args.blacklist:
+        try:
+            client.blacklist_ip(cidr, reason="set via waiter serv -B")
+            _ok(f"Blacklisted {cidr} on the server")
+        except T1ClientError as exc:
+            report(exc, f"Could not blacklist {cidr}")
+
+    for cidr in args.whitelist:
+        try:
+            client.whitelist_ip(cidr, reason="set via waiter serv -W")
+            _ok(f"Allowlisted {cidr} on the server")
+        except T1ClientError as exc:
+            report(exc, f"Could not allowlist {cidr}")
+
+    for cidr in args.appeal:
+        try:
+            client.appeal_ip(cidr)
+            _ok(f"Appealed {cidr} — entry removed on the server")
+        except T1ClientError as exc:
+            if exc.code == "NOT_FOUND":
+                _info(f"  {cidr} had no server-side entry (removed locally only).")
+            else:
+                report(exc, f"Could not appeal {cidr}")
+
+    for spec in args.force_limit:
+        parsed = _parse_forced_limit(spec)
+        if parsed is None:
+            continue
+        try:
+            client.set_forced_limit(**parsed)
+            _ok(
+                f"Forced limit on {parsed['subject_type']}:{str(parsed['subject_id'])[:12]} "
+                f"applied on the server"
+            )
+        except T1ClientError as exc:
+            report(exc, f"Could not force a limit for {spec}")
+
+
 def _cmd_serv(rest: list[str]) -> int:
     args = _build_serv_parser().parse_args(rest)
 
     if not (args.auto or args.save or args.refresh or args.force_refresh or args.sync or args.cli or args.gui):
         _warn("No action flag given (-A/-s/-R/-Rf/-y/-g/-G). Nothing to do — see 'waiter serv --help'.")
         return 1
-
-    if args.gui:
-        _info(
-            "The full curses-style TUI (-G) ships with the complete waiter TUI in "
-            "Beta 3, per the spec's own beta breakdown. Use -g for an interactive "
-            "CLI session in the meantime, or the one-shot subcommands (models/status/usage)."
-        )
-        if not (args.auto or args.save or args.refresh or args.sync):
-            return 0
 
     cfg = _resolve_config(args)
     cfg.local_only = cfg.local_only or args.local_only
@@ -237,6 +342,7 @@ def _cmd_serv(rest: list[str]) -> int:
     if args.appeal:
         before = set(cfg.blacklist)
         cfg.blacklist = sorted(before - set(args.appeal))
+        cfg.whitelist = sorted(set(cfg.whitelist) - set(args.appeal))
         removed = before - set(cfg.blacklist)
         if removed:
             _info(f"Appealed (removed from local blacklist): {', '.join(sorted(removed))}")
@@ -244,17 +350,11 @@ def _cmd_serv(rest: list[str]) -> int:
         cfg.whitelist = sorted(set(cfg.whitelist) | set(args.whitelist))
     if args.extra_config:
         cfg.extra_config.update(_parse_kv_list(args.extra_config))
-
-    if args.blacklist or args.whitelist or args.force_limit or args.appeal:
-        _warn(
-            "-B/-W/-r/-a stored locally, but the T1 API doesn't expose blacklist/"
-            "whitelist/rate-limit-override endpoints yet — that's Beta 2/3 admin-surface "
-            "scope. Nothing was enforced server-side."
-        )
-    if args.extra_config:
-        _warn("-C values stored locally under extra_config; no server-side config endpoint consumes them yet.")
+    if args.force_limit:
+        cfg.forced_limits = sorted(set(cfg.forced_limits) | set(args.force_limit))
 
     store = _load_store(args, encrypt=args.encrypt)
+    policy_flags = bool(args.blacklist or args.whitelist or args.appeal or args.force_limit)
 
     if args.auto:
         if not cfg.server or not cfg.key:
@@ -277,21 +377,44 @@ def _cmd_serv(rest: list[str]) -> int:
                 try:
                     promoted = client.admin_rotate(validated["key_id"], promote_to_admin=True)
                     cfg.key = promoted["key"]
+                    client.credential = promoted["key"]
                     _ok(f"Promoted to admin key {_mask(promoted['key_id'])}")
                 except T1ClientError as exc:
                     _err(f"Admin promotion failed: {exc}")
 
+        if policy_flags:
+            _apply_network_policy(client, args)
+
+        # Show the operator what the server thinks of its own setup —
+        # the single most useful thing to surface right after connecting.
+        try:
+            status = client.status()
+            if not status.get("production_ready", True) and status.get("environment") == "production":
+                _warn(
+                    f"Server reports {len(status.get('production_warnings', []))} production "
+                    "configuration warning(s) — run 'waiter doctor' to see them."
+                )
+        except T1ClientError:
+            pass
+
         path = store.save(cfg)
         _ok(f"Saved config to {path}" + (" (encrypted)" if args.encrypt else ""))
+        if args.gui:
+            return _launch_tui(cfg)
         return 0
 
     if args.save:
         path = store.save(cfg)
         _ok(f"Saved config to {path}" + (" (encrypted)" if args.encrypt else ""))
 
+    if policy_flags and not args.auto:
+        if not cfg.server or not cfg.key:
+            _warn("-B/-W/-a/-r were saved locally, but there's no configured server+key to apply them to.")
+        else:
+            _apply_network_policy(T1Client(base_url=_base_url(cfg), credential=cfg.key), args)
+            store.save(cfg)
+
     if args.refresh or args.force_refresh:
-        if args.force_refresh:
-            _warn("-Rf requested a full forced refresh, which needs server-push support landing in Beta 2. Falling back to a quick refresh (-R semantics).")
         try:
             client = T1Client(base_url=_base_url(cfg), credential=cfg.key)
             validated = client.validate()
@@ -300,24 +423,65 @@ def _cmd_serv(rest: list[str]) -> int:
             _err(f"Refresh failed: {exc}")
             return 1
         _ok(f"Refreshed — key {_mask(validated.get('key_id'))} still valid, {models.get('count', 0)} model(s) visible.")
+        if args.force_refresh:
+            # -Rf: everything, not just identity + models.
+            for label, fetch in (
+                ("servers", lambda: client.list_servers().get("count", 0)),
+                ("modules", lambda: client.list_modules().get("count", 0)),
+                ("events", lambda: client.list_events(limit=50).get("count", 0)),
+            ):
+                try:
+                    _info(f"  {label}: {fetch()}")
+                except T1ClientError as exc:
+                    _warn(f"  {label}: unavailable ({exc.code or exc})")
+            try:
+                remote_config = client.config()["config"]
+                _info(f"  server config: {len(remote_config)} setting(s) visible")
+            except T1ClientError as exc:
+                _warn(f"  server config: unavailable ({exc.code or exc})")
 
     if args.sync:
         try:
             client = T1Client(base_url=_base_url(cfg), credential=cfg.key)
-            remote_config = client.config()
+            remote_config = client.config()["config"]
+            models = client.list_models()
         except T1ClientError as exc:
             _err(f"Sync failed: {exc}")
             return 1
-        _ok("Local config synchronized against server /config.")
-        _info("  (Multi-server synchronization is Beta 2 scope — this syncs against the single configured server only.)")
+        # Mirror the server's own view of the settings a client cares
+        # about, so `waiter config` reflects the server rather than
+        # whatever was typed weeks ago.
+        cfg.extra_config.update(
+            {
+                "server_environment": str(remote_config.get("environment", "")),
+                "server_default_plan": str(remote_config.get("default_plan", "")),
+                "server_storage_backend": str(remote_config.get("storage_backend", "")),
+                "server_model_count": str(models.get("count", 0)),
+            }
+        )
+        _ok(f"Synchronized against {cfg.server} — {models.get('count', 0)} model(s), "
+            f"plan '{remote_config.get('default_plan', '?')}'.")
         if args.as_json:
             _print_json(remote_config)
         store.save(cfg)
+
+    if args.gui:
+        return _launch_tui(cfg)
 
     if args.cli:
         return _interactive_session(cfg, store)
 
     return 0
+
+
+def _launch_tui(cfg: WaiterLocalConfig) -> int:
+    """Open the curses dashboard (``-G`` / ``waiter tui``)."""
+    if not cfg.server:
+        _err("No server configured — run 'waiter serv -A -I <server> -K <key>' first.")
+        return 1
+    from .tui import run as run_tui
+
+    return run_tui(T1Client(base_url=_base_url(cfg), credential=cfg.key))
 
 
 def _interactive_session(cfg: WaiterLocalConfig, store: WaiterConfigStore) -> int:
@@ -724,6 +888,336 @@ def _cmd_billing(rest: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Beta 3 subcommands — keys, audit, security, cost, deploy, tui, doctor, smoke
+# ---------------------------------------------------------------------------
+
+
+def _cmd_tui(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter tui", description="Open the full curses dashboard (same as `waiter serv -G`).")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    return _launch_tui(_resolve_config(args))
+
+
+def _cmd_keys(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter keys", description="List keys, or assign a plan/account/models to one.")
+    p.add_argument("--assign", metavar="KEY_ID", default=None, help="Assign settings to this key_id (admin)")
+    p.add_argument("--plan", default=None, help="Plan to assign with --assign")
+    p.add_argument("--account", dest="account_id", default=None)
+    p.add_argument("--user", dest="user_id", default=None)
+    p.add_argument("--models", default=None, help="Comma-separated model_ids to narrow this key to")
+    p.add_argument("--servers", default=None, help="Comma-separated server_ids to bind this key to")
+    p.add_argument("--import-file", dest="import_file", default=None, help="Import a Keymaster export JSON file (admin)")
+    p.add_argument("--include-inactive", action="store_true")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+
+    if args.import_file:
+        with open(args.import_file, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        result = client.import_keys(payload)
+        _ok(f"Imported {result['imported']} key(s), skipped {result['skipped']} duplicate(s).")
+        return 0
+
+    if args.assign:
+        fields: dict[str, Any] = {}
+        if args.plan is not None:
+            fields["plan"] = args.plan
+        if args.account_id is not None:
+            fields["account_id"] = args.account_id
+        if args.user_id is not None:
+            fields["user_id"] = args.user_id
+        if args.models is not None:
+            fields["allowed_models"] = [m.strip() for m in args.models.split(",") if m.strip()]
+        if args.servers is not None:
+            fields["server_ids"] = [s.strip() for s in args.servers.split(",") if s.strip()]
+        if not fields:
+            _err("--assign needs at least one of --plan/--account/--user/--models/--servers.")
+            return 1
+        assignment = client.assign_key(args.assign, **fields)["assignment"]
+        _ok(f"Assigned {assignment['key_id']} → plan '{assignment['plan']}'")
+        if assignment["allowed_models"]:
+            _info(f"  restricted to: {', '.join(assignment['allowed_models'])}")
+        return 0
+
+    keys = client.list_keys(include_inactive=args.include_inactive)
+    if args.as_json:
+        _print_json([k.raw for k in keys])
+        return 0
+    rows = [
+        [
+            k.key_id,
+            k.key_type,
+            ",".join(k.scopes),
+            k.plan or "-",
+            "yes" if k.active else "no",
+            str(k.request_count),
+        ]
+        for k in keys
+    ]
+    _print_table(["key_id", "type", "scopes", "plan", "active", "requests"], rows, title=f"Keys ({len(keys)})")
+    if not keys:
+        _info("No keys visible. A non-admin key only ever sees itself.")
+    return 0
+
+
+def _cmd_audit(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter audit", description="Read the server's audit trail (admin only).")
+    p.add_argument("--category", default=None, help="admin | security | write | billing")
+    p.add_argument("--action", default=None, help="e.g. keys.assign")
+    p.add_argument("--outcome", default=None, help="success | denied | failure")
+    p.add_argument("--limit", type=int, default=50)
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    payload = client.audit_events(
+        category=args.category, action=args.action, outcome=args.outcome, limit=args.limit
+    )
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    rows = [
+        [
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["ts"])),
+            e["category"],
+            e["action"],
+            e["outcome"],
+            e["actor_key_id"] or "-",
+            e["client_ip"] or "-",
+        ]
+        for e in payload["events"]
+    ]
+    _print_table(
+        ["when", "category", "action", "outcome", "actor", "ip"],
+        rows,
+        title=f"Audit ({payload['count']} of {payload['total']})",
+    )
+    return 0
+
+
+def _cmd_security(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter security", description="Inspect and edit the server's network policy and forced limits.")
+    p.add_argument("--block", metavar="CIDR", default=None, help="Blacklist an IP/CIDR")
+    p.add_argument("--allow", metavar="CIDR", default=None, help="Allowlist an IP/CIDR")
+    p.add_argument("--appeal", metavar="CIDR", default=None, help="Remove an allow/block entry")
+    p.add_argument("--reason", default="", help="Reason recorded with --block/--allow")
+    p.add_argument("--allow-unlisted", dest="allow_unlisted", choices=["on", "off"], default=None,
+                   help="Whether clients on neither list may connect")
+    p.add_argument("--limits", action="store_true", help="Show forced limits instead of the IP lists")
+    p.add_argument("--my-rate-limits", action="store_true", help="Show your own remaining rate-limit budget")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+
+    if args.my_rate_limits:
+        payload = client.rate_limit_status()
+        rows = [[r["rule"], f"{r['remaining']:.0f}/{r['capacity']:.0f}", f"{r['refill_per_second']}/s"] for r in payload["rules"]]
+        _print_table(["rule", "remaining", "refill"], rows, title=f"Your rate limits (enabled={payload['enabled']})")
+        return 0
+
+    if args.block:
+        client.blacklist_ip(args.block, reason=args.reason)
+        _ok(f"Blocked {args.block}")
+    if args.allow:
+        client.whitelist_ip(args.allow, reason=args.reason)
+        _ok(f"Allowlisted {args.allow}")
+    if args.appeal:
+        client.appeal_ip(args.appeal)
+        _ok(f"Removed {args.appeal} from the server's lists")
+    if args.allow_unlisted is not None:
+        client.set_allow_unlisted(args.allow_unlisted == "on")
+        _ok(f"Unlisted clients may now connect: {args.allow_unlisted == 'on'}")
+
+    if args.limits:
+        limits = client.list_forced_limits()
+        rows = [
+            [
+                f"{limit['subject_type']}:{limit['subject_id']}",
+                str(limit["requests_per_window"] or "-"),
+                str(limit["tokens_per_window"] or "-"),
+                f"{limit['window_seconds']:g}s",
+                limit["reason"],
+            ]
+            for limit in limits
+        ]
+        _print_table(["subject", "requests", "tokens", "window", "reason"], rows, title=f"Forced limits ({len(limits)})")
+        return 0
+
+    payload = client.network_policy()
+    if args.as_json:
+        _print_json(payload)
+        return 0
+    rows = [[e["cidr"], e["kind"], e["reason"], "expired" if e["expired"] else "active"] for e in payload["entries"]]
+    _print_table(["cidr", "kind", "reason", "state"], rows, title=f"Network policy ({payload['count']})")
+    _info(
+        f"  unlisted clients may connect: {payload['allow_unlisted_clients']} "
+        f"(policy enforcement enabled: {payload['enabled']})"
+    )
+    return 0
+
+
+def _cmd_cost(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter cost", description="Show spend, breakdowns, and a forecast.")
+    p.add_argument("--group-by", dest="group_by", default="model_id",
+                   help="model_id | key_id | server_id | module_id | user_id | account_id | endpoint")
+    p.add_argument("--range", dest="range_", default="30d", help="1h | 24h | 7d | 30d | all")
+    p.add_argument("--forecast", action="store_true", help="Include a spend forecast")
+    p.add_argument("--estimate-model", dest="estimate_model", default=None, help="Estimate a prospective call instead")
+    p.add_argument("--input-tokens", dest="input_tokens", type=int, default=0)
+    p.add_argument("--output-tokens", dest="output_tokens", type=int, default=None)
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+
+    if args.estimate_model:
+        estimate = client.estimate_cost(
+            model_id=args.estimate_model,
+            input_tokens=args.input_tokens,
+            output_tokens=args.output_tokens,
+        )
+        if args.as_json:
+            _print_json(estimate)
+            return 0
+        _print_table(
+            ["field", "value"],
+            [[k, str(v)] for k, v in estimate.items() if k != "request_id"],
+            title=f"Estimate — {args.estimate_model}",
+        )
+        return 0
+
+    report = client.usage_cost(group_by=args.group_by, range=args.range_, forecast=args.forecast)
+    if args.as_json:
+        _print_json(report.raw)
+        return 0
+    rows = [
+        [line["value"], str(line["requests"]), str(line["total_tokens"]), f"{line['total_cost']:.6f}"]
+        for line in report.lines
+    ]
+    _print_table(
+        [args.group_by, "requests", "tokens", "cost"],
+        rows,
+        title=f"Cost — {report.total_cost:.6f} {report.currency} over {args.range_}",
+    )
+    if report.unpriced_models:
+        _warn(
+            "Usage recorded against models no longer in the registry (priced at 0): "
+            + ", ".join(report.unpriced_models)
+        )
+    if report.forecast:
+        f = report.forecast
+        _info(
+            f"  Forecast: {f['projected_cost']:.6f} {f['currency']} over "
+            f"{f['horizon_seconds'] / 86400:.0f}d — {f['confidence']} confidence. {f['basis']}"
+        )
+    return 0
+
+
+def _cmd_deploy(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter deploy", description="Push a module to one or more trusted servers and watch the job.")
+    p.add_argument("module_id")
+    p.add_argument("--to", dest="server_ids", required=True, help="Comma-separated server_ids")
+    p.add_argument("--wait", action="store_true", help="Block until the deployment job settles")
+    p.add_argument("--timeout", type=float, default=300.0)
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, _ = _client_for(args)
+    server_ids = [s.strip() for s in args.server_ids.split(",") if s.strip()]
+
+    queued = client.deploy_module(args.module_id, server_ids)
+    _ok(f"Queued deployment job {queued['job_id'][:8]}… to {len(server_ids)} server(s)")
+    if not args.wait:
+        _info(f"  watch it with: waiter jobs get {queued['job_id']}")
+        return 0
+
+    job = client.wait_for_job(queued["job_id"], timeout=args.timeout)
+    if not job.succeeded:
+        _err(f"Deployment {job.status}: {job.error or 'no error recorded'}")
+        for failure in (job.result or {}).get("failed", []):
+            _info(f"  {failure['server_id']}: {failure['error_code']} — {failure['message']}")
+        return 1
+    delivered = (job.result or {}).get("delivered", [])
+    _ok(f"Deployed to {len(delivered)} server(s)")
+    for item in delivered:
+        _info(f"  {item['server_id']}: {item['bytes_transferred']} bytes, sha256={item['checksum'][:12]}…")
+    return 0
+
+
+def _cmd_doctor(rest: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="waiter doctor", description="Check a server's configuration and report anything unsafe for production.")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, cfg = _client_for(args)
+    # waiter's T1Client overrides status() to return the raw envelope,
+    # because that is what the CLI's table renderers consume. Doctor wants
+    # the typed view, so it builds one rather than reaching past the
+    # override — which is what it used to do, and it crashed with
+    # "'dict' object has no attribute 'environment'" the first time it ran
+    # against a real server.
+    from ..t1sdk.models import ServerStatus
+
+    raw = client.status()
+    status = ServerStatus.from_dict(raw)
+
+    if args.as_json:
+        _print_json(raw)
+        return 0
+
+    _print_table(
+        ["check", "value"],
+        [
+            ["environment", status.environment],
+            ["beta", status.beta],
+            ["t1 api version", status.t1_api_version],
+            ["hypernix version", status.hypernix_version],
+            ["storage backend", status.storage_backend],
+            ["TLS", str(status.tls_enabled)],
+            ["mTLS mode", status.mtls_mode],
+            ["rate limiting", str(status.rate_limit_enabled)],
+            ["audit logging", str(status.audit_enabled)],
+            ["network policy", str(status.network_policy_enabled)],
+            ["unlisted clients", str(status.allow_unlisted_clients)],
+            ["remote deployment", str(status.remote_deployment_enabled)],
+            ["production ready", str(status.production_ready)],
+        ],
+        title=f"Server health — {cfg.server}",
+    )
+    secrets = status.secrets_configured
+    if secrets:
+        _print_table(
+            ["secret", "configured"],
+            [[name, "yes" if value else "NO"] for name, value in secrets.items()],
+            title="Secrets (set/unset only — values are never exposed)",
+        )
+    if status.production_warnings:
+        _warn(f"{len(status.production_warnings)} configuration warning(s):")
+        for warning in status.production_warnings:
+            _info(f"  • {warning}")
+        return 0 if status.environment != "production" else 1
+    _ok("No configuration warnings reported.")
+    return 0
+
+
+def _cmd_smoke(rest: list[str]) -> int:
+    """CLI smoke-testing tool (spec deliverable #11)."""
+    from .smoke import run_smoke_tests
+
+    p = argparse.ArgumentParser(prog="waiter smoke", description="Run read-only smoke tests against a T1 API server.")
+    p.add_argument("--write", action="store_true", help="Also run write tests (creates and deletes a scratch module)")
+    p.add_argument("--fail-fast", action="store_true", help="Stop at the first failure")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, cfg = _client_for(args)
+    return run_smoke_tests(
+        client,
+        base_url=cfg.server or "",
+        include_write=args.write,
+        fail_fast=args.fail_fast,
+        as_json=args.as_json,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -744,6 +1238,14 @@ Usage:
   waiter jobs     get|cancel <job_id>
   waiter events   Poll recent events (--limit, --since)
   waiter billing  Balance/transactions, or --redeem <token>
+  waiter cost     Spend, per-model/server breakdowns, forecasts, estimates
+  waiter keys     List keys; --assign a plan/account/models; --import-file
+  waiter deploy   Push a module to trusted servers (--to, --wait)
+  waiter security Network policy (--block/--allow/--appeal), forced limits
+  waiter audit    Read the server's audit trail (admin)
+  waiter doctor   Check a server's configuration for production readiness
+  waiter smoke    Run smoke tests against a server
+  waiter tui      Open the full curses dashboard (same as `waiter serv -G`)
   waiter config   Show the locally saved config
 
 Every subcommand accepts -I/-K/-F/-P/-H to override the saved config for
@@ -783,6 +1285,14 @@ def main(argv: list[str] | None = None) -> int:
         "jobs": _cmd_jobs,
         "events": _cmd_events,
         "billing": _cmd_billing,
+        "keys": _cmd_keys,
+        "audit": _cmd_audit,
+        "security": _cmd_security,
+        "cost": _cmd_cost,
+        "deploy": _cmd_deploy,
+        "tui": _cmd_tui,
+        "doctor": _cmd_doctor,
+        "smoke": _cmd_smoke,
     }
 
     if cmd not in dispatch:
