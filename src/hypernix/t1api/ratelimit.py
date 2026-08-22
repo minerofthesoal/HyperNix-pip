@@ -130,8 +130,18 @@ class _Bucket:
     tokens: float
     last_refill: float
 
-    def take(self, cost: float, rule: RateRule, now: float) -> tuple[bool, float]:
-        """Consume *cost* if available. Returns ``(allowed, retry_after)``."""
+    def take(self, cost: float, rule: RateRule, now: float) -> tuple[bool, float | None]:
+        """Consume *cost* if available. Returns ``(allowed, retry_after)``.
+
+        ``retry_after`` is ``None`` when the bucket never refills
+        (``refill_per_second <= 0``), meaning "not by waiting" rather than
+        any number of seconds. It is deliberately not ``float("inf")``:
+        that value reaches a JSON response body — where Python emits a
+        bare ``Infinity`` that is not valid JSON — and a ``Retry-After``
+        header, where converting it to an int raises OverflowError. A
+        rule that can never be satisfied by waiting has to say so in a
+        form the wire can carry.
+        """
         elapsed = max(0.0, now - self.last_refill)
         self.tokens = min(rule.capacity, self.tokens + elapsed * rule.refill_per_second)
         self.last_refill = now
@@ -139,7 +149,7 @@ class _Bucket:
             self.tokens -= cost
             return True, 0.0
         if rule.refill_per_second <= 0:
-            return False, float("inf")
+            return False, None
         return False, (cost - self.tokens) / rule.refill_per_second
 
 
@@ -293,14 +303,20 @@ class RateLimiter:
                     continue
                 allowed, retry_after = self._take(rule, subject, request_cost, now)
                 if not allowed:
+                    when = (
+                        f"Retry in {retry_after:.1f}s."
+                        if retry_after is not None
+                        else "This limit does not refill; it will not clear by waiting."
+                    )
                     raise T1APIError(
                         T1ErrorCode.RATE_LIMITED,
-                        f"Rate limit '{rule.name}' exceeded for {subject.kind}. "
-                        f"Retry in {retry_after:.1f}s.",
+                        f"Rate limit '{rule.name}' exceeded for {subject.kind}. {when}",
                         details={
                             "rule": rule.name,
                             "subject_kind": subject.kind,
-                            "retry_after_seconds": round(retry_after, 2),
+                            "retry_after_seconds": (
+                                round(retry_after, 2) if retry_after is not None else None
+                            ),
                             "cost": request_cost,
                         },
                         http_status=429,
@@ -388,7 +404,9 @@ class RateLimiter:
                 self._forced_windows[key] = window
         return window
 
-    def _take(self, rule: RateRule, subject: Subject, cost: float, now: float) -> tuple[bool, float]:
+    def _take(
+        self, rule: RateRule, subject: Subject, cost: float, now: float
+    ) -> tuple[bool, float | None]:
         key = (rule.name, str(subject))
         with self._lock:
             bucket = self._buckets.get(key)

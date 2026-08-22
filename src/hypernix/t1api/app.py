@@ -46,6 +46,7 @@ and a stage that is off says so in ``GET /status``.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 
@@ -328,11 +329,14 @@ def create_app(
             credential = _credential_fingerprint(request)
             if credential:
                 subjects.append(Subject("key", credential))
-            limiter.check(
-                subjects,
-                path=_unprefixed(request.url.path, prefix),
-                method=request.method,
-            )
+            try:
+                limiter.check(
+                    subjects,
+                    path=_unprefixed(request.url.path, prefix),
+                    method=request.method,
+                )
+            except T1APIError as exc:
+                return _error_response(request, exc)
         return await call_next(request)
 
     @app.middleware("http")
@@ -344,7 +348,10 @@ def create_app(
                 transport_cert=_transport_cert(request),
             )
             request.state.client_cert = cert
-            cert_verifier.require(cert, path=_unprefixed(request.url.path, prefix))
+            try:
+                cert_verifier.require(cert, path=_unprefixed(request.url.path, prefix))
+            except T1APIError as exc:
+                return _error_response(request, exc)
         return await call_next(request)
 
     @app.middleware("http")
@@ -358,7 +365,10 @@ def create_app(
         client_ip = resolve_client_ip(request)
         request.state.client_ip = client_ip
         if cfg.network_policy_enabled:
-            policy.require_allowed(client_ip)
+            try:
+                policy.require_allowed(client_ip)
+            except T1APIError as exc:
+                return _error_response(request, exc)
         return await call_next(request)
 
     @app.middleware("http")
@@ -376,10 +386,20 @@ def create_app(
             )
         return response
 
-    @app.exception_handler(T1APIError)
-    async def _t1_error_handler(request: Request, exc: T1APIError) -> JSONResponse:
+    def _error_response(request: Request, exc: T1APIError) -> JSONResponse:
+        """Render a T1APIError as the documented JSON envelope.
+
+        Shared by the exception handler *and* the middleware stack.
+        Starlette only routes exceptions raised inside the application to
+        ``@app.exception_handler``; one raised in an outer
+        ``@app.middleware("http")`` propagates past it and surfaces as a
+        bare 500 with no error code. Since every Beta 3 security check
+        (network policy, mTLS, rate limiting) runs as middleware and
+        signals refusal by raising, they each catch and render through
+        this instead of relying on a handler that will never see them.
+        """
         status_code = exc.http_status or _STATUS_FOR_CODE.get(exc.code, 500)
-        request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+        request_id = getattr(request.state, "request_id", None) or uuid.uuid4().hex
         # Never log the credential itself — only the (already-safe) error
         # code, message, and request id.
         logger.info(
@@ -401,10 +421,14 @@ def create_app(
         headers = {"X-Request-ID": request_id}
         if exc.code == T1ErrorCode.RATE_LIMITED:
             retry_after = exc.details.get("retry_after_seconds")
-            if retry_after is not None:
-                # Give clients something actionable rather than making
-                # them guess a backoff.
+            # None means "not by waiting" (a rule that never refills), and
+            # a non-finite value would raise on the int() below — in both
+            # cases the honest thing is to send no Retry-After at all
+            # rather than a number the client would trust.
+            if retry_after is not None and math.isfinite(float(retry_after)):
                 headers["Retry-After"] = str(max(1, int(float(retry_after)) + 1))
+        for header, value in _SECURITY_HEADERS.items():
+            headers.setdefault(header, value)
         return JSONResponse(
             status_code=status_code,
             content={
@@ -413,6 +437,10 @@ def create_app(
             },
             headers=headers,
         )
+
+    @app.exception_handler(T1APIError)
+    async def _t1_error_handler(request: Request, exc: T1APIError) -> JSONResponse:
+        return _error_response(request, exc)
 
     for router in ALL_ROUTERS:
         app.include_router(router, prefix=prefix)

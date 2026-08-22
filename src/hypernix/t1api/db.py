@@ -64,15 +64,26 @@ _STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
 def to_pg_placeholders(sql: str) -> str:
     """Rewrite SQLite ``?`` placeholders to psycopg ``%s``.
 
-    ``?`` inside a single-quoted string literal is preserved, and any
-    literal ``%`` elsewhere is doubled so psycopg's own ``%`` formatting
-    doesn't misread it.
+    The two substitutions have deliberately different scopes:
+
+    * ``?`` → ``%s`` **outside string literals only**. A question mark
+      inside ``'...'`` is data — ``WHERE note LIKE '%?%'`` asks about a
+      literal question mark — and rewriting it would corrupt the query.
+    * ``%`` → ``%%`` **everywhere, literals included**. psycopg scans the
+      whole statement for its own ``%`` placeholders before executing, so
+      a bare ``%`` inside a string literal is a syntax error to it (``%?``
+      is not a valid placeholder), not an escape it politely ignores.
+      psycopg collapses ``%%`` back to a single ``%`` during
+      interpolation, so doubling preserves the literal's value.
+
+    Getting the second scope wrong is silent until a query happens to
+    contain a LIKE pattern, which is why it is spelled out here.
     """
     out: list[str] = []
     pos = 0
     for match in _STRING_LITERAL_RE.finditer(sql):
         out.append(sql[pos : match.start()].replace("%", "%%").replace("?", "%s"))
-        out.append(match.group(0))
+        out.append(match.group(0).replace("%", "%%"))
         pos = match.end()
     out.append(sql[pos:].replace("%", "%%").replace("?", "%s"))
     return "".join(out)
