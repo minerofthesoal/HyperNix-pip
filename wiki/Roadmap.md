@@ -17,6 +17,34 @@
 - Real `/key` persistence to `~/.hypernix/config.json`
 - Dropped OpenClaw-inspired branding
 
+## 0.71.5b1 → b3 — HyperNix T1 API (Shipped)
+
+A controlled HTTP gateway into HyperNix-pip (`hypernix.t1api`), its client
+SDK (`hypernix.t1sdk`), and the `waiter` TUI/CLI. Delivered in three
+betas; see [T1-API.md](T1-API.md) for the contract and
+[Waiter-TUI.md](Waiter-TUI.md) for the client.
+
+- **b1** — core FastAPI server, T1 auth + scoped tokens, the model
+  registry, per-key/per-model usage tracking, SQLite, OpenAPI docs, the
+  basic `waiter` CLI
+- **b2** — module registry and upload/sync, server registry, async jobs,
+  event streaming, the quota-cascade routing engine, billing and payment
+  tokens, Tailscale/local deployment
+- **b3** — production hardening: PostgreSQL, audit logging, mTLS,
+  advanced rate limiting, IP allow/blocklists, real remote multi-server
+  module transport, the key directory, cost/estimates/forecasts, the
+  complete SDK, the full curses TUI, production configuration validation,
+  deployment examples, and a security audit checklist
+
+Open, deliberately: module blobs are checksummed but not encrypted at
+rest — see [T1-API.md#known-limitation](T1-API.md#known-limitation).
+
+## 0.71.5b4 (Next)
+
+- `hyped-pro` T1-key support against a local or remote T1 API server
+- `hyped-pro` auto-displaying the current public release version
+- `qwen3.8-27b` registry entry
+
 ## 0.72.0 (Next Milestone)
 
 - Advanced multi-agent orchestration & subagent execution protocols

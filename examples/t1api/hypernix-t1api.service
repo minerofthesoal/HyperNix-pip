@@ -1,0 +1,72 @@
+# systemd unit for the HyperNix T1 API.
+#
+#   sudo cp examples/t1api/hypernix-t1api.service /etc/systemd/system/
+#   sudo cp examples/t1api/.env.example /etc/hypernix/t1api.env   # then edit
+#   sudo systemctl daemon-reload && sudo systemctl enable --now hypernix-t1api
+#
+# The hardening below is not decoration. This process serves an
+# authenticated API, stores credentials-adjacent material, and accepts
+# module uploads from the network; the sandbox is what keeps a bug in any
+# of that from reaching the rest of the machine.
+
+[Unit]
+Description=HyperNix T1 API
+Documentation=https://github.com/minerofthesoal/hypernix-pip/blob/main/wiki/T1-API.md
+After=network-online.target
+Wants=network-online.target
+# Uncomment when using the PostgreSQL backend on the same host.
+# After=postgresql.service
+# Requires=postgresql.service
+
+[Service]
+Type=exec
+User=hypernix
+Group=hypernix
+
+# Secrets live in a file readable only by this unit's user, not in the
+# unit (which is world-readable) and not on the command line (which is
+# visible in `ps`).
+EnvironmentFile=/etc/hypernix/t1api.env
+
+WorkingDirectory=/var/lib/hypernix
+ExecStart=/usr/bin/env python3 -m uvicorn hypernix.t1api.app:create_app \
+    --factory --host 127.0.0.1 --port 8000 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
+
+# A production config that fails validation exits non-zero at startup, so
+# restart=on-failure would loop on it forever. `always` with a backoff and
+# a start-limit means a genuine crash recovers while a misconfiguration
+# lands in `systemctl status` instead of spinning.
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# --- sandbox ---------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+# The only paths it may write: its database and its module blob store.
+ReadWritePaths=/var/lib/hypernix
+# Outbound HTTP for module transfer and remote fetch; nothing else.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

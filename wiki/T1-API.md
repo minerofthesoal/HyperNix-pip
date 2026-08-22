@@ -5,9 +5,10 @@ mountable into any Python server. The client requests an operation; the
 server decides what exists, what's available, and how much is left — see
 [Design principle](#design-principle).
 
-**Status: Beta 2** (`0.71.5b2`). This page is the living contract for
-what's actually implemented vs. planned — cross-reference against the
-[Roadmap](#roadmap) before assuming an endpoint exists.
+**Status: Beta 3** (`0.71.5b3`) — feature-complete against the T1 API
+spec. This page is the living contract for what's actually implemented vs.
+planned; cross-reference against the [Roadmap](#roadmap) before assuming
+an endpoint exists.
 
 ## Contents
 
@@ -18,11 +19,21 @@ what's actually implemented vs. planned — cross-reference against the
 - [Authentication](#authentication)
 - [Quota & usage](#quota--usage)
 - [Model routing & quota cascade](#model-routing--quota-cascade)
+- [Keys, plans, and assignment](#keys-plans-and-assignment)
 - [Servers](#servers)
 - [Modules](#modules)
+- [Remote multi-server deployment](#remote-multi-server-deployment)
 - [Jobs](#jobs)
 - [Events](#events)
 - [Billing](#billing)
+- [Cost, estimates, and forecasts](#cost-estimates-and-forecasts)
+- [Audit log](#audit-log)
+- [Rate limiting](#rate-limiting)
+- [Network policy](#network-policy)
+- [TLS and mTLS](#tls-and-mtls)
+- [PostgreSQL](#postgresql)
+- [Production deployment](#production-deployment)
+- [The SDK](#the-sdk)
 - [Endpoint reference](#endpoint-reference)
 - [Configuration](#configuration)
 - [Security](#security)
@@ -99,17 +110,40 @@ matter on the server.
 
 ```
 hypernix/t1api/
-  errors.py     stable T1ErrorCode enum + T1APIError            (stdlib only)
-  registry.py   ModelRegistry / ModelEntry — the model registry (stdlib only)
-  storage.py    UsageStore — SQLite usage events                (stdlib only)
+  errors.py     stable T1ErrorCode enum + T1APIError             (stdlib only)
+  registry.py   ModelRegistry / ModelEntry — the model registry  (stdlib only)
+  db.py         SQLiteBackend / PostgresBackend + translation    (stdlib only*)
+  storage.py    UsageStore — usage events, history, aggregates   (stdlib only*)
   usage.py      UsageMeter — per-key/model usage + exhaustion    (stdlib only)
+  cost.py       CostCalculator — pricing, estimates, forecasts   (stdlib only)
   auth.py       T1AuthService — wraps Keymaster + Gatekeeper     (stdlib only)
-  config.py     T1APIConfig — env-var configuration              (stdlib only)
-  schemas.py    Pydantic request/response models                 (needs [t1api])
-  deps.py       FastAPI Depends() wiring                          (needs [t1api])
-  app.py        create_app() factory                              (needs [t1api])
-  routers/      health, auth, models, usage, config                (needs [t1api])
+  keys.py       KeyDirectory — plans, assignment, model narrowing(stdlib only)
+  routing.py    RoutingEngine — plan cascades, quota fallback    (stdlib only)
+  servers.py    ServerRegistry — registration + trust levels     (stdlib only)
+  modules.py    ModuleRegistry — blobs, checksums, versioning    (stdlib only)
+  transport.py  ModuleTransport — signed push, guarded fetch     (stdlib only)
+  deploy.py     DeploymentCoordinator — the job handlers         (stdlib only)
+  jobs.py       JobQueue — queued/running/succeeded/failed/...   (stdlib only)
+  events.py     EventBus — in-process pub/sub                    (stdlib only)
+  billing.py    BillingLedger — balances, payment tokens         (stdlib only)
+  audit.py      AuditLog — durable, queryable, secret-scrubbed   (stdlib only)
+  ratelimit.py  RateLimiter — token bucket + sliding window      (stdlib only)
+  netpolicy.py  NetworkPolicy — IP allow/block, forced limits    (stdlib only)
+  mtls.py       TLSSettings / ClientCertVerifier                 (stdlib only)
+  security.py   SSRF + path-traversal guards                     (stdlib only)
+  config.py     T1APIConfig — env vars + production validation   (stdlib only)
+  schemas.py    Pydantic request/response models                  (needs [t1api])
+  deps.py       FastAPI Depends() wiring                           (needs [t1api])
+  app.py        create_app() factory + middleware stack            (needs [t1api])
+  routers/      health auth models usage config servers modules
+                jobs events billing keys audit security           (needs [t1api])
+
+hypernix/t1sdk/    the client SDK          (stdlib only, no server extra needed)
+hypernix/waiter/   the waiter TUI/CLI      (stdlib only, sits on the SDK)
 ```
+
+\* `db.py` and `storage.py` import psycopg lazily, and only when
+`T1_DATABASE_URL` is actually set.
 
 The core/HTTP split is deliberate: routing, quota math, and registry
 enforcement are testable (and reusable, e.g. from `waiter` or a future
@@ -362,6 +396,377 @@ implementation doesn't attempt.
   integration (the spec's "actual cost"/"estimated cost" usage endpoints)
   is Beta 3 scope.
 
+## Keys, plans, and assignment
+
+`GET /keys`, `POST /keys/import`, `POST /keys/assign` — and the thing they
+imply that matters more than the endpoints.
+
+**A plan is not something a client can name.** It is a property of an
+*assignment* an administrator records against a key:
+
+```bash
+waiter keys --assign <KEY_ID> --plan paired --account acct-42
+waiter keys --assign <KEY_ID> --models nanonix-nano,nanonix-mini-lite
+```
+
+`POST /models/route` then resolves the plan from that assignment. Passing
+`plan` in the request body is an *assertion*, not a selection: matching is
+accepted, mismatching returns `AUTH_INSUFFICIENT_SCOPE`. That makes the
+body field useful as a guard ("fail if this key isn't on the plan I
+expect") and useless as an escalation.
+
+`allowed_models` narrows a key to a subset of the registry. Every entry is
+validated against the registry when the assignment is written, so an
+assignment can never smuggle in a model id the registry never heard of.
+The narrowing is checked on manual selection *and* on the model automatic
+routing lands on — the cascade is plan-shaped and the narrowing is
+key-shaped, so the two can disagree and the outcome is checked too.
+
+**No endpoint here ever returns a raw key.** `GET /keys` returns masked
+ids and metadata; `POST /keys/import` returns counts and masked ids even
+though it must read key material to do its job. The only endpoint in the
+entire API that hands back a key string is rotation, which mints a new
+one.
+
+Division of responsibility: `hypernix.security.keymaster` owns key
+*lifecycle* (creation, the raw string, encryption at rest, rotation,
+revocation). `t1api.keys` owns T1-specific *assignment* in its own table.
+A key can be rotated without this module knowing, and the assignment
+survives, because it is keyed by `key_id`.
+
+## Remote multi-server deployment
+
+Beta 2's module "sync" was bookkeeping: it trust-gated a target and
+recorded that a sync happened, moving no bytes, and said so. Beta 3 moves
+the bytes.
+
+```bash
+waiter servers --register deploy-01 --address https://deploy-01.example.com
+waiter servers                          # note the server_id
+# promote it — an admin action, audited, and the gate every push checks
+waiter security --help                  # (trust promotion is PATCH /servers/{id})
+waiter deploy <MODULE_ID> --to <SERVER_ID_1>,<SERVER_ID_2> --wait
+```
+
+Four rules, each enforced in code rather than documented as an
+expectation:
+
+1. **The target must already be trusted.** A push goes only to a server an
+   admin promoted to `trusted`/`local`. The caller names a *server_id*;
+   the address comes from the registry. There is no code path anywhere
+   that pushes to a URL a client supplied.
+2. **Every transfer is authenticated and integrity-checked.** Pushes carry
+   an HMAC-SHA256 signature over `method|path|timestamp|body-digest` using
+   `T1_DEPLOY_SECRET`, plus the payload's SHA-256. The receiver
+   (`POST /modules/receive`) recomputes both. A signature that is missing,
+   stale (outside a 300-second window), or wrong is rejected before the
+   body is stored. The sender then compares the digest the receiver echoes
+   back: a cheerful `200` with the wrong digest fails the deployment.
+3. **Bytes are never executed, imported, or interpreted** — on either
+   side. A module is an opaque blob with a checksum. That is the whole
+   answer to "prevent arbitrary remote code execution through module
+   upload/deployment": there is no deserialization step to attack.
+4. **Fetches are bounded and pinned.** `POST /modules/{id}/fetch` stages a
+   *registered* remote source — the URL comes from the registry entry that
+   `POST /modules/upload/remote` validated, never from the job payload.
+   Redirects are refused outright, because following one is precisely how
+   an SSRF check gets bypassed: the first hop passes validation, the
+   second goes wherever the attacker wants.
+
+`POST /modules/receive` authenticates with the shared deployment secret
+rather than a T1 key, because a peer server is not a user and giving every
+deployment target an admin key just to receive bytes would be a far larger
+grant than it needs.
+
+## Cost, estimates, and forecasts
+
+`GET /usage/cost`, `POST /usage/estimate`, and the cost half of
+`GET /usage/history`.
+
+Every number comes from two places and nowhere else: recorded usage events
+and the registry entry's `pricing` block. There is no second price list — a
+model's price is a registry fact, so changing it is a registry change, and
+a model that isn't registered has no price and cannot be costed.
+
+Two honesty rules shape the API:
+
+- **Estimates are labelled estimates.** `POST /usage/estimate` records
+  nothing and reserves nothing. Omitting `output_tokens` gives an *upper*
+  bound using the model's `output_token_limit`, so an estimate is never an
+  optimistic guess a caller could be surprised by.
+- **Forecasts state their basis.** A forecast returns the observation
+  window it extrapolated from and a confidence band, because "you will
+  spend $340 this month" derived from eleven minutes of history is a
+  number that should arrive with that context attached.
+
+Usage recorded against a model that has since left the registry is still
+reported — priced at zero and listed in `unpriced_models`, so the gap is
+visible rather than silently folded into the total.
+
+```bash
+waiter cost --range 30d --group-by model_id --forecast
+waiter cost --estimate-model nanonix-nano --input-tokens 5000
+```
+
+## Audit log
+
+`GET /audit`, admin-only, and reading it is itself audited — otherwise
+"who has been reading the audit trail" is the one question it cannot
+answer.
+
+Three categories are recorded: **administrator actions** (anything gated by
+`require_admin`), **security events** (auth failures, scope denials,
+rate-limit trips, blocked IPs, SSRF and path-traversal rejections, mTLS
+failures), and **state-changing writes**.
+
+What is never recorded is secrets. `mask_identifier` is the only way an
+identifier reaches a record, and `scrub_details` drops any field whose
+*name* looks secret-ish — `key`, `token`, `secret`, `password`,
+`authorization`, `dsn`, `credential` — regardless of what the caller
+passed. That is deny-by-name at write time, so a future call site that
+accidentally hands over a raw key cannot write it to disk. Identifiers
+that merely *look* like secrets by name (`key_id`, `payment_token_id`) are
+carved out, because stripping them would remove exactly what makes a
+record useful.
+
+An audit write never takes down the request it describes: `record()`
+catches and logs storage failures. `record_strict()` exists for the
+handful of cases where an unrecorded success is worse than a failed
+request.
+
+```bash
+waiter audit --category admin --limit 20
+waiter audit --outcome denied
+```
+
+## Rate limiting
+
+Middleware, running **before** the route handler — which is what the
+spec's "apply rate limits before expensive model operations" means in
+practice. A limiter that runs after routing and metering have already
+happened has not protected anything.
+
+Two algorithms, because they answer different questions:
+
+- A **token bucket** answers "may this caller make a request right now?",
+  allowing a short burst above the steady rate. That is the right shape
+  for interactive clients like the waiter TUI, which idles and then fires
+  several calls when you open a pane.
+- A **sliding window** answers "has this caller exceeded N in the last M
+  seconds?" with no burst allowance. That is the right shape for the
+  forced limits an operator sets with `waiter -r`, where a hard ceiling is
+  the entire point.
+
+A request is checked against every rule that matches it and denied by the
+first refusal, so a caller is bounded by both their key's rate and their
+address's rate — neither can be escaped by varying the other. Expensive
+endpoints declare a higher `cost`, so one module upload consumes more
+budget than ten `GET /health`s.
+
+Forced limits (`waiter -r`, `POST /security/limits`) apply *in addition
+to* the configured rules, so `-r` can only ever tighten.
+
+Callers can see their own remaining budget at `GET /security/rate-limits`
+and back off before a 429 rather than after one.
+
+**Multi-worker caveat, stated rather than papered over:** limits are
+per-process. Four uvicorn workers means a configured 120/min behaves as
+480/min in aggregate. Either run one worker, or set the configured value
+to your intended limit divided by the worker count.
+
+## Network policy
+
+`GET/POST/DELETE /security/network*` — the server side of `waiter`'s
+`-B`/`-W`/`-a` flags, which Beta 1/2 could only record locally.
+
+The decision order is deliberate and the tests pin it:
+
+1. **Blocklist wins over everything.** A blocked address is denied even if
+   it also appears on the allowlist — a later allowlist entry must never
+   silently un-block something an operator explicitly blocked. To restore
+   access you *appeal* (remove the block); that is what an appeal is.
+2. **Allowlisted → allowed**, regardless of `allow_unlisted`.
+3. **Neither** → allowed only if `T1_ALLOW_UNLISTED_CLIENTS` is on.
+
+That third case is the design principle's own bullet — "if the non
+whitelisted user/person trying to get access is both, not black listed and
+that the server allows non whitelisted users to connect" — which is why
+`allow_unlisted` is a first-class server-side setting rather than an
+implied default.
+
+Entries are single addresses or CIDR ranges, matched with `ipaddress`, so
+`10.1.2.3` matches a `10.0.0.0/8` rule without string prefix guesswork.
+Anything unparseable is rejected at write time rather than stored as a
+rule that can never match. Blocking a range that covers your own address
+is refused: locking yourself out has no undo through this API.
+
+```bash
+waiter security --block 203.0.113.9 --reason abuse
+waiter security --allow 100.64.0.0/10 --reason tailnet
+waiter security --appeal 203.0.113.9
+waiter security --allow-unlisted off          # allowlist-only mode
+```
+
+## TLS and mTLS
+
+Two genuinely different deployments, both supported explicitly because
+conflating them is the usual way mTLS ends up decorative.
+
+**Direct termination** — uvicorn holds the certificates.
+`TLSSettings.uvicorn_kwargs()` produces exactly what `uvicorn.run()` needs,
+including `ssl_cert_reqs=CERT_REQUIRED`. The client's certificate is
+verified by the TLS stack before a byte of HTTP is parsed. Strongest
+position, and the one this module steers toward.
+
+**Reverse-proxy termination** — nginx/Caddy/Traefik holds the certificates
+and forwards `X-Client-*` headers. The handshake happens before the
+request reaches Python, so the app can only learn about the certificate
+from headers, and that is trustworthy only if:
+
+- the connection genuinely came from a trusted proxy (`T1_TRUSTED_PROXIES`),
+  because otherwise any client able to reach the app directly can simply
+  *send* `X-Client-Verify: SUCCESS`; and
+- the proxy said verification actually succeeded — a present-but-unverified
+  certificate is a failure, not a pass.
+
+Getting the first wrong turns mTLS into a header anyone can set, so the
+verifier **refuses to trust proxy headers at all when `T1_TRUSTED_PROXIES`
+is empty**. That combination is a misconfiguration and it fails closed.
+`waiter doctor` reports it.
+
+`/health` is exempt from the client-certificate requirement so load
+balancers keep working; it exposes nothing but liveness.
+
+Optional allowlisting by certificate subject or fingerprint is supported
+for the "only these three machines" case, checked *in addition to* CA
+verification and never instead of it. Fingerprints are normalized before
+comparison (`AA:BB:CC`, `sha256/aabbcc` and `aabbcc` all match), because
+proxies format them inconsistently and an allowlist that silently never
+matches is worse than none.
+
+See `examples/t1api/nginx.conf` for a working proxy configuration.
+
+## PostgreSQL
+
+"SQLite for development, PostgreSQL for production", switched with one
+environment variable:
+
+```bash
+pip install 'hypernix[t1api-pg]'
+export T1_DATABASE_URL=postgresql://t1:...@localhost:5432/t1api
+```
+
+That moves **every** store — usage, servers, modules, jobs, billing,
+audit, network policy, key assignments — and changes nothing else. It
+works because the portability lives in one place (`t1api/db.py`) rather
+than being sprinkled through five modules as `if postgres:` branches: a
+connection wrapper normalizes placeholders (`?` → `%s`, skipping string
+literals), row-by-name access, DDL dialect, and transaction/close
+semantics, so every store's queries are written once against one contract.
+
+Connection pooling comes from `psycopg_pool` when installed; without it
+the backend opens a connection per call, which is the same short-lived
+model SQLite already uses. Correctness never depends on the pool being
+present, only throughput.
+
+Schema creation is idempotent and runs at startup, including the online
+migration that adds Beta 3's `user_id`/`account_id` columns to an existing
+Beta 1/2 `usage_events` table — an upgrade in place, not a dump and
+reload.
+
+## Production deployment
+
+`T1_ENVIRONMENT=production` turns on **configuration validation**:
+`create_app()` refuses to start when the deployment is unsafe, and lists
+every problem at once rather than one per restart.
+
+```
+T1APIError: [CONFIG_INVALID] This configuration is not safe for a production deployment:
+  - T1_TOKEN_SECRET is not set. Scoped tokens would be signed with an ephemeral...
+  - T1_DATABASE_URL is not set. SQLite is the documented development backend...
+  - No TLS configured (T1_TLS_CERTFILE/T1_TLS_KEYFILE) and not marked as running behind...
+```
+
+A bad production config should fail the deploy, not surface later as a
+puzzling 500. The same list is available without the raising — over HTTP
+at `GET /status` (`production_warnings`), or from a client:
+
+```bash
+waiter doctor          # exits non-zero if a production server has warnings
+waiter smoke           # end-to-end: auth, registry, quota, limits, authorization
+waiter smoke --write   # also creates and removes a scratch module
+```
+
+Worked examples, all runnable:
+
+| File | Deployment |
+|---|---|
+| `examples/t1api/run_local.sh` | Development: SQLite, loopback, docs on |
+| `examples/t1api/run_tailscale.sh` | Tailnet: binds the 100.x address, allowlist-only, private deploy targets enabled |
+| `examples/t1api/Dockerfile` | Production image: two-stage, non-root, CPU torch, healthcheck |
+| `examples/t1api/docker-compose.yml` | API + PostgreSQL + nginx; the API is never published to the host |
+| `examples/t1api/nginx.conf` | TLS termination and optional mTLS header forwarding |
+| `examples/t1api/hypernix-t1api.service` | systemd unit with a real sandbox |
+| `examples/t1api/.env.example` | Every variable, with why it matters |
+| `examples/t1api/API-EXAMPLES.md` | Request/response for every endpoint, generated from a real server |
+| `examples/t1api/openapi.json` | Exported schema |
+
+Regenerate the last two after changing a response shape:
+
+```bash
+python scripts/t1api_examples.py
+```
+
+## The SDK
+
+`hypernix.t1sdk` — zero dependencies beyond the standard library, because
+an SDK is a *client* and must import on machines that never install the
+server extra.
+
+```python
+from hypernix.t1sdk import T1Client, T1QuotaError
+
+client = T1Client("https://t1.example.com", credential=key)
+
+for model in client.list_models():
+    print(model.model_id, model.status, model.is_routable)
+
+try:
+    decision = client.route(input_tokens=1200)
+except T1QuotaError as exc:
+    print("exhausted:", exc.code, "retry after", exc.retry_after)
+
+job = client.deploy_and_wait(module_id, ["srv-1", "srv-2"])
+```
+
+Errors are a hierarchy mapped from the server's stable codes, so you catch
+the category you care about (`T1AuthError`, `T1QuotaError`,
+`T1NotFoundError`) rather than matching strings — while `exc.code` keeps
+the exact code for when the distinction matters. Every exception carries
+the server's `request_id`, which is the single most useful thing to put in
+a bug report.
+
+Retries are automatic on connection failures, 502/503/504 and 429, honour
+a server-sent `Retry-After` over the backoff curve, and are **never**
+applied to a non-idempotent POST: replaying `POST /billing/redeem` after a
+timeout could look like a double redemption, so the SDK would rather
+surface the timeout.
+
+mTLS and private CAs:
+
+```python
+from hypernix.t1sdk import T1Client, TLSConfig
+
+client = T1Client("https://t1.internal", credential=key, tls=TLSConfig(
+    client_certfile="client.crt", client_keyfile="client.key",
+    ca_certs="internal-ca.pem",
+))
+```
+
+`client.call(method, path, ...)` is an escape hatch for an endpoint a
+given SDK version doesn't wrap, with the same error handling and retries —
+so a deployment running a newer server is never blocked on an SDK release.
+
 ## Endpoint reference
 
 All responses include `request_id`. Errors use the envelope shown in
@@ -414,23 +819,64 @@ All responses include `request_id`. Errors use the envelope shown in
 | POST | `/billing/redeem` | bearer | redeem a token into an account |
 | POST | `/billing/add-balance` | bearer, admin | direct credit |
 
+**Beta 3**
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/usage/history` | bearer | raw events, date-ranged and filtered; non-admins are pinned to their own |
+| GET | `/usage/by?group_by=` | bearer | usage by model/key/server/module/user/account/endpoint |
+| GET | `/usage/cost` | bearer | actual cost, breakdowns, optional forecast |
+| POST | `/usage/estimate` | bearer | what an operation *would* cost; records nothing |
+| GET | `/keys` | bearer | admins see all, everyone else sees only their own |
+| POST | `/keys/import` | bearer, admin | import a Keymaster export; returns masked ids only |
+| POST | `/keys/assign` | bearer, admin | bind a key to a plan/account/user/servers/models |
+| POST | `/modules/{module_id}/deploy` | bearer, owner/admin | push to several trusted servers as one job |
+| POST | `/modules/{module_id}/fetch` | bearer, owner/admin | stage the module's registered remote source |
+| POST | `/modules/receive` | HMAC (deploy secret) | inbound server-to-server push |
+| GET | `/audit` | bearer, admin | the audit trail; reading it is audited |
+| GET | `/security/network` | bearer, admin | allow/block entries and the unlisted-client posture |
+| POST | `/security/network/blacklist` | bearer, admin | `waiter -B` |
+| POST | `/security/network/whitelist` | bearer, admin | `waiter -W` |
+| DELETE | `/security/network/{cidr}` | bearer, admin | `waiter -a` (appeal) |
+| POST | `/security/network/allow-unlisted` | bearer, admin | open-unless-blocked vs allowlist-only |
+| GET | `/security/limits` | bearer, admin | forced per-key/per-server limits |
+| POST | `/security/limits` | bearer, admin | `waiter -r`; only ever tightens |
+| DELETE | `/security/limits/{type}/{id}` | bearer, admin | clear a forced limit |
+| GET | `/security/rate-limits` | bearer | the caller's own remaining budget |
+
 Note the two `module_id`-as-query-parameter endpoints
 (`/modules/upload/local`, `/modules/upload/remote`) — deliberate, matching
 the spec's literal paths (`POST /modules/upload/local`, no `{module_id}`
 in the template), unlike every other module endpoint which puts
 `module_id` in the path.
 
-Full request/response examples: run the server and open `/docs` (Swagger
-UI, auto-generated from `schemas.py`) — that's the canonical, always-in-sync
-source rather than a hand-maintained example file that can drift.
+Destructive operations (`DELETE /servers/{id}`, `DELETE /modules/{id}`)
+require `?confirm=true` unless `T1_REQUIRE_DESTRUCTIVE_CONFIRMATION=0`.
+
+**Full request/response examples** for every endpoint:
+[`examples/t1api/API-EXAMPLES.md`](../examples/t1api/API-EXAMPLES.md).
+That file is *generated by driving a real server*
+(`scripts/t1api_examples.py`), not written by hand — a hand-written
+example is a claim about the API, a generated one is a recording of it,
+and regenerating shows the behaviour change as a diff. The exported schema
+is `examples/t1api/openapi.json`; a running server also serves it at
+`/openapi.json` with Swagger UI at `/docs`.
 
 ## Configuration
 
-See `.env.t1api.example` for every variable — each maps 1:1 to a
-`T1APIConfig` field. Nothing under `T1APIConfig.public_dict()` (what
-`GET /config` returns) can leak a secret: it's an explicit allowlist, not
-"everything except a blocklist," specifically so a newly-added secret
-field can't accidentally start being served.
+See [`examples/t1api/.env.example`](../examples/t1api/.env.example) for
+every variable, with a note on why each one matters. Each maps 1:1 to a
+`T1APIConfig` field.
+
+Nothing under `T1APIConfig.public_dict()` (what `GET /config` returns) can
+leak a secret: it is an explicit allowlist, not "everything except a
+blocklist", specifically so a newly-added secret field cannot quietly
+start being served. `GET /status` reports which secrets are *set* —
+booleans only, never values.
+
+Setting `T1_ENVIRONMENT=production` additionally makes the configuration
+**validated rather than assumed** — see
+[Production deployment](#production-deployment).
 
 ## Security
 
@@ -457,8 +903,44 @@ field can't accidentally start being served.
 - **Server trust gating**: `ServerRegistry.require_trusted()` blocks
   module sync to any server that isn't `trusted`/`local` — a fresh
   registration is always `untrusted` until an admin promotes it.
-- mTLS, IP allow/blacklists, and rate-limiting middleware beyond
-  `Gatekeeper`'s existing per-key quota enforcement are Beta 3.
+- **mTLS** — direct or proxy-terminated, with the trusted-proxy check that
+  keeps forwarded headers from being forgeable. See
+  [TLS and mTLS](#tls-and-mtls).
+- **IP allow/blocklists** with an explicit unlisted-client posture. See
+  [Network policy](#network-policy).
+- **Rate limiting** in middleware, before the handler, with per-key,
+  per-IP, per-endpoint rules and operator-forced ceilings. See
+  [Rate limiting](#rate-limiting).
+- **Audit logging** that is durable, queryable, and scrubs secret-shaped
+  fields by name at write time. See [Audit log](#audit-log).
+- **Signed module transfer** between servers, checksum-verified on both
+  ends, with redirects refused on fetch. See
+  [Remote multi-server deployment](#remote-multi-server-deployment).
+- **Explicit confirmation** on destructive operations (`?confirm=true`).
+- **Production configuration validation** refuses to start an unsafe
+  production deployment, listing every problem at once.
+- Security response headers (`X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Cache-Control: no-store`, and HSTS when TLS is on)
+  are applied to every response, including error responses raised from
+  middleware.
+
+### Known limitation
+
+**Module blobs are not encrypted at rest.** They are checksummed and
+path-sanitized, and the store relies on filesystem permissions — the
+systemd unit in `examples/t1api/` confines writes to a single directory
+owned by the service user, and the container image runs as a non-root user
+with the blob store on its own volume. Everything else that needs
+protecting at rest already has it: T1 keys are encrypted by Keymaster,
+payment tokens are stored only as SHA-256 hashes, and the waiter's local
+config is Fernet-encrypted with `-E`. Encrypting the blob store itself is
+the one Beta 3 line item deliberately left open rather than half-done, and
+it is listed as such in the [Roadmap](#roadmap).
+
+### Security audit checklist
+
+Before exposing a deployment:
+[`wiki/T1-API-Security-Checklist.md`](T1-API-Security-Checklist.md).
 
 ## Roadmap
 
@@ -468,8 +950,8 @@ renumbered or reinterpreted.
 | Beta | Scope | Status |
 |---|---|---|
 | **1** | Core FastAPI server, T1 auth + scoped tokens, model registry, basic per-key/model usage tracking, `/health` `/status` `/models` + auth/usage/config endpoints, basic `waiter` CLI, SQLite, OpenAPI docs | **Shipped** |
-| **2** | Module registry, module upload/sync, server registry, async jobs, event streaming, quota cascade, model routing engine, billing/payment-token support, Tailscale/local deployment guide | **Shipped** (this doc) — encrypted secrets beyond Keymaster's existing pattern (module content at rest, payment token hashing) partially covered; a dedicated at-rest encryption pass for module blobs specifically is still open |
-| **3** | Production hardening, PostgreSQL backend, complete audit logging, mTLS, advanced rate limiting, remote multi-server deployment (real module byte transport + remote-source fetch), full `waiter` TUI (curses-style `-G`), complete SDK, complete test suite, deployment docs, security audit checklist, cost-per-request billing integration | Not started |
+| **2** | Module registry, module upload/sync, server registry, async jobs, event streaming, quota cascade, model routing engine, billing/payment-token support, Tailscale/local deployment guide | **Shipped** |
+| **3** | Production hardening, PostgreSQL backend, complete audit logging, mTLS, advanced rate limiting, remote multi-server deployment (real module byte transport + remote-source fetch), full `waiter` TUI (curses `-G`), complete SDK, complete test suite, deployment docs, security audit checklist, production configuration validation | **Shipped** (this doc). One item is deliberately still open: module blobs are checksummed but not encrypted at rest — the store relies on filesystem permissions. See [Security](#security). |
 | **4** | `hyped-pro` T1-key support against a local T1 API server; `hyped-pro` auto-displaying the current public release version; `qwen3.8-27b` registry entry | Not started |
 
 ## Design principle
@@ -479,7 +961,25 @@ renumbered or reinterpreted.
 
 The server determines which models exist, which are available, which
 limits apply, which fallbacks are allowed, how much usage remains, and
-what an operation costs. The client only requests an operation — Beta 1's
-`ModelRegistry.require()` and `UsageMeter.assert_not_exhausted()` are the
-two enforcement points that currently make that true; Beta 2 adds the
-routing/server/module counterparts.
+what an operation costs. The client only requests an operation.
+
+That is not a slogan; it is a list of enforcement points, and each one is
+a specific function you can go read:
+
+| The server decides… | Enforced by |
+|---|---|
+| which models exist | `ModelRegistry.require()` — an unregistered id is `MODEL_NOT_SUPPORTED`, always |
+| which models *this key* may use | `KeyDirectory.assert_model_allowed()` |
+| which plan the caller is on | `KeyDirectory.resolve_plan()` — **not** the request body |
+| which fallbacks are allowed | `RoutingEngine` walking a plan-scoped, data-driven cascade |
+| how much usage remains | `UsageMeter.assert_not_exhausted()` |
+| what an operation costs | `CostCalculator`, priced from the registry entry and nowhere else |
+| which servers may receive a module | `ServerRegistry.require_trusted()` |
+| whether a client may connect at all | `NetworkPolicy.require_allowed()` |
+| how hard a caller may hit the API | `RateLimiter.check()`, in middleware, before the handler |
+
+The Beta 3 change worth calling out is the third row. Beta 2's
+`POST /models/route` took `plan` from the request body, which let a client
+name the most generous plan it could think of. A plan is now a property of
+an administrator-recorded assignment, and a client that asserts a
+different one is refused rather than believed.

@@ -57,8 +57,9 @@ directory:
 | `hypernix/system/` | 14 | Environment, dependencies, hardware and housekeeping. |
 | `hypernix/timing/` | 5 | Timers, alarms, cadence control and progress animation. |
 | `hypernix/training/` | 14 | Training entry points, schedules and weight perturbation. |
-| `hypernix/t1api/` | — | The T1 API server (FastAPI app, routers, storage). |
-| `hypernix/waiter/` | — | The T1 API client CLI. |
+| `hypernix/t1api/` | — | The [T1 API](wiki/T1-API.md) server: registry, routing, quota, billing, audit, rate limiting, mTLS, deployment. |
+| `hypernix/t1sdk/` | — | The T1 API client SDK — typed, stdlib-only, no server extra needed. |
+| `hypernix/waiter/` | — | [`waiter`](wiki/Waiter-TUI.md), the official T1 API TUI/CLI. |
 
 **Every module keeps its old import path.** `hypernix.timer` and
 `hypernix.timing.timer` return the same module object, so nothing that
