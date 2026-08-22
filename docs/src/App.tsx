@@ -2190,7 +2190,7 @@ function CopyButton({ text }) {
       className="press-btn"
       style={{ position:'absolute', top:8, right:8, background:'#252525', border:'1px solid #333',
         borderRadius:4, color: copied ? '#34c759' : '#666', padding:'3px 8px', fontSize:11,
-        cursor:'pointer', fontFamily:'monospace',
+        cursor:'pointer', fontFamily:'var(--font-mono)',
         transform: copied ? 'scale(1.08)' : 'scale(1)',
         borderColor: copied ? '#34c75966' : '#333' }}>
       {copied ? '✓' : 'copy'}
@@ -2228,7 +2228,7 @@ function CodeBlock({ code }) {
   return (
     <div style={{ position:'relative', background:'#111', border:'1px solid #252525',
       borderRadius:6, padding:'12px 52px 12px 14px', margin:'8px 0' }}>
-      <pre style={{ margin:0, fontSize:13, color:'#c8192e', fontFamily:'monospace',
+      <pre style={{ margin:0, fontSize:13, color:'#c8192e', fontFamily:'var(--font-mono)',
         overflowX:'auto', whiteSpace:'pre-wrap', wordBreak:'break-all' }}>
         <span style={{ color:'#444' }}>$ </span>{code}
       </pre>
@@ -2975,160 +2975,408 @@ function ConnectIcon({ name, size = 15 }) {
   }
 }
 
-function HomePage({ setPage, downloads, olderDownloads, totalDownloads, ghStats, version }) {
-  const maxDl = Math.max(downloads.last_day, downloads.last_week, downloads.last_month, 1)
+// Which bucket each subsystem belongs to on the home page browser. Keyed by the
+// short name (everything after "hypernix."), so renaming the display string in
+// SUBSYSTEMS doesn't silently drop a module out of its group.
+const SUBSYSTEM_GROUPS = {
+  'Data': ['pans','blender','toaster','food_processor','cutting_board','salt_shaker',
+    'pepper_shaker','sink','table','mediocre_fridge'],
+  'Training': ['train','brewer','instant_pot','coffee_maker','smoker','cake_pan',
+    'smoke_alarm','pressure_cooker','deep_fryer','whisk','new_fridge'],
+  'Inference & chat': ['old_oven','microwave','countertop','multilama','hyped_pro_core',
+    'hyped_pro_tools','hyped_pro_bridge','hyped_pro_gui'],
+  'Evaluation': ['new_range','old_range','industrial_range','espresso_maker'],
+  'Runtime & memory': ['freezer','old_fridge','torch_compat'],
+  'Ship & convert': ['download','convert','quantize','upload'],
+}
+
+const GROUP_ORDER = Object.keys(SUBSYSTEM_GROUPS)
+
+// name -> group, built once. Anything not listed above lands in "Other" rather
+// than disappearing from the browser.
+const GROUP_OF = (() => {
+  const out = {}
+  for (const [group, names] of Object.entries(SUBSYSTEM_GROUPS)) {
+    for (const n of names) out[n] = group
+  }
+  return out
+})()
+
+function subsystemGroup(fullName) {
+  return GROUP_OF[fullName.replace(/^hypernix\./, '')] || 'Other'
+}
+
+// Page-level header for the non-home routes. Same kicker/title/lede rhythm as
+// SectionHeading, but left-aligned and sized for a page rather than a section.
+function PageHeading({ kicker, title, lede, delay = 0.04 }) {
+  return (
+    <div style={{ marginBottom:30 }}>
+      <div className="eyebrow anim-fade-up" style={{ color:'#c8192e', marginBottom:12 }}>{kicker}</div>
+      <h1 className="anim-fade-up" style={{ fontSize:'clamp(28px,4vw,38px)', fontWeight:800,
+        color:'#f0f0f0', margin:'0 0 10px', letterSpacing:'-0.035em',
+        animationDelay:`${delay}s` }}>{title}</h1>
+      {lede && (
+        <p className="anim-fade-up" style={{ color:'#4a4a4a', margin:0, fontSize:15, lineHeight:1.65,
+          maxWidth:'58ch', animationDelay:`${delay + 0.04}s` }}>{lede}</p>
+      )}
+    </div>
+  )
+}
+
+// Shared section header: monospace kicker, title, optional lede.
+function SectionHeading({ kicker, title, lede, align = 'center', children }) {
+  const centered = align === 'center'
+  return (
+    <div style={{ textAlign: centered ? 'center' : 'left', marginBottom:36,
+      maxWidth: centered ? 620 : undefined, marginLeft: centered ? 'auto' : undefined,
+      marginRight: centered ? 'auto' : undefined }}>
+      {kicker && (
+        <div className="eyebrow" style={{ color:'#c8192e', marginBottom:12 }}>{kicker}</div>
+      )}
+      <h2 style={{ fontSize:'clamp(24px,3.4vw,34px)', fontWeight:800, color:'#f0f0f0',
+        margin:0, letterSpacing:'-0.03em' }}>{title}</h2>
+      {lede && (
+        <p style={{ color:'#4a4a4a', margin:'12px 0 0', fontSize:15, lineHeight:1.65 }}>{lede}</p>
+      )}
+      {children}
+    </div>
+  )
+}
+
+// The hero terminal. Static, but it is a real transcript of the three commands
+// the quickstart below actually walks through.
+const HERO_SESSION = [
+  { kind:'cmd',  text:'pip install "hypernix[llama-cpp]"' },
+  { kind:'ok',   text:'installed hypernix' },
+  { kind:'gap',  text:'' },
+  { kind:'cmd',  text:'hypernix chat --repo-id nix2.5 --message "hello"' },
+  { kind:'dim',  text:'  resolving nix2.5 -> ray0rf1re/nix2.5' },
+  { kind:'dim',  text:'  loaded 1.4B params  ·  q4_k_m  ·  cuda:0' },
+  { kind:'out',  text:'  hey — what are we building today?' },
+  { kind:'gap',  text:'' },
+  { kind:'cmd',  text:'hypernix --repo-id ray0rf1re/hyper-nix.1 --quants q4_k_m' },
+  { kind:'ok',   text:'hyper-nix.1.q4_k_m.gguf' },
+]
+
+function HeroTerminal({ version }) {
+  return (
+    <div className="term anim-fade-up" style={{ animationDelay:'0.3s' }}>
+      <div className="term-bar">
+        <span className="term-dot" style={{ background:'#c8192e' }} />
+        <span className="term-dot" style={{ background:'#2a2a2a' }} />
+        <span className="term-dot" style={{ background:'#2a2a2a' }} />
+        <span style={{ marginLeft:6, fontFamily:'var(--font-mono)', fontSize:11,
+          color:'#3a3a3a' }}>hypernix — v{version}</span>
+      </div>
+      <div className="term-body">
+        {HERO_SESSION.map((l, i) => {
+          if (l.kind === 'gap') return <div key={i} style={{ height:10 }} />
+          if (l.kind === 'cmd') return (
+            <div key={i} className="term-line">
+              <span style={{ color:'#c8192e' }}>$ </span>
+              <span style={{ color:'#f0f0f0' }}>{l.text}</span>
+            </div>
+          )
+          if (l.kind === 'ok') return (
+            <div key={i} className="term-line" style={{ color:'#34c759' }}>  ✓ {l.text}</div>
+          )
+          if (l.kind === 'out') return (
+            <div key={i} className="term-line" style={{ color:'#666' }}>{l.text}</div>
+          )
+          return <div key={i} className="term-line" style={{ color:'#3a3a3a' }}>{l.text}</div>
+        })}
+        <div className="term-line">
+          <span style={{ color:'#c8192e' }}>$ </span>
+          <span style={{ display:'inline-block', width:8, height:14, background:'#c8192e',
+            verticalAlign:'-2px', animation:'blink 1.1s step-end infinite' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Searchable, grouped replacement for the 40-card wall. Filtering happens on
+// both the module name and its description so "quantize" finds `convert` too.
+function SubsystemBrowser() {
+  const [query, setQuery] = useState('')
+  const [group, setGroup] = useState('All')
+
+  const q = query.trim().toLowerCase()
+  const matches = SUBSYSTEMS.filter(s => {
+    if (group !== 'All' && subsystemGroup(s.name) !== group) return false
+    if (!q) return true
+    return s.name.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q)
+  })
+
+  const groups = ['All', ...GROUP_ORDER]
+  const countFor = g => g === 'All'
+    ? SUBSYSTEMS.length
+    : SUBSYSTEMS.filter(s => subsystemGroup(s.name) === g).length
+
   return (
     <div>
-      <section style={{ minHeight:'100vh', display:'flex', flexDirection:'column',
-        justifyContent:'center', alignItems:'center', textAlign:'center', padding:'100px 20px 60px' }}>
-        <img src={LOGO_SRC} alt="HyperNix" className="anim-scale-in" style={{ height:68, marginBottom:22 }} />
-        <div className="anim-fade-up" style={{ background:'#1a1a1a', border:'1px solid #252525', borderRadius:20,
-          padding:'4px 14px', fontSize:12, color:'#555', marginBottom:18, display:'inline-block',
-          animationDelay:'0.08s' }}>
-          v{version} — Pascal-class GPU optimised
-        </div>
-        <h1 className="anim-fade-up" style={{ fontSize:'clamp(32px,7vw,66px)', fontWeight:900, lineHeight:1.05,
-          color:'#f0f0f0', margin:'0 0 16px', letterSpacing:'-2px', animationDelay:'0.14s' }}>
-          End-to-end toolkit<br/>
-          <span style={{ color:'#c8192e' }}>for PyTorch LLMs</span>
-        </h1>
-        <p className="anim-fade-up" style={{ fontSize:17, color:'#555', maxWidth:520, margin:'0 auto 36px', lineHeight:1.65,
-          animationDelay:'0.2s' }}>
-          Download, chat, fine-tune, evaluate, quantize, and ship — from a single
-          package built for consumer hardware.
-        </p>
-        <div className="anim-fade-up" style={{ display:'flex', gap:12, flexWrap:'wrap', justifyContent:'center', marginBottom:56,
-          animationDelay:'0.26s' }}>
-          <button onClick={() => setPage('docs')} className="press-btn glow-pulse" style={{
-            background:'#c8192e', border:'none', color:'#fff', borderRadius:8,
-            padding:'12px 28px', fontSize:15, fontWeight:700, cursor:'pointer' }}>
-            Get Started →
+      <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center',
+        justifyContent:'center', marginBottom:16 }}>
+        {groups.map(g => (
+          <button key={g} className="filter-chip" aria-pressed={group === g}
+            onClick={() => setGroup(g)}>
+            {g} <span style={{ opacity:0.6 }}>{countFor(g)}</span>
           </button>
-          <button onClick={() => setPage('api')} className="press-btn" style={{
-            background:'#1a1a1a', border:'1px solid #252525', color:'#f0f0f0', borderRadius:8,
-            padding:'12px 28px', fontSize:15, fontWeight:600, cursor:'pointer' }}>
-            API Reference
-          </button>
-          <a href="https://pypi.org/project/hypernix/" target="_blank" rel="noreferrer" className="press-btn" style={{
-            background:'none', border:'1px solid #252525', color:'#666', borderRadius:8,
-            padding:'12px 28px', fontSize:15, textDecoration:'none', display:'inline-block' }}>
-            PyPI ↗
-          </a>
-        </div>
-        <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',
-          gap:12, maxWidth:580, width:'100%' }}>
-          {[
-            { label:'Downloads / day', val: downloads.last_day },
-            { label:'Downloads / week', val: downloads.last_week },
-            { label:'Downloads / month', val: downloads.last_month },
-            { label:'GitHub Stars', val: ghStats.stars },
-          ].map(s => (
-            <div key={s.label} className="lift-card" style={{ background:'#1a1a1a', border:'1px solid #252525',
-              borderRadius:8, padding:'16px 10px', textAlign:'center', cursor:'default' }}>
-              <div style={{ fontSize:26, fontWeight:800, color:'#c8192e' }}><CountUp value={s.val} /></div>
-              <div style={{ fontSize:11, color:'#3a3a3a', marginTop:5 }}>{s.label}</div>
+        ))}
+      </div>
+
+      <div style={{ display:'flex', justifyContent:'center', marginBottom:8 }}>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Filter subsystems…"
+          aria-label="Filter subsystems"
+          style={{ width:'100%', maxWidth:380, background:'#111', border:'1px solid #1f1f1f',
+            borderRadius:8, padding:'9px 13px', color:'#f0f0f0', fontSize:13,
+            fontFamily:'var(--font-mono)', outline:'none' }}
+        />
+      </div>
+
+      <div style={{ textAlign:'center', minHeight:22, marginBottom:10 }}>
+        <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'#2f2f2f' }}>
+          {matches.length} of {SUBSYSTEMS.length} modules
+        </span>
+      </div>
+
+      <div style={{ borderBottom:'1px solid #171717' }}>
+        {matches.map(s => (
+          <div key={s.name} className="sub-row">
+            <div style={{ minWidth:0 }}>
+              <code style={{ fontSize:12.5, color:'#c8192e', overflowWrap:'break-word',
+                wordBreak:'break-word' }}>{s.name}</code>
+              <div className="eyebrow" style={{ color:'#262626', marginTop:5, fontSize:9.5 }}>
+                {subsystemGroup(s.name)}
+              </div>
             </div>
-          ))}
-        </div>
-        {olderDownloads && olderDownloads.days > 0 && (
-          <p className="anim-fade" style={{ fontSize:12, color:'#2a2a2a', maxWidth:580, marginTop:14, animationDelay:'0.3s' }}>
-            +{olderDownloads.total_downloads.toLocaleString()} more downloads from before the last 30 days
-            {totalDownloads > 0 ? ` · ${totalDownloads.toLocaleString()} all-time` : ''}
-          </p>
+            <div style={{ fontSize:13, color:'#444', lineHeight:1.65, minWidth:0,
+              overflowWrap:'break-word' }}>{s.desc}</div>
+          </div>
+        ))}
+        {!matches.length && (
+          <div style={{ padding:'36px 4px', textAlign:'center', color:'#333', fontSize:13,
+            borderTop:'1px solid #171717' }}>
+            Nothing matches “{query}”.
+          </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function HomePage({ setPage, downloads, olderDownloads, totalDownloads, ghStats, version }) {
+  return (
+    <div>
+      {/* ── Hero ─────────────────────────────────────────────────────── */}
+      <section style={{ position:'relative', padding:'clamp(72px,11vw,132px) var(--space-gutter) clamp(48px,7vw,76px)',
+        overflow:'hidden' }}>
+        <div className="hero-bg" aria-hidden="true" />
+        <div className="shell" style={{ position:'relative', display:'grid', gap:'clamp(36px,5vw,56px)',
+          gridTemplateColumns:'repeat(auto-fit,minmax(340px,1fr))', alignItems:'center' }}>
+
+          <div>
+            <div className="anim-fade-up" style={{ display:'flex', alignItems:'center', gap:11,
+              marginBottom:24 }}>
+              <img src={LOGO_SRC} alt="HyperNix" style={{ height:34 }} />
+              <span style={{ width:1, height:20, background:'#222' }} />
+              <span className="eyebrow" style={{ color:'#3a3a3a' }}>v{version}</span>
+            </div>
+
+            <h1 className="anim-fade-up" style={{ fontSize:'clamp(34px,5.4vw,60px)', fontWeight:900,
+              lineHeight:1.02, color:'#f0f0f0', margin:'0 0 20px', letterSpacing:'-0.045em',
+              animationDelay:'0.06s' }}>
+              End-to-end toolkit<br/>
+              <span style={{ color:'#c8192e' }}>for PyTorch LLMs</span>
+            </h1>
+
+            <p className="anim-fade-up" style={{ fontSize:16.5, color:'#555', maxWidth:'46ch',
+              margin:'0 0 28px', lineHeight:1.7, animationDelay:'0.12s' }}>
+              Download, chat, fine-tune, evaluate, quantize, and ship — from a single
+              package built for consumer hardware.
+            </p>
+
+            <div className="anim-fade-up" style={{ display:'flex', gap:10, flexWrap:'wrap',
+              marginBottom:26, animationDelay:'0.18s' }}>
+              <button onClick={() => setPage('docs')} className="press-btn glow-pulse" style={{
+                background:'#c8192e', border:'none', color:'#fff', borderRadius:8,
+                padding:'12px 26px', fontSize:14.5, fontWeight:700, cursor:'pointer',
+                fontFamily:'inherit' }}>
+                Get Started →
+              </button>
+              <button onClick={() => setPage('api')} className="press-btn" style={{
+                background:'#1a1a1a', border:'1px solid #252525', color:'#f0f0f0', borderRadius:8,
+                padding:'12px 26px', fontSize:14.5, fontWeight:600, cursor:'pointer',
+                fontFamily:'inherit' }}>
+                API Reference
+              </button>
+              <a href="https://pypi.org/project/hypernix/" target="_blank" rel="noreferrer"
+                className="press-btn" style={{
+                  background:'none', border:'1px solid #252525', color:'#666', borderRadius:8,
+                  padding:'12px 26px', fontSize:14.5, textDecoration:'none',
+                  display:'inline-block' }}>
+                PyPI ↗
+              </a>
+            </div>
+
+            <div className="anim-fade-up" style={{ maxWidth:360, animationDelay:'0.24s' }}>
+              <CodeBlock code="pip install hypernix" />
+            </div>
+          </div>
+
+          <HeroTerminal version={version} />
+        </div>
+
+        {/* Stat strip: one bordered rail with hairline dividers, not four boxes. */}
+        <div className="shell anim-fade-up" style={{ position:'relative', marginTop:'clamp(38px,5vw,58px)',
+          animationDelay:'0.34s' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',
+            gap:1, background:'#1a1a1a', border:'1px solid #1c1c1c', borderRadius:12,
+            overflow:'hidden' }}>
+            {[
+              { label:'downloads / day', val: downloads.last_day },
+              { label:'downloads / week', val: downloads.last_week },
+              { label:'downloads / month', val: downloads.last_month },
+              { label:'github stars', val: ghStats.stars },
+            ].map(s => (
+              <div key={s.label} style={{ padding:'20px 18px', textAlign:'center',
+                background:'#111' }}>
+                <div className="tabular" style={{ fontSize:27, fontWeight:800, color:'#c8192e',
+                  letterSpacing:'-0.03em' }}><CountUp value={s.val} /></div>
+                <div className="eyebrow" style={{ fontSize:9.5, color:'#3a3a3a', marginTop:7 }}>
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+          {olderDownloads && olderDownloads.days > 0 && (
+            <p className="anim-fade" style={{ fontSize:12, color:'#2a2a2a', marginTop:12,
+              textAlign:'center' }}>
+              +{olderDownloads.total_downloads.toLocaleString()} more downloads from before the last 30 days
+              {totalDownloads > 0 ? ` · ${totalDownloads.toLocaleString()} all-time` : ''}
+            </p>
+          )}
+        </div>
       </section>
 
-      <section style={{ padding:'64px 20px', background:'#111' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <h2 style={{ textAlign:'center', fontSize:28, fontWeight:800, color:'#f0f0f0',
-            marginBottom:8, letterSpacing:'-1px' }}>Everything in one kitchen</h2>
-          <p style={{ textAlign:'center', color:'#3a3a3a', marginBottom:36 }}>
-            A complete toolkit for every stage of the LLM lifecycle
-          </p>
+      {/* ── Features ─────────────────────────────────────────────────── */}
+      <section className="section" style={{ background:'#111', borderTop:'1px solid #161616',
+        borderBottom:'1px solid #161616' }}>
+        <div className="shell">
+          <SectionHeading
+            kicker="Capabilities"
+            title="Everything in one kitchen"
+            lede="A complete toolkit for every stage of the LLM lifecycle — no glue scripts between the stages."
+          />
           <style>{`
             .lift-card:hover .feat-icon { transform: translateY(-3px) scale(1.08); }
           `}</style>
-          <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:14 }}>
-            {FEATURES.map(f => (
-              <div key={f.title} className="lift-card" style={{ background:'#161616', border:'1px solid #252525',
-                borderRadius:10, padding:'20px', cursor:'default' }}>
-                <div className="feat-icon" style={{ marginBottom:10, transition:'transform 0.25s ease' }}>
+          <div className="anim-stagger" style={{ display:'grid',
+            gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))', gap:14 }}>
+            {FEATURES.map((f, i) => (
+              <div key={f.title} className="lift-card" style={{ background:'#161616',
+                border:'1px solid #252525', borderRadius:12, padding:'22px 20px 24px',
+                cursor:'default', position:'relative' }}>
+                <span className="eyebrow" style={{ position:'absolute', top:18, right:18,
+                  color:'#242424', fontSize:9.5 }}>{String(i + 1).padStart(2,'0')}</span>
+                <div className="feat-icon" style={{ marginBottom:14,
+                  transition:'transform 0.25s ease' }}>
                   <FeatureIcon name={f.icon} />
                 </div>
-                <div style={{ fontWeight:700, fontSize:14, color: f.color, marginBottom:6 }}>{f.title}</div>
-                <p style={{ fontSize:13, color:'#4a4a4a', lineHeight:1.6, margin:0 }}>{f.desc}</p>
+                <div className="accent-bar" style={{ background:f.color }} />
+                <div style={{ fontWeight:700, fontSize:14.5, color:f.color, marginBottom:7,
+                  letterSpacing:'-0.01em' }}>{f.title}</div>
+                <p style={{ fontSize:13, color:'#4a4a4a', lineHeight:1.65, margin:0 }}>{f.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section style={{ padding:'64px 20px' }}>
-        <div style={{ maxWidth:740, margin:'0 auto' }}>
-          <h2 style={{ textAlign:'center', fontSize:28, fontWeight:800, color:'#f0f0f0',
-            marginBottom:40, letterSpacing:'-1px' }}>Up in minutes</h2>
-          {QUICKSTART.map(q => (
-            <div key={q.step} style={{ display:'flex', gap:18, marginBottom:28, alignItems:'flex-start' }}>
-              <div style={{ minWidth:34, height:34, borderRadius:7, background:'#1a0305',
-                border:'1px solid #c8192e44', display:'flex', alignItems:'center',
-                justifyContent:'center', fontFamily:'monospace', fontSize:11, color:'#c8192e',
-                fontWeight:700, flexShrink:0 }}>{q.step}</div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, color:'#f0f0f0', marginBottom:4 }}>{q.title}</div>
-                <p style={{ color:'#4a4a4a', fontSize:13, margin:'0 0 8px' }}>{q.desc}</p>
-                <CodeBlock code={q.code} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section style={{ padding:'64px 20px', background:'#111' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <h2 style={{ textAlign:'center', fontSize:28, fontWeight:800, color:'#f0f0f0',
-            marginBottom:8, letterSpacing:'-1px' }}>Supported model families</h2>
-          <p style={{ textAlign:'center', color:'#3a3a3a', marginBottom:14 }}>
-            Short names resolve automatically in CLI and Python
-          </p>
-          <p style={{ textAlign:'center', marginBottom:36 }}>
-            <a href="https://huggingface.co/collections/ray0rf1re/hyper-nix-v0x" target="_blank" rel="noreferrer"
-              style={{ color:'#c8192e', fontSize:13, textDecoration:'none', fontWeight:600 }}>
-              Browse the HyperNix model collection on Hugging Face ↗
-            </a>
-          </p>
-          <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(185px,1fr))', gap:12 }}>
-            {MODELS.map(m => (
-              <div key={m.family} className="lift-card" style={{ background:'#161616', border:'1px solid #252525', borderRadius:8, padding:'16px', cursor:'default' }}>
-                <div style={{ fontWeight:700, color:'#c8192e', fontSize:11,
-                  textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10 }}>{m.family}</div>
-                {m.models.map(mod => (
-                  <div key={mod} style={{ fontSize:12, color:'#3a3a3a', fontFamily:'monospace',
-                    padding:'3px 0', borderBottom:'1px solid #1a1a1a', transition:'color 0.15s ease' }}>{mod}</div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section style={{ padding:'64px 20px' }}>
-        <div style={{ maxWidth:900, margin:'0 auto' }}>
-          <h2 style={{ textAlign:'center', fontSize:26, fontWeight:800, color:'#f0f0f0',
-            marginBottom:32, letterSpacing:'-1px' }}>All subsystems</h2>
-          <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:10 }}>
-            {SUBSYSTEMS.map(s => (
-              <div key={s.name} className="lift-card" style={{ display:'flex', gap:10, alignItems:'flex-start',
-                padding:'10px 14px', background:'#0f0f0f', border:'1px solid #1f1f1f', borderRadius:6, minWidth:0, cursor:'default' }}>
-                <span style={{ color:'#c8192e', marginTop:2, flexShrink:0, transition:'transform 0.2s ease' }}>▸</span>
-                <div style={{ minWidth:0, overflow:'hidden' }}>
-                  <code style={{ fontSize:12, color:'#c8192e', display:'block', marginBottom:2,
-                    overflowWrap:'break-word', wordBreak:'break-all' }}>{s.name}</code>
-                  <span style={{ fontSize:12, color:'#444', overflowWrap:'break-word', wordBreak:'break-word',
-                    display:'block', lineHeight:1.5 }}>{s.desc}</span>
+      {/* ── Quickstart ───────────────────────────────────────────────── */}
+      <section className="section">
+        <div className="shell-narrow">
+          <SectionHeading
+            kicker="Quickstart"
+            title="Up in minutes"
+            lede="Four commands from an empty environment to a quantized model on disk."
+          />
+          {/* The rail is drawn behind the step badges so the four steps read as
+              one sequence instead of four unrelated blocks. */}
+          <div style={{ position:'relative' }}>
+            <div aria-hidden="true" style={{ position:'absolute', left:17, top:14, bottom:34,
+              width:1, background:'linear-gradient(#c8192e33, #1a1a1a)' }} />
+            {QUICKSTART.map(q => (
+              <div key={q.step} style={{ display:'flex', gap:18, marginBottom:30,
+                alignItems:'flex-start', position:'relative' }}>
+                <div style={{ minWidth:35, height:35, borderRadius:9, background:'#1a0305',
+                  border:'1px solid #c8192e44', display:'flex', alignItems:'center',
+                  justifyContent:'center', fontFamily:'var(--font-mono)', fontSize:11,
+                  color:'#c8192e', fontWeight:700, flexShrink:0 }}>{q.step}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, color:'#f0f0f0', marginBottom:4,
+                    letterSpacing:'-0.01em' }}>{q.title}</div>
+                  <p style={{ color:'#4a4a4a', fontSize:13, margin:'0 0 10px' }}>{q.desc}</p>
+                  <CodeBlock code={q.code} />
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── Models ───────────────────────────────────────────────────── */}
+      <section className="section" style={{ background:'#111', borderTop:'1px solid #161616',
+        borderBottom:'1px solid #161616' }}>
+        <div className="shell">
+          <SectionHeading
+            kicker="Model support"
+            title="Supported model families"
+            lede="Short names resolve automatically in both the CLI and Python."
+          >
+            <p style={{ marginTop:16, marginBottom:0 }}>
+              <a href="https://huggingface.co/collections/ray0rf1re/hyper-nix-v0x" target="_blank"
+                rel="noreferrer" className="underline-grow"
+                style={{ color:'#c8192e', fontSize:13, textDecoration:'none', fontWeight:600 }}>
+                Browse the HyperNix collection on Hugging Face ↗
+              </a>
+            </p>
+          </SectionHeading>
+          <div className="anim-stagger" style={{ display:'grid',
+            gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:12 }}>
+            {MODELS.map(m => (
+              <div key={m.family} className="lift-card" style={{ background:'#161616',
+                border:'1px solid #252525', borderRadius:10, padding:'16px 16px 14px',
+                cursor:'default' }}>
+                <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between',
+                  gap:8, marginBottom:12 }}>
+                  <span className="eyebrow" style={{ color:'#c8192e', fontSize:10 }}>{m.family}</span>
+                  <span className="tabular" style={{ fontSize:10, color:'#2a2a2a',
+                    fontFamily:'var(--font-mono)' }}>{m.models.length}</span>
+                </div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                  {m.models.map(mod => (
+                    <span key={mod} className="chip">{mod}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Subsystems ───────────────────────────────────────────────── */}
+      <section className="section">
+        <div style={{ maxWidth:960, margin:'0 auto' }}>
+          <SectionHeading
+            kicker="Reference"
+            title="All subsystems"
+            lede={`${SUBSYSTEMS.length} importable modules. Filter by stage, or search names and descriptions.`}
+          />
+          <SubsystemBrowser />
         </div>
       </section>
     </div>
@@ -3253,8 +3501,8 @@ function DocsPage() {
       <div style={{ flex:1, minWidth:0 }}>
         {!activeWiki ? (
           <div className="anim-fade">
-            <h1 className="anim-fade-up" style={{ fontSize:32, fontWeight:800, color:'#f0f0f0', marginBottom:8 }}>Documentation</h1>
-            <p className="anim-fade-up" style={{ color:'#444', marginBottom:32, animationDelay:'0.05s' }}>Select a wiki page from the sidebar.</p>
+            <PageHeading kicker="Wiki" title="Documentation"
+              lede="Every page below is rendered straight from the repository's wiki/ directory — pick one from the sidebar or the grid." />
             <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))', gap:10 }}>
               {wikiPages.map(p => (
                 <button key={p} onClick={() => loadWiki(p)} className="lift-card" style={{
@@ -3263,7 +3511,7 @@ function DocsPage() {
                 }}>
                   {newPages.has(p) && <span style={{ position:'absolute', top:8, right:8, fontSize:8, color:'#0a0a0a', background:'#c8192e', borderRadius:3, padding:'1px 4px', fontFamily:'sans-serif', fontWeight:700 }}>NEW</span>}
                   {p.replace(/-/g, ' ')}
-                  <div className="underline-grow" style={{ fontSize:11, color:'#333', marginTop:4, fontWeight:400, display:'inline-block' }}>wiki ↗</div>
+                  <div className="underline-grow" style={{ fontSize:11, color:'#333', marginTop:5, fontWeight:400, display:'block', width:'fit-content' }}>wiki ↗</div>
                 </button>
               ))}
             </div>
@@ -3312,8 +3560,8 @@ function ApiPage() {
 
   return (
     <div className="anim-fade" style={{ maxWidth:860, margin:'0 auto', padding:'90px 20px 60px' }}>
-      <h1 className="anim-fade-up" style={{ fontSize:32, fontWeight:800, color:'#f0f0f0', marginBottom:6 }}>API Reference</h1>
-      <p className="anim-fade-up" style={{ color:'#444', marginBottom:8, animationDelay:'0.04s' }}>Interactive CLI and Python module reference</p>
+      <PageHeading kicker="Reference" title="API Reference"
+        lede="Every CLI subcommand and every public Python entry point, cross-checked against the installed source." />
       <p className="anim-fade-up" style={{ color:'#2a2a2a', fontSize:12, marginBottom:24, animationDelay:'0.08s' }}>
         Sourced from{' '}
         <a href={HYPERNIX_REPO_URL} target="_blank" rel="noreferrer" className="underline-grow" style={{ color:'#4a9eff' }}>
@@ -3438,9 +3686,11 @@ function StatsPage({ downloads, olderDownloads, threeMonthDownloads, totalDownlo
   useEffect(() => { const t = setTimeout(() => setMounted(true), 50); return () => clearTimeout(t) }, [])
   return (
     <div className="anim-fade" style={{ maxWidth:860, margin:'0 auto', padding:'90px 20px 60px' }}>
-      <h1 className="anim-fade-up" style={{ fontSize:32, fontWeight:800, color:'#f0f0f0', marginBottom:6 }}>Package Stats</h1>
-      <p className="anim-fade-up" style={{ color:'#444', marginBottom:32, animationDelay:'0.05s' }}>Live data from PyPI and GitHub</p>
-      <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:12, marginBottom:28 }}>
+      <PageHeading kicker="Telemetry" title="Package Stats"
+        lede="Live download, release, and repository numbers pulled from PyPI and GitHub on page load." />
+      {/* 115px keeps all six tiles on one row at the page's 820px content width
+          instead of orphaning "Issues" onto a second row. */}
+      <div className="anim-stagger" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(115px,1fr))', gap:12, marginBottom:28 }}>
         {[
           { label:'Downloads 24h', val: downloads.last_day },
           { label:'Downloads 7d', val: downloads.last_week },
@@ -3626,7 +3876,7 @@ function AboutPage() {
   return (
     <div style={{ maxWidth:640, margin:'0 auto', padding:'90px 20px 60px' }}>
       <img src={LOGO_SRC} alt="HyperNix" style={{ height:50, marginBottom:22 }} />
-      <h1 style={{ fontSize:32, fontWeight:800, color:'#f0f0f0', marginBottom:18 }}>About HyperNix</h1>
+      <PageHeading kicker="Background" title="About HyperNix" />
       <p style={{ color:'#666', lineHeight:1.75, marginBottom:14, fontSize:15 }}>
         I made this project for fun after getting a new PC — even though my GPU is now 10 years old.
         I wanted to train LLMs on it within a reasonable time, but it turns out that takes a while,
@@ -4511,7 +4761,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight:'100vh', background:'#0d0d0d', color:'#f0f0f0',
-      fontFamily:'-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+      fontFamily:'var(--font-sans)' }}>
       <style>{`
         * { box-sizing:border-box; margin:0; padding:0; }
         html { scroll-behavior:smooth; }
@@ -4519,7 +4769,7 @@ export default function App() {
         ::-webkit-scrollbar-track { background:#111; }
         ::-webkit-scrollbar-thumb { background:#2a2a2a; border-radius:3px; transition:background 0.2s; }
         ::-webkit-scrollbar-thumb:hover { background:#3a3a3a; }
-        code, pre { font-family:"SF Mono","Fira Code","Consolas",monospace; }
+        code, pre { font-family:var(--font-mono); }
         @media (max-width:640px) {
           .desk-nav { display:none !important; }
           .mob-btn { display:block !important; }
@@ -4576,6 +4826,10 @@ export default function App() {
         @keyframes float {
           0%, 100% { transform:translateY(0); }
           50%      { transform:translateY(-4px); }
+        }
+        @keyframes blink {
+          0%, 100% { opacity:1; }
+          50%      { opacity:0; }
         }
 
         /* ── Utility animation classes ──────────────────────────────── */
@@ -4634,9 +4888,82 @@ export default function App() {
         }
         .nav-link:hover::after, .nav-link.active::after { transform:scaleX(1); }
 
-        a:hover { opacity:0.75; }
-        button { transition:opacity 0.15s; }
-        button:hover { opacity:0.8; }
+        /* ── Layout primitives ──────────────────────────────────────── */
+        .section { padding: var(--space-section) var(--space-gutter); }
+        .shell { max-width:1120px; margin:0 auto; }
+        .shell-narrow { max-width:760px; margin:0 auto; }
+        .hairline { height:1px; background:#1a1a1a; border:0; }
+
+        /* Faint grid + a single red bloom behind the hero. Both sit under
+           the content at very low alpha so the flat backdrop still reads. */
+        .hero-bg {
+          position:absolute; inset:0; pointer-events:none; overflow:hidden;
+        }
+        .hero-bg::before {
+          content:''; position:absolute; inset:-1px;
+          background-image:
+            linear-gradient(to right, #ffffff05 1px, transparent 1px),
+            linear-gradient(to bottom, #ffffff05 1px, transparent 1px);
+          background-size:64px 64px;
+          mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, #000 20%, transparent 75%);
+          -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, #000 20%, transparent 75%);
+        }
+        .hero-bg::after {
+          content:''; position:absolute; left:50%; top:-180px;
+          width:900px; height:520px; transform:translateX(-50%);
+          background: radial-gradient(ellipse at center, rgba(200,25,46,0.10), transparent 68%);
+          filter: blur(20px);
+        }
+
+        /* ── Terminal mock ──────────────────────────────────────────── */
+        .term {
+          background:#0f0f0f; border:1px solid #202020; border-radius:10px;
+          overflow:hidden; box-shadow:0 24px 60px -30px rgba(0,0,0,0.9);
+        }
+        .term-bar {
+          display:flex; align-items:center; gap:7px;
+          padding:9px 12px; background:#131313; border-bottom:1px solid #1c1c1c;
+        }
+        .term-dot { width:9px; height:9px; border-radius:50%; }
+        .term-body {
+          padding:14px 16px 18px; font-family:var(--font-mono);
+          font-size:12.5px; line-height:1.85; overflow-x:auto;
+        }
+        .term-line { white-space:pre; }
+        @media (max-width:640px) { .term-body { font-size:10.5px; padding:12px 13px 15px; } }
+
+        /* ── Chips / filters ────────────────────────────────────────── */
+        .chip {
+          font-family:var(--font-mono); font-size:11px; padding:3px 9px;
+          border-radius:20px; border:1px solid #1f1f1f; background:#141414;
+          color:#4a4a4a; white-space:nowrap;
+        }
+        .filter-chip {
+          font-family:var(--font-mono); font-size:11.5px; letter-spacing:0.04em;
+          padding:6px 13px; border-radius:20px; cursor:pointer;
+          border:1px solid #1f1f1f; background:#131313; color:#555;
+          transition:border-color 0.18s ease, color 0.18s ease, background-color 0.18s ease;
+        }
+        .filter-chip:hover { color:#888; border-color:#2e2e2e; }
+        .filter-chip[aria-pressed="true"] {
+          background:#1a0305; border-color:#c8192e66; color:#c8192e;
+        }
+
+        /* ── Subsystem rows ─────────────────────────────────────────── */
+        .sub-row {
+          display:grid; grid-template-columns:minmax(0,220px) minmax(0,1fr);
+          gap:6px 22px; padding:13px 4px; border-top:1px solid #171717;
+          transition:background-color 0.18s ease;
+        }
+        .sub-row:hover { background:#111; }
+        @media (max-width:720px) { .sub-row { grid-template-columns:1fr; } }
+
+        /* Accent bar that fills in on hover, tinted per feature card. */
+        .accent-bar {
+          height:2px; width:26px; border-radius:2px; margin-bottom:14px;
+          transition:width 0.28s cubic-bezier(0.22,1,0.36,1);
+        }
+        .lift-card:hover .accent-bar { width:52px; }
       `}</style>
       <EventBanner event={activeEvent} dismissed={bannerDismissed} onDismiss={() => setBannerDismissed(true)} version={version} />
       <Nav page={page} setPage={setPage} scrolled={scrolled} topOffset={bannerVisible ? BANNER_HEIGHT : 0} />
@@ -4648,16 +4975,46 @@ export default function App() {
         {page === 'stats' && <StatsPage {...common} />}
         {page === 'about' && <AboutPage />}
       </div>
-      <footer style={{ borderTop:'1px solid #161616', padding:'28px 20px', textAlign:'center', marginTop:40 }}>
-        <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:8, marginBottom:10 }}>
-          <img src={LOGO_SRC} alt="" style={{ height:18 }} />
-          <span style={{ color:'#2a2a2a', fontSize:12 }}>hypernix — LLU-0.1 / HOS-1.0 (dual)</span>
-        </div>
-        <div style={{ display:'flex', justifyContent:'center', gap:20 }}>
-          {[['PyPI','https://pypi.org/project/hypernix/'],['GitHub','https://github.com/minerofthesoal/hypernix-pip'],['HuggingFace','https://huggingface.co/ray0rf1re']].map(([l,h]) => (
-            <a key={l} href={h} target="_blank" rel="noreferrer"
-              style={{ color:'#2a2a2a', fontSize:12, textDecoration:'none' }}>{l}</a>
-          ))}
+      <footer style={{ borderTop:'1px solid #161616', padding:'40px var(--space-gutter) 34px',
+        marginTop:40 }}>
+        <div className="shell" style={{ display:'flex', flexWrap:'wrap', gap:24,
+          alignItems:'flex-start', justifyContent:'space-between' }}>
+          <div style={{ minWidth:220 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:9 }}>
+              <img src={LOGO_SRC} alt="" style={{ height:20 }} />
+              <span style={{ color:'#3a3a3a', fontSize:13, fontWeight:600 }}>hypernix</span>
+            </div>
+            <div style={{ color:'#242424', fontSize:11.5, lineHeight:1.7 }}>
+              v{version} — LLU-0.1 / HOS-1.0 (dual)<br/>
+              Built for Pascal-class and newer consumer GPUs.
+            </div>
+          </div>
+
+          <div style={{ display:'flex', gap:44, flexWrap:'wrap' }}>
+            <div>
+              <div className="eyebrow" style={{ color:'#2a2a2a', marginBottom:11, fontSize:9.5 }}>
+                Project
+              </div>
+              {[['PyPI','https://pypi.org/project/hypernix/'],
+                ['GitHub','https://github.com/minerofthesoal/hypernix-pip'],
+                ['HuggingFace','https://huggingface.co/ray0rf1re']].map(([l,h]) => (
+                <a key={l} href={h} target="_blank" rel="noreferrer" className="underline-grow"
+                  style={{ color:'#3a3a3a', fontSize:12.5, textDecoration:'none',
+                    display:'block', marginBottom:7, width:'fit-content' }}>{l} ↗</a>
+              ))}
+            </div>
+            <div>
+              <div className="eyebrow" style={{ color:'#2a2a2a', marginBottom:11, fontSize:9.5 }}>
+                Site
+              </div>
+              {PAGES.filter(pp => pp !== page).slice(0, 4).map(pp => (
+                <button key={pp} onClick={() => setPage(pp)} className="underline-grow"
+                  style={{ background:'none', border:'none', padding:0, cursor:'pointer',
+                    color:'#3a3a3a', fontSize:12.5, display:'block', marginBottom:7,
+                    fontFamily:'inherit', textTransform:'capitalize' }}>{pp}</button>
+              ))}
+            </div>
+          </div>
         </div>
       </footer>
     </div>
