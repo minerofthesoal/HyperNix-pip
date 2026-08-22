@@ -1,29 +1,43 @@
 """hypernix.t1api — the HyperNix T1 API, a controlled gateway into HyperNix.
 
-Beta 1 scope (see ``wiki/T1-API.md`` for the full roadmap): core FastAPI
-server, T1 authentication + scoped tokens, the model registry, basic
-per-key/per-model usage tracking, ``/health``, ``/status``, ``/models``
-and friends, SQLite storage, OpenAPI docs. Module/server/job/event/billing
-management and the quota-cascade routing engine land in Beta 2 and 3.
+Complete through **Beta 3** (see ``wiki/T1-API.md`` for the full
+contract):
+
+* **Beta 1** — core FastAPI server, T1 authentication + scoped tokens,
+  the model registry, per-key/per-model usage tracking, ``/health``,
+  ``/status``, ``/models``, SQLite storage, OpenAPI docs.
+* **Beta 2** — module registry and upload/sync, server registry, async
+  jobs, event streaming, the quota-cascade routing engine, billing and
+  payment tokens, encrypted secrets, Tailscale/local deployment.
+* **Beta 3** — production hardening: PostgreSQL, a durable audit log,
+  mTLS, advanced rate limiting, IP allow/blocklists, real remote
+  multi-server module transport, the key directory (``/keys``), usage
+  history/cost/estimate, and production configuration validation.
 
 Two import surfaces, on purpose:
 
-* ``hypernix.t1api.registry`` / ``.storage`` / ``.usage`` / ``.errors`` /
-  ``.auth`` / ``.config`` — pure Python + stdlib (+ the already-required
-  ``cryptography`` extra via Keymaster). Importable and fully testable
-  without FastAPI/Pydantic installed, same as the rest of hypernix.
-* ``hypernix.t1api.app`` / ``.schemas`` / ``.deps`` / ``.routers`` /
-  ``create_app`` — the HTTP layer. Requires the optional
-  ``hypernix[t1api]`` extra (``fastapi``, ``uvicorn``, ``pydantic``,
-  ``python-dotenv``). Importing ``hypernix.t1api.create_app`` without that
-  extra installed raises a clear ``ImportError`` rather than a confusing
-  traceback deep in FastAPI.
+* ``.registry`` / ``.storage`` / ``.usage`` / ``.errors`` / ``.auth`` /
+  ``.config`` / ``.routing`` / ``.audit`` / ``.ratelimit`` /
+  ``.netpolicy`` / ``.mtls`` / ``.transport`` / ``.cost`` / ``.keys`` —
+  pure Python + stdlib (+ the already-required ``cryptography`` extra via
+  Keymaster, and psycopg only when PostgreSQL is actually configured).
+  Importable and fully testable without FastAPI/Pydantic installed, same
+  as the rest of hypernix.
+* ``.app`` / ``.schemas`` / ``.deps`` / ``.routers`` / ``create_app`` —
+  the HTTP layer. Requires the optional ``hypernix[t1api]`` extra
+  (``fastapi``, ``uvicorn``, ``pydantic``, ``python-dotenv``). Importing
+  ``create_app`` without that extra raises a clear ``ImportError`` rather
+  than a confusing traceback deep inside FastAPI.
+
+That split is what lets the enforcement logic — registry gating, quota
+math, cascade routing, the network-policy decision, signature
+verification — be tested directly, with no HTTP layer in the way.
 """
 from __future__ import annotations
 
 from typing import Any
 
-__t1api_version__ = "0.71.5b2"
+__t1api_version__ = "0.71.5b3"
 
 __all__ = [
     "__t1api_version__",
@@ -50,6 +64,21 @@ __all__ = [
     "JobStatus",
     "EventBus",
     "BillingLedger",
+    # Beta 3
+    "AuditLog",
+    "AuditCategory",
+    "AuditOutcome",
+    "NetworkPolicy",
+    "RateLimiter",
+    "RateRule",
+    "TLSSettings",
+    "ClientCertVerifier",
+    "ModuleTransport",
+    "DeploymentCoordinator",
+    "KeyDirectory",
+    "CostCalculator",
+    "PostgresBackend",
+    "make_backend",
 ]
 
 
@@ -107,6 +136,42 @@ def __getattr__(name: str) -> Any:
         from . import billing as _billing
 
         return getattr(_billing, name)
+    if name in ("AuditLog", "AuditCategory", "AuditOutcome", "AuditRecord"):
+        from . import audit as _audit
+
+        return getattr(_audit, name)
+    if name in ("NetworkPolicy", "PolicyEntry", "ForcedLimit", "EntryKind", "Decision"):
+        from . import netpolicy as _netpolicy
+
+        return getattr(_netpolicy, name)
+    if name in ("RateLimiter", "RateRule", "Subject"):
+        from . import ratelimit as _ratelimit
+
+        return getattr(_ratelimit, name)
+    if name in ("TLSSettings", "ClientCertVerifier", "ClientCertificate"):
+        from . import mtls as _mtls
+
+        return getattr(_mtls, name)
+    if name in ("ModuleTransport", "TransferResult"):
+        from . import transport as _transport
+
+        return getattr(_transport, name)
+    if name == "DeploymentCoordinator":
+        from .deploy import DeploymentCoordinator as _coordinator
+
+        return _coordinator
+    if name in ("KeyDirectory", "KeyAssignment", "KeySummary"):
+        from . import keys as _keys
+
+        return getattr(_keys, name)
+    if name in ("CostCalculator", "CostReport", "CostLine", "Forecast"):
+        from . import cost as _cost
+
+        return getattr(_cost, name)
+    if name in ("PostgresBackend", "SQLBackend", "make_backend"):
+        from . import db as _db
+
+        return getattr(_db, name)
 
     # HTTP-layer names: require the optional [t1api] extra.
     if name == "create_app":

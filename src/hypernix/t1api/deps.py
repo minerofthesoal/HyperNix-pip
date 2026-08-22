@@ -74,6 +74,101 @@ def get_billing_ledger(request: Request):
     return request.app.state.t1_billing_ledger
 
 
+# --- Beta 3 subsystems -------------------------------------------------
+
+
+def get_audit_log(request: Request):
+    return request.app.state.t1_audit_log
+
+
+def get_network_policy(request: Request):
+    return request.app.state.t1_network_policy
+
+
+def get_rate_limiter(request: Request):
+    return request.app.state.t1_rate_limiter
+
+
+def get_key_directory(request: Request):
+    return request.app.state.t1_key_directory
+
+
+def get_cost_calculator(request: Request):
+    return request.app.state.t1_cost_calculator
+
+
+def get_deployment_coordinator(request: Request):
+    return request.app.state.t1_deployment
+
+
+def get_cert_verifier(request: Request):
+    return request.app.state.t1_cert_verifier
+
+
+def get_client_ip(request: Request) -> str:
+    """The caller's address, honouring X-Forwarded-For only from a
+    trusted proxy.
+
+    Set once by the network-policy middleware and cached on
+    ``request.state`` — every later consumer (audit, rate limiting,
+    handlers) must see the *same* address the access decision was made
+    on. Recomputing it per call site would be a way for the two to drift
+    apart, which is how an audit record ends up naming a different
+    client than the one that was actually allowed in.
+    """
+    cached = getattr(request.state, "client_ip", None)
+    if cached is not None:
+        return cached
+    return resolve_client_ip(request)
+
+
+def resolve_client_ip(request: Request) -> str:
+    """Compute the caller's address from the transport and, when the
+    immediate peer is a trusted proxy, ``X-Forwarded-For``.
+
+    ``X-Forwarded-For`` is client-settable, so it is read **only** when
+    the direct peer is in ``T1_TRUSTED_PROXIES``. Without that check a
+    client could put any address in the header and defeat both the IP
+    blocklist and per-IP rate limiting in one line.
+    """
+    peer = request.client.host if request.client else ""
+    config: T1APIConfig = request.app.state.t1_config
+    trusted = getattr(config, "trusted_proxies", ())
+    if not trusted or not peer:
+        return peer
+    verifier = getattr(request.app.state, "t1_cert_verifier", None)
+    if verifier is None or not verifier.is_trusted_proxy(peer):
+        return peer
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if not forwarded:
+        return peer
+    # Left-most entry is the original client; the rest are proxy hops.
+    return forwarded.split(",")[0].strip() or peer
+
+
+def require_confirmation(request: Request, *, action: str) -> None:
+    """Enforce "Require explicit confirmation for destructive operations".
+
+    A destructive endpoint calls this; it passes only when the request
+    carries ``?confirm=true``. Deliberately a query parameter rather than
+    a body field so it survives ``DELETE`` (which has no body by
+    convention) and shows up in the request line an operator reads back
+    afterwards.
+    """
+    config: T1APIConfig = request.app.state.t1_config
+    if not config.require_destructive_confirmation:
+        return
+    value = request.query_params.get("confirm", "").strip().lower()
+    if value in ("1", "true", "yes"):
+        return
+    raise T1APIError(
+        T1ErrorCode.CONFIRMATION_REQUIRED,
+        f"{action} is destructive and requires explicit confirmation. Re-send with ?confirm=true.",
+        details={"action": action},
+        http_status=409,
+    )
+
+
 def _extract_credential(authorization: str | None) -> str:
     if not authorization:
         raise T1APIError(
@@ -126,4 +221,14 @@ __all__ = [
     "get_job_queue",
     "get_event_bus",
     "get_billing_ledger",
+    "get_audit_log",
+    "get_network_policy",
+    "get_rate_limiter",
+    "get_key_directory",
+    "get_cost_calculator",
+    "get_deployment_coordinator",
+    "get_cert_verifier",
+    "get_client_ip",
+    "resolve_client_ip",
+    "require_confirmation",
 ]

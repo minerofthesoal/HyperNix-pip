@@ -46,6 +46,19 @@ class StatusResponse(BaseModel):
     model_count: int
     storage_backend: str
     request_id: str
+    # Beta 3: enough for an operator (or `waiter status`) to see which
+    # protections are actually on, without exposing a single secret's
+    # value — `secrets_configured` reports set/unset booleans only.
+    tls_enabled: bool = False
+    mtls_mode: str = "off"
+    rate_limit_enabled: bool = True
+    audit_enabled: bool = True
+    network_policy_enabled: bool = True
+    allow_unlisted_clients: bool = True
+    remote_deployment_enabled: bool = False
+    secrets_configured: dict[str, bool] = Field(default_factory=dict)
+    production_ready: bool = True
+    production_warnings: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +215,17 @@ class ConfigResponse(BaseModel):
 
 
 class RouteRequest(BaseModel):
-    plan: str = Field(..., description="Caller's plan, used to resolve a routing policy.")
+    # Beta 3: no longer required, and no longer trusted when supplied.
+    # The plan is a property of the key's server-side assignment
+    # (POST /keys/assign); passing one here is only an assertion, and a
+    # mismatch against the assigned plan is refused with
+    # AUTH_INSUFFICIENT_SCOPE rather than honoured. See t1api.keys —
+    # "the client must NEVER be trusted to decide what it can access".
+    plan: str | None = Field(
+        default=None,
+        description="Optional assertion of the caller's plan. The server resolves the real "
+        "plan from the key's assignment; a mismatch is rejected, never silently accepted.",
+    )
     model_id: str | None = Field(
         default=None, description="Manual model selection. Omit for automatic routing."
     )
@@ -221,6 +244,9 @@ class RouteResponse(BaseModel):
     policy_name: str
     considered: list[dict[str, Any]]
     request_id: str
+    resolved_plan: str = Field(
+        default="", description="The plan the server actually applied, from the key's assignment."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -489,4 +515,372 @@ __all__ = [
     "PaymentTokenMintResponse",
     "RedeemRequest",
     "AddBalanceRequest",
+    # Beta 3
+    "UsageHistoryItem",
+    "UsageHistoryResponse",
+    "UsageAggregateRow",
+    "UsageAggregateResponse",
+    "CostLineItem",
+    "ForecastItem",
+    "UsageCostResponse",
+    "UsageEstimateRequest",
+    "UsageEstimateResponse",
+    "KeyAssignmentItem",
+    "KeyItem",
+    "KeyListResponse",
+    "KeyImportRequest",
+    "KeyImportResponse",
+    "KeyAssignRequest",
+    "KeyAssignResponse",
+    "AuditItem",
+    "AuditListResponse",
+    "NetworkPolicyEntryItem",
+    "NetworkPolicyResponse",
+    "NetworkPolicyEntryRequest",
+    "ForcedLimitItem",
+    "ForcedLimitRequest",
+    "ForcedLimitListResponse",
+    "ForcedLimitResponse",
+    "RateLimitStatusResponse",
+    "ModuleDeployRequest",
+    "ModuleDeployResponse",
+    "ModuleFetchResponse",
+    "ModuleReceiveResponse",
+    "GenericOkResponse",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Beta 3 — usage history / cost / estimate
+# ---------------------------------------------------------------------------
+
+
+class UsageHistoryItem(BaseModel):
+    key_id: str
+    model_id: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    requests: int
+    endpoint: str
+    server_id: str
+    module_id: str
+    user_id: str
+    account_id: str
+    ts: float
+
+
+class UsageHistoryResponse(BaseModel):
+    events: list[UsageHistoryItem]
+    count: int
+    since: float | None = None
+    until: float | None = None
+    limit: int
+    offset: int
+    request_id: str
+
+
+class UsageAggregateRow(BaseModel):
+    group_by: str
+    value: str
+    requests: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+
+class UsageAggregateResponse(BaseModel):
+    group_by: str
+    rows: list[UsageAggregateRow]
+    count: int
+    since: float | None = None
+    until: float | None = None
+    request_id: str
+
+
+class CostLineItem(BaseModel):
+    dimension: str
+    value: str
+    requests: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    input_cost: float
+    output_cost: float
+    total_cost: float
+    currency: str
+
+
+class ForecastItem(BaseModel):
+    projected_cost: float
+    horizon_seconds: float
+    observed_seconds: float
+    observed_cost: float
+    rate_per_day: float
+    confidence: str
+    currency: str
+    basis: str
+
+
+class UsageCostResponse(BaseModel):
+    total_cost: float
+    currency: str
+    since: float | None = None
+    until: float | None = None
+    lines: list[CostLineItem]
+    unpriced_models: list[str] = Field(
+        default_factory=list,
+        description="Models with recorded usage but no current registry entry. Their usage is "
+        "reported and priced at zero rather than dropped, so the gap is visible.",
+    )
+    forecast: ForecastItem | None = None
+    request_id: str
+
+
+class UsageEstimateRequest(BaseModel):
+    model_id: str = Field(..., description="Must be a registered model_id.")
+    input_tokens: int = Field(..., ge=0)
+    output_tokens: int | None = Field(
+        default=None,
+        description="Omit for an upper-bound estimate using the model's output_token_limit.",
+    )
+    requests: int = Field(default=1, ge=1)
+
+
+class UsageEstimateResponse(BaseModel):
+    model_id: str
+    requests: int
+    input_tokens: int
+    output_tokens: int
+    output_tokens_assumed: bool
+    input_cost: float
+    output_cost: float
+    estimated_cost: float
+    currency: str
+    exceeds_input_token_limit: bool
+    exceeds_context_limit: bool
+    input_token_limit: int
+    context_limit: int
+    note: str
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 3 — keys
+# ---------------------------------------------------------------------------
+
+
+class KeyAssignmentItem(BaseModel):
+    key_id: str
+    plan: str
+    account_id: str
+    user_id: str
+    server_ids: list[str]
+    allowed_models: list[str]
+    note: str
+    assigned_at: float
+
+
+class KeyItem(BaseModel):
+    """Credential-free view of a key. No endpoint ever returns the raw
+    key string for an existing key — only key rotation, which mints a
+    new one, hands a secret back."""
+
+    key_id: str
+    key_type: str
+    scopes: list[str]
+    active: bool
+    created_at: float
+    expires_at: float | None
+    prefix: str
+    server_id: str
+    usage_count: int
+    request_count: int
+    usage_cap: int | None
+    request_limit: int | None
+    rotated_from: str | None
+    assignment: KeyAssignmentItem | None = None
+
+
+class KeyListResponse(BaseModel):
+    keys: list[KeyItem]
+    count: int
+    scope: str = Field(
+        default="own",
+        description="'all' for an admin caller, 'own' otherwise — a non-admin sees only their key.",
+    )
+    request_id: str
+
+
+class KeyImportRequest(BaseModel):
+    payload: dict[str, Any] = Field(
+        ...,
+        description="A Keymaster export object: {\"keys\": [ ... ]}. Contains raw key material, "
+        "so it is never logged and never echoed back — the response carries masked ids only.",
+    )
+
+
+class KeyImportResponse(BaseModel):
+    imported: int
+    skipped: int
+    imported_key_ids: list[str]
+    skipped_key_ids: list[str]
+    request_id: str
+
+
+class KeyAssignRequest(BaseModel):
+    key_id: str
+    plan: str | None = None
+    account_id: str | None = None
+    user_id: str | None = None
+    server_ids: list[str] | None = None
+    allowed_models: list[str] | None = Field(
+        default=None,
+        description="Narrows this key to a subset of registered models. Every entry is validated "
+        "against the model registry; an unregistered id is rejected with MODEL_NOT_SUPPORTED.",
+    )
+    note: str | None = None
+
+
+class KeyAssignResponse(BaseModel):
+    assignment: KeyAssignmentItem
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 3 — audit
+# ---------------------------------------------------------------------------
+
+
+class AuditItem(BaseModel):
+    audit_id: str
+    ts: float
+    category: str
+    action: str
+    outcome: str
+    actor_key_id: str
+    actor_is_admin: bool
+    resource_type: str
+    resource_id: str
+    client_ip: str
+    request_id: str
+    details: dict[str, Any]
+
+
+class AuditListResponse(BaseModel):
+    events: list[AuditItem]
+    count: int
+    total: int
+    limit: int
+    offset: int
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 3 — network policy / forced limits (waiter -B/-W/-a/-r)
+# ---------------------------------------------------------------------------
+
+
+class NetworkPolicyEntryItem(BaseModel):
+    entry_id: str
+    cidr: str
+    kind: str
+    reason: str
+    created_by: str
+    created_at: float
+    expires_at: float | None = None
+    expired: bool = False
+
+
+class NetworkPolicyResponse(BaseModel):
+    entries: list[NetworkPolicyEntryItem]
+    count: int
+    allow_unlisted_clients: bool
+    enabled: bool
+    request_id: str
+
+
+class NetworkPolicyEntryRequest(BaseModel):
+    cidr: str = Field(..., description="A single IP or a CIDR range, e.g. 10.0.0.0/8.")
+    reason: str = ""
+    ttl_seconds: float | None = Field(
+        default=None, description="Optional expiry, for a temporary block or a time-boxed grant."
+    )
+
+
+class ForcedLimitItem(BaseModel):
+    subject_type: str
+    subject_id: str
+    requests_per_window: int | None
+    tokens_per_window: int | None
+    window_seconds: float
+    reason: str
+    created_at: float
+
+
+class ForcedLimitRequest(BaseModel):
+    subject_type: str = Field(..., description="'key' or 'server'.")
+    subject_id: str
+    requests_per_window: int | None = Field(default=None, ge=1)
+    tokens_per_window: int | None = Field(default=None, ge=1)
+    window_seconds: float = Field(default=60.0, gt=0)
+    reason: str = ""
+
+
+class ForcedLimitListResponse(BaseModel):
+    limits: list[ForcedLimitItem]
+    count: int
+    request_id: str
+
+
+class ForcedLimitResponse(BaseModel):
+    limit: ForcedLimitItem
+    request_id: str
+
+
+class RateLimitStatusResponse(BaseModel):
+    rules: list[dict[str, Any]]
+    enabled: bool
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Beta 3 — remote deployment
+# ---------------------------------------------------------------------------
+
+
+class ModuleDeployRequest(BaseModel):
+    server_ids: list[str] = Field(
+        ..., min_length=1, description="Registered, trusted server_ids to push this module to."
+    )
+
+
+class ModuleDeployResponse(BaseModel):
+    job_id: str
+    status: str
+    server_ids: list[str]
+    request_id: str
+
+
+class ModuleFetchResponse(BaseModel):
+    job_id: str
+    status: str
+    request_id: str
+
+
+class ModuleReceiveResponse(BaseModel):
+    """Response to an inbound server-to-server push. The pusher compares
+    ``checksum`` against what it sent — a mismatch means the bytes changed
+    in flight, and it fails the deployment rather than trusting the 200."""
+
+    module_id: str
+    checksum: str
+    size_bytes: int
+    status: str
+    request_id: str
+
+
+class GenericOkResponse(BaseModel):
+    ok: bool = True
+    detail: str = ""
+    request_id: str

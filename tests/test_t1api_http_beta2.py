@@ -1,17 +1,16 @@
 """Integration tests for Beta 2's HTTP layer: servers, modules, jobs,
 events, billing, and the POST /models/route addition.
 
-Same caveat as tests/test_t1api_http.py: requires
-`pip install hypernix[t1api-test]` and was NOT executed in the sandbox
-this was authored in (no network access there). The core logic each route
-calls (t1api.servers/.modules/.jobs/.events/.billing/.routing) WAS
-executed and is passing — see tests/test_t1api_servers.py,
-test_t1api_modules.py, test_t1api_jobs.py, test_t1api_events.py,
-test_t1api_billing.py, test_t1api_routing.py. Run this file first thing
-after installing the extra and report back anything that doesn't match.
+Requires `pip install hypernix[t1api-test]`. Executed and passing as of
+Beta 3 (the Beta 2 authoring sandbox had no network access to install
+FastAPI, so this file shipped unexecuted at the time; it has since been
+run and the two assertions that Beta 3 legitimately changed are marked
+below).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 
 import pytest
@@ -25,6 +24,7 @@ from hypernix.t1api.app import create_app  # noqa: E402
 from hypernix.t1api.config import T1APIConfig  # noqa: E402
 from hypernix.t1api.registry import ModelRegistry, ModelStatus  # noqa: E402
 from hypernix.t1api.storage import UsageStore  # noqa: E402
+from hypernix.t1api.transport import ModuleTransport  # noqa: E402
 
 _FREE_TIER_MODELS = [
     "nanonix-mini-plus", "nanonanonano-n3", "nanonix-mini-lite",
@@ -78,6 +78,88 @@ def admin_key(km) -> str:
 
 def _auth(key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
+
+
+def _await_job(client, job_id: str, key: str, timeout: float = 5.0):
+    """Poll a job to a terminal state. Jobs run on a real thread pool, so
+    tests wait for the transition rather than assuming it happened."""
+    deadline = time.time() + timeout
+    job_resp = client.get(f"/jobs/{job_id}", headers=_auth(key))
+    while time.time() < deadline:
+        job_resp = client.get(f"/jobs/{job_id}", headers=_auth(key))
+        if job_resp.json()["job"]["status"] in ("succeeded", "failed", "cancelled"):
+            break
+        time.sleep(0.02)
+    return job_resp
+
+
+@pytest.fixture
+def sent_transfers() -> list[dict]:
+    """Records every transfer the stub opener was asked to send."""
+    return []
+
+
+@pytest.fixture
+def deploy_client(km, gk, registry, tmp_path, sent_transfers) -> TestClient:
+    """A client whose ModuleTransport talks to a stub instead of the network.
+
+    The real ModuleTransport is used — signing, size caps, SSRF
+    validation and checksum verification all run for real. Only the
+    socket is replaced, so these tests exercise the actual transport code
+    path rather than a mock of it.
+    """
+
+    class _StubResponse:
+        status = 200
+
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def read(self, *args):
+            return self._payload
+
+        def getcode(self):
+            return 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _opener(request, timeout=None):
+        body = request.data or b""
+        # urllib capitalizes header names its own way; normalize so
+        # assertions can look them up by the canonical spelling.
+        sent_transfers.append(
+            {
+                "url": request.full_url,
+                "body": body,
+                "headers": {k.lower(): v for k, v in request.headers.items()},
+            }
+        )
+        # Echo the digest back the way a real receiving server does, so
+        # the sender's post-transfer integrity check has something to
+        # compare against.
+        return _StubResponse(
+            json.dumps({"checksum": hashlib.sha256(body).hexdigest()}).encode("utf-8")
+        )
+
+    cfg = T1APIConfig(
+        token_secret="test-secret",
+        db_path=str(tmp_path / "usage.sqlite3"),
+        deploy_secret="deploy-secret-value",
+        module_storage_dir=str(tmp_path / "modules"),
+    )
+    app = create_app(
+        config=cfg,
+        keymaster=km,
+        gatekeeper=gk,
+        registry=registry,
+        usage_store=UsageStore(tmp_path / "usage.sqlite3"),
+        transport=ModuleTransport(deploy_secret="deploy-secret-value", opener=_opener),
+    )
+    return TestClient(app)
 
 
 class TestModelRouting:
@@ -244,6 +326,13 @@ class TestModules:
         assert resp.status_code == 403
 
     def test_sync_to_untrusted_server_job_fails(self, client, user_key):
+        """Trust is checked before the target's address is ever dialled.
+
+        Beta 3 note: the job now surfaces the *specific* SERVER_UNTRUSTED
+        code rather than a generic transport failure — see
+        DeploymentCoordinator.module_sync_handler, which preserves the
+        underlying code when every target failed the same way.
+        """
         create_resp = client.post(
             "/modules/create", json={"name": "my-mod", "version": "1.0.0"}, headers=_auth(user_key)
         )
@@ -260,44 +349,127 @@ class TestModules:
         assert sync_resp.status_code == 200
         job_id = sync_resp.json()["job_id"]
 
-        # job runs in a background thread pool by default -- poll briefly
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
-            job_resp = client.get(f"/jobs/{job_id}", headers=_auth(user_key))
-            status = job_resp.json()["job"]["status"]
-            if status in ("succeeded", "failed"):
-                break
-            time.sleep(0.05)
+        job_resp = _await_job(client, job_id, user_key)
         assert job_resp.json()["job"]["status"] == "failed"
         assert "SERVER_UNTRUSTED" in job_resp.json()["job"]["error"]
 
-    def test_sync_to_trusted_server_succeeds(self, client, admin_key):
-        create_resp = client.post(
+    def test_sync_to_trusted_server_transfers_bytes(self, deploy_client, admin_key, sent_transfers):
+        """Beta 3: sync moves real bytes to a trusted server.
+
+        The Beta 2 version of this test asserted only that the sync was
+        *recorded*, because there was no transport behind it. Now there
+        is, so the test asserts what actually crossed the wire: the
+        signed request, the exact payload, and the checksum the target
+        echoed back.
+        """
+        create_resp = deploy_client.post(
             "/modules/create", json={"name": "my-mod", "version": "1.0.0"}, headers=_auth(admin_key)
         )
         module_id = create_resp.json()["module"]["module_id"]
-        server_resp = client.post(
+        upload_resp = deploy_client.post(
+            f"/modules/upload/local?module_id={module_id}",
+            files={"file": ("mod.bin", b"deployable-bytes", "application/octet-stream")},
+            headers=_auth(admin_key),
+        )
+        assert upload_resp.status_code == 200
+
+        server_resp = deploy_client.post(
             "/servers/register",
             json={"name": "s1", "address": "https://s1.example.com"},
             headers=_auth(admin_key),
         )
         server_id = server_resp.json()["server"]["server_id"]
-        client.patch(f"/servers/{server_id}", json={"trust_level": "trusted"}, headers=_auth(admin_key))
+        deploy_client.patch(
+            f"/servers/{server_id}", json={"trust_level": "trusted"}, headers=_auth(admin_key)
+        )
 
-        sync_resp = client.post(
+        sync_resp = deploy_client.post(
             f"/modules/{module_id}/sync", json={"server_id": server_id}, headers=_auth(admin_key)
         )
         job_id = sync_resp.json()["job_id"]
 
-        deadline = time.time() + 2.0
-        job_resp = None
-        while time.time() < deadline:
-            job_resp = client.get(f"/jobs/{job_id}", headers=_auth(admin_key))
-            if job_resp.json()["job"]["status"] in ("succeeded", "failed"):
-                break
-            time.sleep(0.05)
-        assert job_resp.json()["job"]["status"] == "succeeded"
-        assert job_resp.json()["job"]["result"]["deployed_servers"] == [server_id]
+        job_resp = _await_job(deploy_client, job_id, admin_key)
+        job = job_resp.json()["job"]
+        assert job["status"] == "succeeded", job.get("error")
+        assert job["result"]["deployed_servers"] == [server_id]
+        assert job["result"]["delivered"][0]["bytes_transferred"] == len(b"deployable-bytes")
+
+        # The transport actually ran: one signed POST carrying exactly the
+        # uploaded bytes to the registry's address for that server.
+        assert len(sent_transfers) == 1
+        transfer = sent_transfers[0]
+        assert transfer["url"] == "https://s1.example.com/modules/receive"
+        assert transfer["body"] == b"deployable-bytes"
+        assert transfer["headers"]["x-t1-signature"]
+        assert transfer["headers"]["x-t1-content-sha256"] == hashlib.sha256(
+            b"deployable-bytes"
+        ).hexdigest()
+
+    def test_deploy_to_multiple_servers(self, deploy_client, admin_key, sent_transfers):
+        """The Beta 3 multi-target form: one job, N trusted servers."""
+        module_id = deploy_client.post(
+            "/modules/create", json={"name": "multi", "version": "1.0.0"}, headers=_auth(admin_key)
+        ).json()["module"]["module_id"]
+        deploy_client.post(
+            f"/modules/upload/local?module_id={module_id}",
+            files={"file": ("mod.bin", b"multi-bytes", "application/octet-stream")},
+            headers=_auth(admin_key),
+        )
+        server_ids = []
+        for name in ("s1", "s2"):
+            resp = deploy_client.post(
+                "/servers/register",
+                json={"name": name, "address": f"https://{name}.example.com"},
+                headers=_auth(admin_key),
+            )
+            server_id = resp.json()["server"]["server_id"]
+            deploy_client.patch(
+                f"/servers/{server_id}", json={"trust_level": "trusted"}, headers=_auth(admin_key)
+            )
+            server_ids.append(server_id)
+
+        resp = deploy_client.post(
+            f"/modules/{module_id}/deploy", json={"server_ids": server_ids}, headers=_auth(admin_key)
+        )
+        assert resp.status_code == 200
+        job = _await_job(deploy_client, resp.json()["job_id"], admin_key).json()["job"]
+        assert job["status"] == "succeeded", job.get("error")
+        assert sorted(job["result"]["deployed_servers"]) == sorted(server_ids)
+        assert len(sent_transfers) == 2
+
+    def test_deploy_to_untrusted_server_rejected_before_queueing(self, deploy_client, admin_key):
+        """An untrusted target fails the request, not a job you have to
+        go looking for afterwards."""
+        module_id = deploy_client.post(
+            "/modules/create", json={"name": "nope", "version": "1.0.0"}, headers=_auth(admin_key)
+        ).json()["module"]["module_id"]
+        server_id = deploy_client.post(
+            "/servers/register",
+            json={"name": "untrusted", "address": "https://u.example.com"},
+            headers=_auth(admin_key),
+        ).json()["server"]["server_id"]
+
+        resp = deploy_client.post(
+            f"/modules/{module_id}/deploy", json={"server_ids": [server_id]}, headers=_auth(admin_key)
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "SERVER_UNTRUSTED"
+
+    def test_delete_module_requires_confirmation(self, client, user_key):
+        """Destructive operations need ?confirm=true (Beta 3)."""
+        module_id = client.post(
+            "/modules/create", json={"name": "doomed", "version": "1.0.0"}, headers=_auth(user_key)
+        ).json()["module"]["module_id"]
+
+        resp = client.delete(f"/modules/{module_id}", headers=_auth(user_key))
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "CONFIRMATION_REQUIRED"
+        # Still there.
+        assert client.get(f"/modules/{module_id}", headers=_auth(user_key)).status_code == 200
+
+        resp = client.delete(f"/modules/{module_id}?confirm=true", headers=_auth(user_key))
+        assert resp.status_code == 200
+        assert client.get(f"/modules/{module_id}", headers=_auth(user_key)).status_code == 404
 
 
 class TestJobs:
