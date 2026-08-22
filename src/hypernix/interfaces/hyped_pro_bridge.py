@@ -42,7 +42,7 @@ from typing import Any
 
 from hypernix.interfaces import hyped_pro_core as core
 
-BRIDGE_VERSION = "0.71.4b10"
+BRIDGE_VERSION = "0.71.5rc2"
 
 
 def _err(id_: Any, code: str, message: str) -> dict[str, Any]:
@@ -86,6 +86,7 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
                 max_thinking_tokens=req.get("max_thinking_tokens"),
                 hide_thinking=req.get("hide_thinking", True),
                 enable_tools=req.get("enable_tools", True),
+                t1_api_model_id=req.get("t1_api_model_id"),
             )
             return _ok(id_, {"reply": result["content"], "thinking": result["thinking"]})
 
@@ -104,6 +105,22 @@ def dispatch(req: dict[str, Any]) -> dict[str, Any]:
             from hypernix.system.config import clear_provider_key
             clear_provider_key(req["vendor"])
             return _ok(id_, {"cleared": True})
+
+        # -- v0.71.5rc2 (Beta 4) ------------------------------------
+        if cmd == "release":
+            from hypernix.system.release import current_release
+            info = current_release(force=bool(req.get("force")))
+            return _ok(id_, info.to_dict())
+
+        if cmd == "t1api_status":
+            return _ok(id_, core.t1_api_status(url=req.get("url")))
+
+        if cmd == "t1api_get_url":
+            return _ok(id_, {"url": core.t1_api_url()})
+
+        if cmd == "t1api_set_url":
+            core.set_t1_api_url(req["url"])
+            return _ok(id_, {"url": core.t1_api_url()})
 
         return _err(id_, "HPB-PROTO-001", f"unknown command {cmd!r}")
 

@@ -56,6 +56,11 @@ _DEFAULTS: dict[str, Any] = {
     # the hyped-pro-gui settings dialog. Keyed by vendor id (see
     # ``hypernix.hyped_pro_core.PROVIDERS``). Never logged in full.
     "provider_keys":       {},
+    # v0.71.5rc2: which HyperNix T1 API server hyped-pro's "t1-routed"
+    # model talks to, and how that server's model_ids map onto local
+    # catalog short names. Empty map = match by name only.
+    "t1_api_url":          None,
+    "t1_api_model_map":    {},
 }
 
 # Vendor -> env var name, used by /key, hyped_pro_core.py, and the GUI
@@ -66,6 +71,9 @@ PROVIDER_ENV_VARS: dict[str, str] = {
     "moonshot":  "MOONSHOT_API_KEY",
     "dashscope": "DASHSCOPE_API_KEY",
     "t1":        "HNX_T1_KEY",
+    # v0.71.5rc2: distinct from "t1" — that key is checked by the local
+    # Gatekeeper, this one is presented to a real T1 API server over HTTP.
+    "t1api":     "HNX_T1_API_KEY",
 }
 
 # ---------------------------------------------------------------------------

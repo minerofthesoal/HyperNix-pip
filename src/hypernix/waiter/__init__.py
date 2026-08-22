@@ -13,11 +13,11 @@ spec's "WAITER TUI" requirement.
 As of Beta 3 the client is a thin layer over :mod:`hypernix.t1sdk` (see
 ``waiter/client.py``) and the full curses dashboard lives in
 ``waiter/tui.py``. The version now tracks the T1 API's own, since the two
-ship together and a client that says 0.1.0 against a 0.71.5b3 server is
+ship together and a client that says 0.1.0 against a 0.71.5rc2 server is
 a support question nobody needs.
 """
 from __future__ import annotations
 
-__waiter_version__ = "0.71.5b3"
+__waiter_version__ = "0.71.5rc2"
 
 __all__ = ["__waiter_version__"]

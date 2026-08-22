@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__t1api_version__ = "0.71.5b3"
+__t1api_version__ = "0.71.5rc2"
 
 __all__ = [
     "__t1api_version__",

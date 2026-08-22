@@ -116,6 +116,24 @@ def _check_tool(name: str) -> tuple[bool, str]:
     return (bool(path), f"{name}: {path or 'missing (optional)'}")
 
 
+def _check_scripts_on_path() -> tuple[bool, str]:
+    """Whether the console scripts directory is on PATH.
+
+    Reported as optional rather than mandatory: everything still works via
+    ``python -m hypernix``, so this is a usability gap, not a broken install.
+    """
+    try:
+        from hypernix.system import pathfix
+        scripts = pathfix.scripts_dir()
+    except Exception as exc:  # noqa: BLE001 - never let a check crash doctor
+        return False, f"could not determine scripts directory: {exc}"
+    if pathfix.is_on_path(scripts):
+        return True, str(scripts)
+    if pathfix.in_isolated_env():
+        return False, f"{scripts} not on PATH (virtualenv — activate it)"
+    return False, f"{scripts} not on PATH — run `hypernix path --apply`"
+
+
 def run(*, fix: bool = False) -> int:
     """Run the environment check. If ``fix`` is True, pip-install missing deps.
 
@@ -148,6 +166,7 @@ def run(*, fix: bool = False) -> int:
         ("sentencepiece", _check_import("sentencepiece")),
         ("llama-quantize", _check_llama_quantize()),
         ("auto-fetch cache", _check_fetch_cache()),
+        ("console scripts on PATH", _check_scripts_on_path()),
         *optional_tools,
     ]
 
@@ -162,6 +181,24 @@ def run(*, fix: bool = False) -> int:
     print()
     print(f"hypernix executable: {shutil.which('hypernix') or 'not on PATH'}")
     print(f"working dir: {Path.cwd()}")
+
+    # A PATH gap is not a *dependency* problem, so it never fails the check
+    # — but --fix is exactly the "make my install work" request, so it is
+    # repaired there rather than only described.
+    if fix:
+        from hypernix.system import pathfix
+        scripts = pathfix.scripts_dir()
+        if pathfix.is_on_path(scripts):
+            pass
+        elif pathfix.in_isolated_env():
+            print()
+            print("[hypernix] scripts are off PATH, but this is a virtualenv/conda env —")
+            print("           not editing a shell profile. Activate the environment, or run:")
+            print(f"             {pathfix.session_hint(scripts)}")
+        else:
+            print()
+            print(f"[hypernix] doctor --fix: {pathfix.ensure_on_path(apply=True).message}")
+
     if not all_ok and not fix:
         print()
         print("tip: run `hypernix doctor --fix` to pip-install missing runtime deps")

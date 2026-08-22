@@ -14,6 +14,7 @@ from the library and returns a non-zero exit code on failure.
     info                show package + GGUF header info
     upload              push files to a HuggingFace repo
     doctor              environment diagnostic
+    path                put hypernix's console scripts on your PATH
     fetch-llama-quantize  pre-seed the llama-quantize cache
     train               training utilities (scratch / expand / loop)
 
@@ -93,6 +94,8 @@ _SUBCOMMANDS = {
     "websearch",
     "cctvtop",
     "fiz",
+    # v0.71.5rc2
+    "path",
 }
 
 
@@ -120,6 +123,7 @@ def _print_usage() -> None:
         table.add_row("[green]info[/]", "show package + GGUF header info")
         table.add_row("[green]upload[/]", "push files to a HuggingFace repo")
         table.add_row("[green]doctor[/]", "environment diagnostic (pass --fix to install missing deps)")
+        table.add_row("[green]path[/]", "put hypernix's console scripts on your PATH")
         table.add_row("[green]fetch-llama-quantize[/]", "pre-seed the llama-quantize cache")
         table.add_row("[green]train[/]", "init / expand / run training utilities")
         table.add_row("[green]generate[/]", "sample text from a local HyperNix snapshot")
@@ -165,6 +169,7 @@ def _print_usage() -> None:
             "  info                   show package + GGUF header info\n"
             "  upload                 push files to a HuggingFace repo\n"
             "  doctor                 environment diagnostic (pass --fix to install missing deps)\n"
+            "  path                   put hypernix's console scripts on your PATH\n"
             "  fetch-llama-quantize   pre-seed the llama-quantize cache\n"
             "  train                  init / expand / run training utilities\n"
             "  generate               sample text from a local HyperNix snapshot\n"
@@ -883,6 +888,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Install missing runtime dependencies via pip.")
         ns = dp.parse_args(rest)
         return run(fix=ns.fix)
+    if cmd == "path":
+        from hypernix.system.pathfix import cli_main as path_main
+        return path_main(rest)
     if cmd == "fetch-llama-quantize":
         return _run_fetch_llama_quantize(rest)
     if cmd == "train":

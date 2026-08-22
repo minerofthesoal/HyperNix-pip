@@ -642,6 +642,13 @@ class UsageCostResponse(BaseModel):
     request_id: str
 
 
+# A single report is one model call, so these ceilings are far above any
+# honest value. They exist so a typo (or a malicious client) can't record
+# 10**18 tokens and permanently exhaust a key's window in one request.
+MAX_REPORTED_TOKENS = 10_000_000
+MAX_REPORTED_REQUESTS = 1_000
+
+
 class UsageEstimateRequest(BaseModel):
     model_id: str = Field(..., description="Must be a registered model_id.")
     input_tokens: int = Field(..., ge=0)
@@ -650,6 +657,38 @@ class UsageEstimateRequest(BaseModel):
         description="Omit for an upper-bound estimate using the model's output_token_limit.",
     )
     requests: int = Field(default=1, ge=1)
+
+
+class UsageReportRequest(BaseModel):
+    """Tokens a client actually consumed running a model the server routed it to.
+
+    There is deliberately no ``key_id`` field. Usage is always recorded
+    against the caller's own key: a body-supplied key_id would let any
+    holder of a valid key burn somebody else's quota, which is the same
+    class of mistake as Beta 2's client-supplied ``plan``.
+    """
+
+    model_id: str = Field(..., description="Must be a registered model_id.")
+    input_tokens: int = Field(default=0, ge=0, le=MAX_REPORTED_TOKENS)
+    output_tokens: int = Field(default=0, ge=0, le=MAX_REPORTED_TOKENS)
+    requests: int = Field(default=1, ge=1, le=MAX_REPORTED_REQUESTS)
+    endpoint: str = Field(default="", max_length=128)
+    server_id: str = Field(default="", max_length=128)
+    module_id: str = Field(default="", max_length=128)
+
+
+class UsageReportResponse(BaseModel):
+    recorded: bool
+    model_id: str
+    input_tokens: int
+    output_tokens: int
+    requests: int
+    # The post-write quota state, so a client never has to make a second
+    # call to find out whether that report exhausted the model.
+    input_remaining: int
+    output_remaining: int
+    exhausted: bool
+    request_id: str
 
 
 class UsageEstimateResponse(BaseModel):

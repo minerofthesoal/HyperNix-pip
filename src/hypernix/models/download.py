@@ -210,6 +210,11 @@ KNOWN_MODELS: dict[str, ModelInfo] = {
         "Qwen/Qwen3.6-35B-A3B", "auto",
         "Qwen3.6 35B A3B MoE — AutoModel.",
     ),
+    # ---- Qwen 3.8 (v0.71.5rc2) -------------------------------------------
+    "qwen3.8-27b": ModelInfo(
+        "Qwen/Qwen3.8-27B", "auto",
+        "Qwen3.8 27B dense — AutoModel.", family="qwen",
+    ),
     # ---- Gemma 2 / 3 / 4 --------------------------------------------------
     "gemma-2-2b": ModelInfo(
         "google/gemma-2-2b", "auto",

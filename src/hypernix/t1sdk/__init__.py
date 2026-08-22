@@ -69,7 +69,7 @@ from .models import (
 )
 from .transport import HTTPTransport, Response, RetryPolicy, TLSConfig
 
-__sdk_version__ = "0.71.5b3"
+__sdk_version__ = "0.71.5rc2"
 
 __all__ = [
     "__sdk_version__",

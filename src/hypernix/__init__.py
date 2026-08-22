@@ -63,7 +63,7 @@ import importlib.util
 import sys
 from typing import TYPE_CHECKING, Any
 
-__version__ = "0.71.5postr1"
+__version__ = "0.71.5rc2"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
 DEFAULT_MODEL = "qwen3.5-4b"  # New default model
 
@@ -367,7 +367,9 @@ MODULE_CATEGORIES: dict[str, tuple[str, ...]] = {
         "net",
         "old_fridge",
         "outage",
+        "pathfix",
         "protect",
+        "release",
         "torch_compat",
         "ups",
         "utils",

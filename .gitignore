@@ -52,7 +52,7 @@ dist/
 .mypy_cache/
 .pytest_cache/
 .coverage*/
-```
 # Website dependencies
 docs/node_modules/
+src/hypernix/node_modules/
 docs/dist/
