@@ -230,17 +230,25 @@ def in_isolated_env() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def detect_shell() -> str:
+def detect_shell(os_name: str | None = None) -> str:
     """One of ``bash``, ``zsh``, ``fish``, ``powershell``, ``sh``.
 
     ``$SHELL`` is the person's *login* shell, which is what startup files
     are keyed to — deliberately not the shell that happens to have spawned
     this process, which for a script invocation is often ``sh``.
+
+    *os_name* exists so a test can ask "what would this return on a POSIX
+    box" without monkeypatching :data:`os.name` itself. That patch is not a
+    harmless one: ``pathlib.Path()`` picks ``PosixPath`` vs ``WindowsPath``
+    from ``os.name`` at construction time, so faking it on Windows makes
+    every subsequent ``Path(...)`` raise ``NotImplementedError`` — including
+    the one pytest uses to format a failure report, which turns a single
+    failing assert into an INTERNALERROR that aborts the whole session.
     """
     override = os.environ.get("HYPERNIX_PATH_SHELL")
     if override:
         return override.strip().lower()
-    if os.name == "nt":
+    if (os_name if os_name is not None else os.name) == "nt":
         return "powershell"
     shell = os.environ.get("SHELL", "")
     name = Path(shell).name.lower() if shell else ""
@@ -286,8 +294,11 @@ def profile_for_shell(shell: str | None = None) -> Path | None:
         return home / ".config" / "fish" / "conf.d" / "hypernix.fish"
 
     if shell == "powershell":
-        documents = Path(os.environ.get("USERPROFILE", str(home))) / "Documents"
-        return documents / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+        # Path.home() already resolves USERPROFILE on Windows and is what
+        # every other branch uses, so going through it keeps all five
+        # branches honouring the same notion of "home" — including for a
+        # test that redirects it.
+        return home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
 
     if shell == "sh":
         return home / ".profile"

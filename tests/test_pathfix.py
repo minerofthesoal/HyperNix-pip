@@ -21,6 +21,9 @@ def fake_home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     monkeypatch.setenv("HOME", str(home))
+    # Windows resolves home from USERPROFILE; without this a test could
+    # write into the real user's profile directory.
+    monkeypatch.setenv("USERPROFILE", str(home))
     # Every opt-out and CI marker cleared, so a test that expects a write
     # gets one and a test that expects a refusal names its own reason.
     for var in (*pathfix.OPT_OUT_ENV_VARS, *pathfix.CI_ENV_VARS,
@@ -93,10 +96,20 @@ def test_scripts_dir_returns_a_path():
     ("/bin/ksh", "sh"),
 ])
 def test_detect_shell_from_shell_env(monkeypatch, shell_path, expected):
+    """Passing os_name rather than patching ``os.name``: pathlib picks
+    PosixPath vs WindowsPath from that attribute, so faking it on Windows
+    breaks every later ``Path(...)`` — including pytest's own failure
+    formatting, which turns one bad assert into a session-wide
+    INTERNALERROR."""
     monkeypatch.delenv("HYPERNIX_PATH_SHELL", raising=False)
-    monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setenv("SHELL", shell_path)
-    assert pathfix.detect_shell() == expected
+    assert pathfix.detect_shell(os_name="posix") == expected
+
+
+def test_detect_shell_is_powershell_on_windows(monkeypatch):
+    monkeypatch.delenv("HYPERNIX_PATH_SHELL", raising=False)
+    monkeypatch.setenv("SHELL", "/bin/bash")
+    assert pathfix.detect_shell(os_name="nt") == "powershell"
 
 
 def test_detect_shell_env_override_wins(monkeypatch):
@@ -361,7 +374,7 @@ def test_autoconfigure_respects_opt_out(fake_home, not_isolated, monkeypatch, tm
     assert result.status == "skipped"
     assert var in result.message
     assert said == []
-    assert not (fake_home / ".bashrc").exists()
+    assert not _expected_profile().exists()
 
 
 @pytest.mark.parametrize("var", ["CI", "GITHUB_ACTIONS"])
@@ -375,7 +388,7 @@ def test_autoconfigure_never_edits_a_profile_in_ci(fake_home, not_isolated, monk
     result = pathfix.maybe_autoconfigure(echo=lambda _m: None)
 
     assert result.status == "skipped"
-    assert not (fake_home / ".bashrc").exists()
+    assert not _expected_profile().exists()
 
 
 def test_autoconfigure_refuses_inside_a_virtualenv(fake_home, monkeypatch, tmp_path):
@@ -391,7 +404,20 @@ def test_autoconfigure_refuses_inside_a_virtualenv(fake_home, monkeypatch, tmp_p
 
     assert result.status == "skipped"
     assert "virtualenv" in result.message
-    assert not (fake_home / ".bashrc").exists()
+    assert not _expected_profile().exists()
+
+
+def _expected_profile() -> Path:
+    """The startup file this platform's shell actually reads.
+
+    Asserting on a hardcoded ``~/.bashrc`` was a Linux assumption baked
+    into a cross-platform test: on macOS the module correctly picks
+    ``~/.bash_profile`` (a Terminal.app shell is a login shell and never
+    reads ``.bashrc``), and on Windows a PowerShell profile. Asking the
+    module keeps the test checking *that a write happened where this
+    platform reads*, which is the actual property.
+    """
+    return pathfix.profile_for_shell(pathfix.detect_shell())
 
 
 def test_autoconfigure_writes_once_and_announces_it(fake_home, not_isolated, monkeypatch, tmp_path):
@@ -400,13 +426,12 @@ def test_autoconfigure_writes_once_and_announces_it(fake_home, not_isolated, mon
     monkeypatch.setattr(pathfix, "scripts_dir", lambda: scripts)
     monkeypatch.setenv("PATH", "/usr/bin")
     monkeypatch.setenv("SHELL", "/bin/bash")
-    monkeypatch.setattr(os, "name", "posix")
 
     said = []
     result = pathfix.maybe_autoconfigure(echo=said.append)
 
     assert result.changed and result.status == "written"
-    assert str(scripts) in (fake_home / ".bashrc").read_text()
+    assert str(scripts) in _expected_profile().read_text()
     # It must say what it did, and how to opt out.
     joined = "\n".join(said)
     assert str(scripts) in joined
@@ -420,10 +445,10 @@ def test_autoconfigure_does_not_retry_after_the_first_attempt(fake_home, not_iso
     monkeypatch.setattr(pathfix, "scripts_dir", lambda: scripts)
     monkeypatch.setenv("PATH", "/usr/bin")
     monkeypatch.setenv("SHELL", "/bin/bash")
-    monkeypatch.setattr(os, "name", "posix")
 
     assert pathfix.maybe_autoconfigure(echo=lambda _m: None).changed
-    pathfix.remove_from_path(shell="bash", profile=fake_home / ".bashrc")
+    profile = _expected_profile()
+    pathfix.remove_from_path(profile=profile)
 
     said = []
     second = pathfix.maybe_autoconfigure(echo=said.append)
@@ -431,7 +456,7 @@ def test_autoconfigure_does_not_retry_after_the_first_attempt(fake_home, not_iso
     assert second.status == "skipped"
     assert "already attempted" in second.message
     assert said == []
-    assert pathfix.BLOCK_START not in (fake_home / ".bashrc").read_text()
+    assert pathfix.BLOCK_START not in profile.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +514,7 @@ def test_cli_apply_refuses_inside_a_virtualenv(fake_home, capsys, tmp_path, monk
 
     assert rc == 1
     assert "virtualenv" in capsys.readouterr().err
-    assert not (fake_home / ".bashrc").exists()
+    assert not _expected_profile().exists()
 
 
 def test_cli_help_exits_zero(capsys):
