@@ -42,7 +42,7 @@ def status(
         environment=config.environment,
         t1_api_version=__t1api_version__,
         hypernix_version=getattr(hypernix, "__version__", "unknown"),
-        beta="beta3",
+        beta="beta4",
         model_count=len(registry),
         storage_backend=config.storage_backend,
         tls_enabled=tls.tls_enabled,

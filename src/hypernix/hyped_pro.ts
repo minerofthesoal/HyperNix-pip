@@ -33,7 +33,22 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 
-const VERSION = "0.71.4b10";
+const VERSION = "0.71.5rc2";
+
+// v0.71.5rc2 (Beta 4): what the current *public* release is, so the banner
+// and the status box can say whether this build is behind. Filled in
+// asynchronously after startup — a network lookup must never delay the
+// first prompt, so the UI renders with `null` and simply gains the extra
+// text when (and if) the answer arrives.
+type ReleaseInfo = {
+  installed: string;
+  latest: string | null;
+  status: string;
+  update_available: boolean;
+  summary: string;
+  error: string | null;
+};
+let releaseInfo: ReleaseInfo | null = null;
 const NL = "\r\n"; // raw mode leaves OPOST alone but we own the terminal, so be explicit
 const DEBUG = !!process.env.HYPED_PRO_DEBUG;
 
@@ -414,6 +429,8 @@ const COMMANDS: CommandDef[] = [
   { name: "/save", desc: "Save the transcript to a file" },
   { name: "/retry", desc: "Regenerate the last agent reply" },
   { name: "/key", desc: "Set/view a cloud API key: /key <vendor> [api-key]" },
+  { name: "/t1api", desc: "HyperNix T1 API server: /t1api [status | url <url>]" },
+  { name: "/version", desc: "Show the installed version and the latest public release" },
   { name: "/settings", desc: "View/change max input, output, and thinking tokens" },
   { name: "/tools", desc: "Toggle file create/edit/read/search tools on or off" },
   { name: "/gui", desc: "Launch the hyped-pro desktop GUI in a new window" },
@@ -622,7 +639,7 @@ function buildFooterLines(): string[] {
   if (currentModel.short.includes("hyper-nix.2")) {
     statusLines.push(c256(196, " \u26a0\ufe0f  hyper-Nix.2 is severely undertrained — expect weird output"));
   }
-  const lines = renderBox(`HYPED+ TUI (v${VERSION})`, statusLines, width, t.border, t.title);
+  const lines = renderBox(`HYPED+ TUI (${versionLabel()})`, statusLines, width, t.border, t.title);
 
   if (modelPickerOpen) {
     lines.push(...renderModelPicker());
@@ -786,10 +803,34 @@ function buildHypedBanner(): string[] {
   return rows;
 }
 
+// "v0.71.5rc2", plus what PyPI says if we know it. Anything other than
+// being behind is shown quietly: telling someone on a release candidate to
+// "upgrade" to an older stable would be wrong, so that case reads as a
+// pre-release note rather than a warning.
+function versionLabel(): string {
+  if (!releaseInfo || !releaseInfo.latest) return `v${VERSION}`;
+  if (releaseInfo.update_available) return `v${VERSION} \u2192 v${releaseInfo.latest} available`;
+  if (releaseInfo.status === "prerelease") return `v${VERSION} (pre-release)`;
+  return `v${VERSION} (latest)`;
+}
+
+// Fire-and-forget. A failed or slow lookup leaves releaseInfo null, which
+// every reader already handles, so there is nothing to report.
+function refreshReleaseInfo(force = false): Promise<void> {
+  return bridge.call('release', { force })
+    .then(r => {
+      if (r.ok && r.data && typeof r.data.installed === "string") {
+        releaseInfo = r.data as ReleaseInfo;
+        if (process.stdout.isTTY) redrawFooter();
+      }
+    })
+    .catch(() => { /* offline is not an error worth showing */ });
+}
+
 function printBanner(): void {
   console.log("");
   buildHypedBanner().forEach(line => console.log(line));
-  console.log(dim("  hyped-pro \u00b7 TUI agent for HyperNix"));
+  console.log(dim(`  hyped-pro \u00b7 TUI agent for HyperNix \u00b7 ${versionLabel()}`));
   console.log("");
   console.log(dim("Tips: /  for commands & skills \u00b7 alt+y to switch models \u00b7 /configure to set up \u00b7 /help for everything."));
   if (LOADED_MODELS.length === 0) {
@@ -1025,7 +1066,8 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
     }
 
     case "/key": {
-      const validVendors = Object.keys(PROVIDERS).filter(v => PROVIDERS[v].kind === "cloud" || v === "t1");
+      const validVendors = Object.keys(PROVIDERS).filter(
+        v => PROVIDERS[v].kind === "cloud" || v === "t1" || v === "t1api");
       if (!argText) {
         const out = [c256(96, "\n  Cloud API keys:")];
         for (const v of validVendors) {
@@ -1056,6 +1098,91 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
       } else {
         elog(setResp.code || 'HPT-BRIDGE-002', setResp.error || 'could not save key');
       }
+      break;
+    }
+
+    case "/version": {
+      log(dim("  checking pypi.org ..."));
+      await refreshReleaseInfo(true);
+      if (!releaseInfo) {
+        log(c256(220, `  Installed: v${VERSION}`));
+        log(dim("  Could not reach PyPI (offline, or HYPERNIX_NO_VERSION_CHECK is set)."));
+        break;
+      }
+      const rows = [
+        c256(96, "\n  Version:"),
+        `  ${c256(33, "installed".padEnd(18))} v${releaseInfo.installed}`,
+        `  ${c256(33, "latest release".padEnd(18))} ${releaseInfo.latest ? "v" + releaseInfo.latest : dim("unknown")}`,
+      ];
+      if (releaseInfo.update_available) {
+        rows.push(c256(220, `\n  An update is available: pip install -U hypernix`));
+      } else if (releaseInfo.status === "prerelease") {
+        rows.push(dim("\n  You're on a pre-release, ahead of the latest stable."));
+      } else if (releaseInfo.status === "current") {
+        rows.push(c256(82, "\n  Up to date."));
+      }
+      if (releaseInfo.error) rows.push(dim(`  (${releaseInfo.error})`));
+      log(rows.join(NL));
+      break;
+    }
+
+    case "/t1api": {
+      const [sub, ...rest] = args;
+
+      if (sub === "url") {
+        const url = rest.join(" ").trim();
+        if (!url) {
+          const r = await bridge.call('t1api_get_url', {});
+          log(r.ok
+            ? `  T1 API server: ${c256(33, r.data.url)}`
+            : c256(196, `  ${r.error}`));
+          log(dim("  Usage: /t1api url <http://host:port>"));
+          break;
+        }
+        if (!/^https?:\/\//i.test(url)) {
+          log(c256(196, "  URL must start with http:// or https://"));
+          break;
+        }
+        const setResp = await bridge.call('t1api_set_url', { url });
+        log(setResp.ok
+          ? c256(82, `  T1 API server set to ${setResp.data.url}`)
+          : c256(196, `  ${setResp.error}`));
+        break;
+      }
+
+      if (sub && sub !== "status") {
+        log(c256(96, "  Usage: /t1api [status | url <http://host:port>]"));
+        break;
+      }
+
+      log(dim("  querying the T1 API ..."));
+      const resp = await bridge.call('t1api_status', {});
+      if (!resp.ok) {
+        elog(resp.code || 'HPT-T1API-001', resp.error || 'could not reach the T1 API');
+        log(dim("  Set the server with /t1api url <url> and the key with /key t1api <key>."));
+        break;
+      }
+      const d = resp.data;
+      const runnable = (d.models || []).filter((m: any) => m.runnable_here).length;
+      const out = [
+        c256(96, "\n  HyperNix T1 API:"),
+        `  ${c256(33, "server".padEnd(14))} ${d.url}`,
+        `  ${c256(33, "version".padEnd(14))} ${d.t1_api_version || dim("?")} ${dim(`(${d.beta || "?"}, ${d.environment || "?"})`)}`,
+        `  ${c256(33, "key".padEnd(14))} ${d.key_id || dim("?")} ${dim(`(${d.key_type || "?"})`)}`,
+        `  ${c256(33, "plan".padEnd(14))} ${d.plan || dim("(none assigned)")}`,
+        `  ${c256(33, "models".padEnd(14))} ${d.model_count} registered, ${runnable} runnable here`,
+      ];
+      for (const m of (d.models || []).slice(0, 12)) {
+        const mark = m.runnable_here ? c256(82, "\u2713") : c256(196, "\u2717");
+        out.push(`    ${mark} ${String(m.model_id).padEnd(28)} ${dim(m.status || "")}`);
+      }
+      if ((d.models || []).length > 12) out.push(dim(`    ... and ${d.models.length - 12} more`));
+      if (runnable < d.model_count) {
+        out.push(dim("\n  \u2717 = no local catalog entry for that model_id; map it with"));
+        out.push(dim("      hypernix config set t1_api_model_map '{\"<model_id>\": \"<catalog-short>\"}'"));
+      }
+      out.push(dim("\n  Select it for chat with /model t1-routed \u2014 the server picks the model."));
+      log(out.join(NL));
       break;
     }
 
@@ -1600,6 +1727,7 @@ async function main(argv?: string[]): Promise<void> {
   }
 
   printBanner();
+  void refreshReleaseInfo();
 
   if (!process.stdin.isTTY) {
     runSimpleTUI();

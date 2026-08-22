@@ -1,6 +1,6 @@
 {
   "name": "hyped-pro",
-  "version": "0.71.4",
+  "version": "0.71.5-rc2",
   "private": true,
   "description": "hyped+ / hyped-pro TUI agent CLI for HyperNix. Source of truth is hyped_pro.ts; hyped_pro.js is the compiled artifact hyped_pro.py actually spawns.",
   "main": "hyped_pro.js",

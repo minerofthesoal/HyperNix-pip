@@ -35,7 +35,10 @@ grepable and printed to stderr by both front-ends:
                  llama_cpp) isn't installed for the interpreter actually
                  running this process — common on machines with multiple
                  Pythons (pyenv/uv/conda); see HYPED_PRO_PYTHON
-  HPC-T1-001     T1 key missing or rejected by the Gatekeeper
+  HPC-T1-001     T1 key missing or rejected by the local Gatekeeper
+  HPC-T1API-001  no T1 API key configured (see /key t1api)
+  HPC-T1API-002  the T1 API server could not be reached, or refused the call
+  HPC-T1API-003  the server routed to a model this client can't run locally
   HPC-CFG-001    unknown vendor / model short name
 """
 from __future__ import annotations
@@ -140,6 +143,21 @@ PROVIDERS: dict[str, ProviderInfo] = {
         notes="Routes through hypernix.gatekeeper.Gatekeeper; delegates to "
               "OpenAI if a key is configured, else the local oven.",
     ),
+    # v0.71.5rc2 (Beta 4). Distinct from "t1" above: that one calls the
+    # in-process Gatekeeper on this machine, this one talks HTTP to a real
+    # HyperNix T1 API server (hypernix.t1api) that may be on another host.
+    # The server decides which model this key may use — the client never
+    # picks. Inference still happens here; the server is the control
+    # plane, not an inference endpoint (it has no chat route, by design).
+    "t1api": ProviderInfo(
+        vendor="t1api", kind="t1api", label="HyperNix T1 API (local or remote)",
+        auth_env_var="HNX_T1_API_KEY",
+        docs_url="https://github.com/minerofthesoal/HyperNix-pip/blob/main/wiki/T1-API.md",
+        notes="Control plane only: authenticates the key, routes to a model "
+              "through the server's quota cascade, and records usage. The "
+              "chosen model runs locally through the same catalog as any "
+              "other local model.",
+    ),
     "huggingface": ProviderInfo(
         vendor="huggingface", kind="local", label="Local (HuggingFace)",
         auth_env_var="HF_TOKEN",
@@ -199,10 +217,26 @@ MODELS: list[ModelDef] = [
     ModelDef("claude-haiku-4.5", "claude-haiku-4-5-20251001", "anthropic", "\u26a1", 200000),
     # -- cloud: OpenAI --
     ModelDef("gpt-4o", "gpt-4o", "openai", "\u26a1", 128000),
+    # -- t1api: the server picks the model, so there is exactly one entry --
+    # `repo` is empty on purpose: this model has no fixed weights. Naming
+    # one here would be a lie about where the reply comes from — the real
+    # model is whatever POST /models/route returns for this key.
+    ModelDef("t1-routed", "", "t1api", "\u26bf", 0,
+             notes="Asks the configured T1 API server which model this key may use, "
+                   "runs that model locally, and reports the tokens back so the "
+                   "server's quota cascade advances. Set the server with "
+                   "`/t1api url <url>` and the key with `/key t1api <key>`."),
     # -- local: open-weight HuggingFace snapshots, auto-downloaded --
     ModelDef("deepseek-r1", "deepseek-ai/DeepSeek-R1", "huggingface", "\u2605", 128000),
     ModelDef("deepseek-v4-flash", "deepseek-ai/DeepSeek-V4-Flash", "huggingface", "\u26a1", 128000),
     ModelDef("gemma-4-27b", "google/gemma-4-27b-it", "huggingface", "\u2605", 8192),
+    # v0.71.5rc2 (Beta 4 roadmap item). Dense 27B; the GGUF build is what
+    # actually fits a consumer card, so that's the entry rather than the
+    # safetensors repo — same reasoning as qwable-3.6-27b above.
+    ModelDef("qwen3.8-27b", "Qwen/Qwen3.8-27B-GGUF", "huggingface", "\u2605", 32768,
+             format="gguf", gguf_filename="Qwen3.8-27B-Q4_K_M.gguf",
+             notes="~16.5GB at Q4_K_M — needs partial CPU offload on an 8GB card; "
+                   "tune with HYPED_PRO_GGUF_NGL.", gguf_default_ngl=20),
     ModelDef("hyper-nix.2", "ray0rf1re/hyper-Nix.2", "huggingface", "\u26a0\ufe0f", 4096,
              notes="Severely undertrained — see hypernix.utils.warn_hyper_nix_2."),
     # K2-family Kimi models are open-weight and self-hostable (unlike K3).
@@ -805,6 +839,279 @@ def send_t1_chat(
 
 
 # ---------------------------------------------------------------------------
+# T1 API (Beta 4): a real HyperNix T1 API server, local or remote.
+#
+# The distinction from the older "t1" vendor matters. That one calls
+# hypernix.security.Gatekeeper in this process, so the quota it enforces is
+# whatever is on this machine. This one speaks HTTP to a hypernix.t1api
+# server, which is the thing that can be shared between machines and
+# administered centrally.
+#
+# The division of labour is deliberate and follows the T1 API's own design
+# principle — the client is never trusted to decide what it may access:
+#
+#   server : authenticates the key, decides *which* model this key may use
+#            (POST /models/route walks the quota cascade), and owns the
+#            usage counters.
+#   client : runs that model, then reports the tokens it actually spent
+#            (POST /usage/report) so the server's counters advance.
+#
+# The server has no inference endpoint, so it never sees prompt text —
+# only token counts. That is a privacy property worth keeping, not an
+# omission to work around.
+# ---------------------------------------------------------------------------
+
+T1_API_DEFAULT_URL = "http://127.0.0.1:8000"
+
+# Server model_id -> local catalog short name. A T1 registry names models
+# by stable slug; this catalog names them by short. The two agree only by
+# coincidence, so the mapping is explicit and configurable rather than
+# guessed at — and when nothing maps, the error says exactly what to set
+# instead of quietly running a different model than the server authorized.
+T1_API_MODEL_MAP_CONFIG_KEY = "t1_api_model_map"
+T1_API_URL_CONFIG_KEY = "t1_api_url"
+
+
+def t1_api_url() -> str:
+    """The configured T1 API base URL.
+
+    ``HNX_T1_API_URL`` wins over the persisted setting, matching how every
+    other credential and endpoint in this module resolves.
+    """
+    from hypernix.system.config import get_config_value
+
+    env = os.environ.get("HNX_T1_API_URL")
+    if env:
+        return env.rstrip("/")
+    try:
+        stored = get_config_value(T1_API_URL_CONFIG_KEY)
+    except KeyError:
+        stored = None
+    return (stored or T1_API_DEFAULT_URL).rstrip("/")
+
+
+def set_t1_api_url(url: str) -> None:
+    """Persist the T1 API base URL to ``~/.hypernix/config.json``."""
+    from hypernix.system.config import set_config_value
+
+    set_config_value(T1_API_URL_CONFIG_KEY, url.rstrip("/"))
+
+
+def t1_api_model_map() -> dict[str, str]:
+    """Server ``model_id`` -> local catalog ``short``, from config."""
+    from hypernix.system.config import get_config_value
+
+    try:
+        stored = get_config_value(T1_API_MODEL_MAP_CONFIG_KEY)
+    except KeyError:
+        stored = None
+    if not isinstance(stored, dict):
+        return {}
+    return {str(k): str(v) for k, v in stored.items()}
+
+
+def _hypernix_version() -> str:
+    try:
+        from hypernix import __version__
+
+        return __version__
+    except Exception:  # noqa: BLE001 - a User-Agent is never worth an exception
+        return "unknown"
+
+
+def t1_api_client(*, api_key: str | None = None, url: str | None = None):
+    """A configured :class:`hypernix.t1sdk.T1Client`.
+
+    Raises ``HPC-T1API-001`` rather than constructing a client with no
+    credential: every call it could make needs one, so failing here gives
+    a message about the missing key instead of a 401 three layers down.
+    """
+    from hypernix.system.config import get_provider_key
+    from hypernix.t1sdk import T1Client
+
+    key = api_key or get_provider_key("t1api")
+    if not key:
+        raise HypedProError(
+            "HPC-T1API-001",
+            "no T1 API key configured. Set one with `/key t1api <key>`, or "
+            "export HNX_T1_API_KEY.",
+        )
+    return T1Client(
+        url or t1_api_url(),
+        credential=key,
+        user_agent=f"hyped-pro/{_hypernix_version()}",
+    )
+
+
+def _t1_api_call(what: str, fn):
+    """Run *fn*, turning any SDK/transport failure into a coded error.
+
+    The server's own error codes are preserved in the message — a
+    ``MODEL_QUOTA_EXHAUSTED`` from the cascade reads very differently from
+    a connection refused, and collapsing both into "T1 API failed" would
+    throw away the only useful part.
+    """
+    from hypernix.t1sdk.errors import T1Error
+
+    try:
+        return fn()
+    except T1Error as exc:
+        code = getattr(exc, "code", "") or ""
+        detail = f"[{code}] {exc}" if code else str(exc)
+        raise HypedProError("HPC-T1API-002", f"{what}: {detail}") from exc
+    except Exception as exc:  # noqa: BLE001 - transport/OS errors reach here
+        raise HypedProError(
+            "HPC-T1API-002",
+            f"{what}: could not reach the T1 API at {t1_api_url()} "
+            f"({type(exc).__name__}: {exc})",
+        ) from exc
+
+
+def t1_api_status(*, api_key: str | None = None, url: str | None = None) -> dict[str, Any]:
+    """Server identity, this key's identity, and its plan — for ``/t1api``.
+
+    Deliberately one call's worth of information a person can act on:
+    which server, which key, which plan, how many models it may reach.
+    """
+    client = t1_api_client(api_key=api_key, url=url)
+    status = _t1_api_call("T1 API status", client.status)
+    whoami = _t1_api_call("T1 API whoami", client.whoami)
+    models = _t1_api_call("T1 API model list", client.list_models)
+    return {
+        "url": client.base_url,
+        "reachable": True,
+        "t1_api_version": getattr(status, "t1_api_version", None),
+        "hypernix_version": getattr(status, "hypernix_version", None),
+        "environment": getattr(status, "environment", None),
+        "beta": getattr(status, "beta", None),
+        "key_id": getattr(whoami, "key_id", None),
+        "key_type": getattr(whoami, "key_type", None),
+        "scopes": list(getattr(whoami, "scopes", []) or []),
+        # Empty when no administrator has assigned this key a plan yet,
+        # which the TUI renders as "(none assigned)" rather than a blank.
+        "plan": getattr(whoami, "plan", "") or None,
+        "model_count": len(models),
+        "models": [
+            {"model_id": m.model_id, "display_name": m.display_name,
+             "status": m.status, "runnable_here": bool(_resolve_local_model(m.model_id))}
+            for m in models
+        ],
+    }
+
+
+def _resolve_local_model(server_model_id: str) -> ModelDef | None:
+    """Which catalog entry runs the model the server named, if any.
+
+    Configured mapping first (an operator's explicit choice always wins),
+    then an exact short-name match. No fuzzy matching: running a *similar*
+    model to the one the server authorized would be worse than refusing.
+    """
+    mapped = t1_api_model_map().get(server_model_id)
+    if mapped:
+        return _MODELS_BY_SHORT.get(mapped)
+    return _MODELS_BY_SHORT.get(server_model_id)
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token count for usage reporting.
+
+    Deliberately crude (~4 chars/token) and named as an estimate wherever
+    it surfaces. The alternative — loading a tokenizer per provider just
+    to fill in a usage report — costs more than the accuracy is worth for
+    quota accounting, and every cloud provider that returns real counts
+    has them used instead where available.
+    """
+    return max(1, len(text) // 4)
+
+
+def send_t1_api_chat(
+    messages: list[dict[str, str]],
+    *,
+    system: str | None = None,
+    api_key: str | None = None,
+    url: str | None = None,
+    max_tokens: int | None = None,
+    enable_tools: bool = True,
+    model_id: str | None = None,
+) -> str:
+    """One chat turn routed by a T1 API server and run locally.
+
+    *model_id* is an optional **request**, not a choice: it is passed to
+    ``POST /models/route``, which either confirms it or refuses it. If the
+    server's assignment for this key excludes it, or its quota is spent,
+    the server says so and this raises — the client does not fall back to
+    something it preferred.
+    """
+    client = t1_api_client(api_key=api_key, url=url)
+
+    prompt_text = "\n".join(m.get("content", "") for m in messages)
+    input_tokens = _estimate_tokens(prompt_text) + (_estimate_tokens(system) if system else 0)
+
+    decision = _t1_api_call(
+        "T1 API routing",
+        lambda: client.route(model_id=model_id, input_tokens=input_tokens),
+    )
+    chosen_id = getattr(decision, "model_id", None) or ""
+    if not chosen_id:
+        raise HypedProError("HPC-T1API-002", "the T1 API returned no model_id to route to.")
+
+    local = _resolve_local_model(chosen_id)
+    if local is None:
+        known = ", ".join(sorted(_MODELS_BY_SHORT)[:8])
+        raise HypedProError(
+            "HPC-T1API-003",
+            f"the T1 API routed this key to {chosen_id!r}, which this client has no "
+            f"local model for. Map it with:\n"
+            f"  hypernix config set {T1_API_MODEL_MAP_CONFIG_KEY} "
+            f'\'{{"{chosen_id}": "<catalog-short>"}}\'\n'
+            f"Catalog shorts include: {known}, ...",
+        )
+    if local.vendor == "t1api":
+        raise HypedProError(
+            "HPC-T1API-003",
+            f"the T1 API routed to {chosen_id!r}, which maps back to the routed "
+            "pseudo-model. Point the mapping at a real local model.",
+        )
+
+    kwargs: dict[str, Any] = {}
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+
+    provider = PROVIDERS[local.vendor]
+    if provider.kind == "cloud":
+        reply = send_cloud_chat(local, messages, system=system,
+                                enable_tools=enable_tools, **kwargs)
+    else:
+        ensure_downloaded(local, quiet=True)
+        if local.format == "gguf":
+            reply = send_local_chat_gguf(local, messages, system=system,
+                                         enable_tools=enable_tools, **kwargs)
+        else:
+            reply = send_local_chat(
+                local, messages, system=system,
+                **({"max_new_tokens": max_tokens} if max_tokens is not None else {}),
+            )
+
+    # Report after the reply exists. A report sent before inference would
+    # charge for work that may never happen; one that fails must not throw
+    # away a reply the person already paid for in wall-clock time, so the
+    # failure is logged and surfaced by the next /t1api, not raised.
+    try:
+        client.report_usage(
+            model_id=chosen_id,
+            input_tokens=input_tokens,
+            output_tokens=_estimate_tokens(reply),
+            endpoint="/chat",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "HPC-T1API-002 usage report failed for %s (reply still returned); "
+            "the server's quota will under-count this turn: %s", chosen_id, exc,
+        )
+    return reply
+
+
+# ---------------------------------------------------------------------------
 # Single entry point used by both front-ends.
 # ---------------------------------------------------------------------------
 
@@ -870,6 +1177,7 @@ def send_chat_message(
     max_thinking_tokens: int | None = None,
     hide_thinking: bool = True,
     enable_tools: bool = True,
+    t1_api_model_id: str | None = None,
 ) -> dict[str, str | None]:
     """Returns {"content": <visible reply>, "thinking": <extracted thinking
     or None>}. When hide_thinking is True, thinking is always None (and
@@ -886,6 +1194,11 @@ def send_chat_message(
 
     if model.vendor == "t1":
         reply = send_t1_chat(model, messages, t1_key=api_key, system=system, **kwargs)
+    elif model.vendor == "t1api":
+        reply = send_t1_api_chat(
+            messages, system=system, api_key=api_key,
+            enable_tools=enable_tools, model_id=t1_api_model_id, **kwargs,
+        )
     elif provider.kind == "cloud":
         cloud_kwargs = dict(kwargs)
         if max_thinking_tokens is not None:
@@ -912,6 +1225,7 @@ def send_chat_message(
 def catalog_json() -> dict[str, Any]:
     """Serializable view of MODELS + PROVIDERS for the bridge's `catalog` cmd."""
     return {
+        "t1_api_url": t1_api_url(),
         "providers": {
             v: {
                 "vendor": p.vendor, "kind": p.kind, "label": p.label,

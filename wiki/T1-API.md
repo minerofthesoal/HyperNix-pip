@@ -5,7 +5,7 @@ mountable into any Python server. The client requests an operation; the
 server decides what exists, what's available, and how much is left — see
 [Design principle](#design-principle).
 
-**Status: Beta 3** (`0.71.5b3`) — feature-complete against the T1 API
+**Status: Beta 4** (`0.71.5rc2`) — feature-complete against the T1 API
 spec. This page is the living contract for what's actually implemented vs.
 planned; cross-reference against the [Roadmap](#roadmap) before assuming
 an endpoint exists.
@@ -488,6 +488,33 @@ and the registry entry's `pricing` block. There is no second price list — a
 model's price is a registry fact, so changing it is a registry change, and
 a model that isn't registered has no price and cannot be costed.
 
+### Reporting what was actually spent
+
+`POST /usage/report` (Beta 4) is the counterpart to routing. The T1 API is
+a control plane with no inference endpoint, so for any client that runs the
+model itself the server would otherwise never learn what the call cost —
+per-model counters would stay at zero, the quota cascade would never
+advance past its first model, and every per-model limit would be
+unenforceable in practice. `UsageMeter.record` existed from Beta 1; Beta 4
+gives it an HTTP surface.
+
+Three rules make it safe to expose to every authenticated key:
+
+- **Usage is recorded against the caller's own key.** There is no
+  `key_id` field in the request body. A body-supplied one would let any
+  valid key burn another key's quota — the same class of mistake as Beta
+  2's client-supplied `plan`.
+- **The model must be registered *and* allowed for that key.** A report
+  can't invent a model or a budget line.
+- **Counts are non-negative and capped.** A report can add usage, never
+  subtract it. A client that could report negative tokens could refund
+  itself quota, which would make every limit in the system advisory.
+
+A report that pushes a model past its cap still succeeds and is recorded —
+the tokens really were spent — and the response says `exhausted: true`. The
+refusal belongs on the *next* `POST /models/route`, not on the accounting
+for work already done.
+
 Two honesty rules shape the API:
 
 - **Estimates are labelled estimates.** `POST /usage/estimate` records
@@ -843,6 +870,12 @@ All responses include `request_id`. Errors use the envelope shown in
 | POST | `/security/limits` | bearer, admin | `waiter -r`; only ever tightens |
 | DELETE | `/security/limits/{type}/{id}` | bearer, admin | clear a forced limit |
 | GET | `/security/rate-limits` | bearer | the caller's own remaining budget |
+
+**Beta 4**
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/usage/report` | bearer | report tokens actually consumed; always against the caller's own key |
 
 Note the two `module_id`-as-query-parameter endpoints
 (`/modules/upload/local`, `/modules/upload/remote`) — deliberate, matching

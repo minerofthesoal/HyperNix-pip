@@ -337,6 +337,43 @@ class T1Client:
             body["output_tokens"] = output_tokens
         return self._post("/usage/estimate", body=body, auth=True, idempotent=True)
 
+    def report_usage(
+        self,
+        *,
+        model_id: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        requests: int = 1,
+        endpoint: str = "",
+        server_id: str = "",
+        module_id: str = "",
+    ) -> dict[str, Any]:
+        """Report tokens actually consumed, so the server's quota advances.
+
+        For clients that run inference themselves after the server routed
+        them to a model — without this, the server's per-model counters
+        never move and the quota cascade never advances past its first
+        model.
+
+        Usage is always recorded against *this client's* key; there is no
+        way to report on behalf of another. Counts are additive only.
+
+        **Not retried.** A report is not idempotent: replaying one after a
+        timeout would double-count the tokens, and over-charging a key is
+        worse than an occasionally-missed report.
+        """
+        body: dict[str, Any] = {
+            "model_id": model_id,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "requests": requests,
+        }
+        for name, value in (("endpoint", endpoint), ("server_id", server_id),
+                            ("module_id", module_id)):
+            if value:
+                body[name] = value
+        return self._post("/usage/report", body=body, auth=True, idempotent=False)
+
     # ------------------------------------------------------------------
     # Keys
     # ------------------------------------------------------------------

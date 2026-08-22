@@ -100,11 +100,36 @@ def run_with_selected_python(args: list[str]) -> int:
         return main(args)
 
 
+def _maybe_setup_path() -> None:
+    """Offer to fix PATH once, from the console-script entry point only.
+
+    Guarded by an environment variable rather than a module-level flag
+    because :func:`run_with_selected_python` re-execs ``python -m hypernix``
+    in a child process — without the marker, both the parent and the child
+    would run the check and the person would see the notice twice.
+
+    Any failure here is swallowed: a convenience that could stop ``hypernix
+    --help`` from running would be a much worse bug than an unfixed PATH.
+    """
+    import os
+
+    if os.environ.get("HYPERNIX_PATH_SETUP_RAN"):
+        return
+    os.environ["HYPERNIX_PATH_SETUP_RAN"] = "1"
+    try:
+        from hypernix.system.pathfix import maybe_autoconfigure
+        maybe_autoconfigure()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the multi-version launcher."""
     import os
-    
+
     raw = list(sys.argv[1:] if argv is None else argv)
+
+    _maybe_setup_path()
     
     # Check if we should use the launcher logic
     # Skip if HYPERNOX_NO_VERSION_CHECK is set (for development)
