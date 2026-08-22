@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -61,6 +62,10 @@ SEVERE_WEATHER_CODES: frozenset[int] = frozenset({
     82,
     95, 96, 99,
 })
+
+#: Cap on :attr:`UPS.history`. Enough to see a storm pass through at the
+#: default five-minute cadence (~40 hours) without growing without bound.
+MAX_HISTORY: int = 500
 
 #: WMO codes treated as "elevated risk" (forces checkpoint but
 #: doesn't 3× the cadence).
@@ -208,9 +213,18 @@ class UPS:
     # ------------------------------------------------------------------
 
     def check(self, *, force: bool = False) -> ThreatStatus:
-        """Sample both signals (or return cached status)."""
+        """Sample both signals (or return cached status).
+
+        The network call deliberately happens *outside* the lock. It used
+        to run inside it, which meant a five-second HTTP timeout was held
+        against every other caller — including the background poller,
+        which needs the same lock to publish its result. A training loop
+        calling :meth:`adjusted_save_every` every step would serialize on
+        that. Locking only around the state updates keeps the critical
+        section to a few field assignments.
+        """
         now = time.time()
-        
+
         with self._lock:
             if (
                 not force
@@ -218,40 +232,80 @@ class UPS:
                 and now - self._last_check_at < self.check_interval_seconds
             ):
                 return self.last_status
+            cached = self._cached_status
 
-        # If not already polling in background, start the thread
-        if not self.offline and self._bg_thread is None:
+        if not self.offline and not self._background:
             self._start_bg_thread()
 
-        # If we have a cached status from the background thread, use it
+        if cached is not None and not force:
+            status = cached
+        else:
+            # Outside the lock: this is the part that can block.
+            status = self._perform_sync_check(now)
+
         with self._lock:
-            if self._cached_status is not None and not force:
-                status = self._cached_status
-            else:
-                # Fallback to sync check if no background status available yet
-                status = self._perform_sync_check(now)
-
-            # Handle panic transition
             was_panic = self.last_status is not None and self.last_status.panic
-            if status.panic and not was_panic and self.snapshot_fn is not None:
-                try:
-                    # Async snapshotting
-                    threading.Thread(target=self.snapshot_fn, daemon=True).start()
-                except Exception as exc:  # noqa: BLE001
-                    status.summary += f" (snapshot_fn async trigger failed: {exc})"
-
             self.last_status = status
             self._last_check_at = now
-            if status.active and (not self.history or self.history[-1].timestamp != status.timestamp):
+            if status.active and (
+                not self.history or self.history[-1].timestamp != status.timestamp
+            ):
                 self.history.append(status)
-            return status
+                # Bounded: a long training run checking every five
+                # minutes through a stormy week would otherwise keep every
+                # record forever.
+                if len(self.history) > MAX_HISTORY:
+                    del self.history[: len(self.history) - MAX_HISTORY]
+            fire_snapshot = status.panic and not was_panic and self.snapshot_fn is not None
+
+        # Also outside the lock — snapshot_fn is user code that writes
+        # checkpoints, and holding a lock across it would be worse than
+        # anything it could do on its own.
+        if fire_snapshot:
+            try:
+                threading.Thread(
+                    target=self.snapshot_fn, daemon=True, name="hypernix-ups-snapshot",
+                ).start()
+            except Exception as exc:  # noqa: BLE001
+                status.summary += f" (snapshot_fn async trigger failed: {exc})"
+        return status
+
+    @property
+    def _background(self) -> bool:
+        with self._lock:
+            return self._bg_thread is not None
 
     def _start_bg_thread(self) -> None:
         with self._lock:
             if self._bg_thread is not None:
                 return
-            self._bg_thread = threading.Thread(target=self._bg_loop, daemon=True)
+            self._stop_event.clear()
+            self._bg_thread = threading.Thread(
+                target=self._bg_loop, daemon=True, name="hypernix-ups-poll",
+            )
             self._bg_thread.start()
+
+    def stop(self, timeout: float = 2.0) -> None:
+        """Stop the background poller.
+
+        ``_stop_event`` existed and ``_bg_loop`` honoured it, but nothing
+        ever set it — there was no way to stop a UPS once it had started
+        polling. The thread is a daemon so a process could still exit,
+        but a long-lived one (a server, a notebook) leaked a thread and
+        an HTTP request every five minutes per UPS ever constructed.
+        """
+        self._stop_event.set()
+        with self._lock:
+            thread = self._bg_thread
+            self._bg_thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
+
+    def __enter__(self) -> UPS:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.stop()
 
     def _bg_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -355,15 +409,169 @@ def ups(
 def threat_now(
     latitude: float | None = None, longitude: float | None = None,
 ) -> ThreatStatus:
-    """One-shot weather check; offline-fallback returns an inactive status."""
-    return UPS(latitude=latitude, longitude=longitude).check(force=True)
+    """One-shot weather check; offline-fallback returns an inactive status.
+
+    Stops the poller before returning. Without that, a helper documented
+    as "one-shot" left a thread behind polling open-meteo every five
+    minutes for the life of the process.
+    """
+    guard = UPS(latitude=latitude, longitude=longitude)
+    try:
+        return guard.check(force=True)
+    finally:
+        guard.stop()
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point — installed as ``ups``
+#
+# The module had no entry point at all: no console script, no cli_main,
+# and nothing in the package imported it. Everything below existed and
+# worked, and there was no way to run any of it.
+# ---------------------------------------------------------------------------
+
+_USAGE = """\
+usage: ups [status|watch] [--lat N --lon N] [--offline] [--interval SECONDS]
+
+  ups                 check once and print the current threat status
+  ups status          the same, explicitly
+  ups watch           keep checking, printing only when the status changes
+
+Options:
+  --lat N --lon N     coordinates for the weather check. Omitted, ups asks
+                      ipapi.co where this machine is; if that fails too,
+                      the weather signal is skipped rather than guessed.
+  --address TEXT      passed to a scheduled-outage callback (library use)
+  --offline           skip every network call
+  --interval SECONDS  seconds between checks in watch mode (default 300)
+  --json              machine-readable output
+
+Exit status: 0 when nothing is happening, 1 under an elevated signal, and
+2 under a panic signal (severe weather or a scheduled outage) — so a
+training script can gate on it:
+
+    ups --offline || echo "storm incoming, checkpoint now"
+"""
+
+
+def _status_dict(status: ThreatStatus) -> dict[str, Any]:
+    return {
+        "timestamp": status.timestamp,
+        "weather_code": status.weather_code,
+        "weather_severe": status.weather_severe,
+        "weather_elevated": status.weather_elevated,
+        "scheduled_outage": status.scheduled_outage,
+        "active": status.active,
+        "panic": status.panic,
+        "summary": status.summary,
+    }
+
+
+def _exit_code(status: ThreatStatus) -> int:
+    """0 quiet, 1 elevated, 2 panic — distinct so a caller can react
+    proportionately instead of only knowing "something or nothing"."""
+    if status.panic:
+        return 2
+    if status.active:
+        return 1
+    return 0
+
+
+def _render(status: ThreatStatus, *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(_status_dict(status), indent=2))
+        return
+    marker = "PANIC" if status.panic else ("ALERT" if status.active else "ok")
+    stamp = time.strftime("%H:%M:%S", time.localtime(status.timestamp))
+    print(f"[{stamp}] {marker:<5} {status.summary}")
+
+
+def cli_main(argv: list[str] | None = None) -> int:
+    args = list(argv if argv is not None else sys.argv[1:])
+    if args and args[0] in ("-h", "--help", "help"):
+        print(_USAGE)
+        return 0
+
+    command = "status"
+    if args and not args[0].startswith("-"):
+        command = args.pop(0).lower()
+    if command not in ("status", "watch"):
+        print(f"ups: unknown command {command!r}", file=sys.stderr)
+        print(_USAGE, file=sys.stderr)
+        return 64
+
+    def _opt(name: str) -> str | None:
+        if name not in args:
+            return None
+        i = args.index(name)
+        if i + 1 >= len(args):
+            raise _CLIError(f"{name} requires a value")
+        return args[i + 1]
+
+    try:
+        lat_s, lon_s = _opt("--lat"), _opt("--lon")
+        interval_s = _opt("--interval")
+        address = _opt("--address")
+        latitude = float(lat_s) if lat_s is not None else None
+        longitude = float(lon_s) if lon_s is not None else None
+        interval = float(interval_s) if interval_s is not None else 300.0
+    except _CLIError as exc:
+        print(f"ups: {exc}", file=sys.stderr)
+        return 64
+    except ValueError as exc:
+        print(f"ups: expected a number ({exc})", file=sys.stderr)
+        return 64
+
+    if (latitude is None) != (longitude is None):
+        print("ups: --lat and --lon must be given together", file=sys.stderr)
+        return 64
+
+    as_json = "--json" in args
+    guard = UPS(
+        latitude=latitude,
+        longitude=longitude,
+        address=address,
+        offline="--offline" in args,
+        check_interval_seconds=interval,
+    )
+
+    try:
+        if command == "status":
+            status = guard.check(force=True)
+            _render(status, as_json=as_json)
+            return _exit_code(status)
+
+        # watch: print on change only, so leaving it running overnight
+        # produces a readable log rather than one line every interval.
+        last_summary: str | None = None
+        while True:
+            status = guard.check(force=True)
+            if status.summary != last_summary:
+                _render(status, as_json=as_json)
+                last_summary = status.summary
+            time.sleep(max(1.0, interval))
+    except KeyboardInterrupt:
+        print()
+        return 0
+    finally:
+        guard.stop()
+
+
+class _CLIError(ValueError):
+    """Argument-parsing failure; message is user-facing."""
 
 
 __all__ = [
     "ELEVATED_WEATHER_CODES",
+    "MAX_HISTORY",
     "SEVERE_WEATHER_CODES",
     "ThreatStatus",
     "UPS",
+    "cli_main",
     "threat_now",
     "ups",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via the console script
+    raise SystemExit(cli_main())

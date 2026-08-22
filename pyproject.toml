@@ -123,6 +123,9 @@ tvtop-older = "hypernix.monitoring.tv:cli_main"
 tvtop-plus-plus = "hypernix.monitoring.tvtop_plus_plus:cli_main"
 tvtoppp = "hypernix.monitoring.tvtop_plus_plus:cli_main"
 eth = "hypernix.system.ethanol:cli_main"
+# v0.71.5b3: ups had no entry point at all — a complete module that
+# nothing could run.
+ups = "hypernix.system.ups:cli_main"
 # v0.61.1: high-quality TUI chat CLI with a configurator.
 hyped = "hypernix.interfaces.hyped:cli_main"
 hyped-pro = "hypernix.interfaces.hyped_pro:cli_main"

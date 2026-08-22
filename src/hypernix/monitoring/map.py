@@ -16,13 +16,23 @@ Settings persist to ``~/.hypernix/map_config.json`` and are managed with
                                               higher poly means finer dial
                                               needles, richer pipe joints,
                                               and more animated steam frames.
-    hnx map config acc <N|Nk|Nm|Nb|Nt>       parameters represented by one
+    hnx map config acc <N|Nk|Nm|Nb|Nt|auto>  parameters represented by one
                                               full dial sweep, e.g. "1m" =
                                               a dial reads 0..1,000,000 params.
+                                              "auto" (the default) scales the
+                                              dials to the model that was
+                                              found, so the biggest node reads
+                                              near full and the rest sit in
+                                              proportion to it.
     hnx map config main use-gpu <true|false> show a GPU boiler-pressure
                                               readout (nvidia-smi).
     hnx map config main tps <1-30>           refresh rate, ticks per second.
-    hnx map config main file model <1|2|3>   what the map reads from:
+    hnx map config main file model <0|1|2|3> what the map reads from:
+                                                0 = auto-discover (the default:
+                                                    looks in the working
+                                                    directory, ./checkpoints,
+                                                    ./out, and the shared
+                                                    model directory)
                                                 1 = a single safetensors file
                                                     (needs -f "<path>")
                                                 2 = ./checkpoints/train.log
@@ -40,6 +50,7 @@ Ctrl-C to exit.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 import threading
@@ -57,17 +68,106 @@ _MAP_CONFIG_DIR = Path.home() / ".hypernix"
 _MAP_CONFIG_FILE = _MAP_CONFIG_DIR / "map_config.json"
 
 POLY_LEVELS: tuple[int, ...] = (16, 32, 64, 128)
-FILE_MODES: tuple[int, ...] = (1, 2, 3)
+FILE_MODES: tuple[int, ...] = (0, 1, 2, 3)
 _DEFAULT_TRAIN_LOG = Path("checkpoints") / "train.log"
 
 _MAP_DEFAULTS: dict[str, Any] = {
     "poly": 32,
-    "acc": "1m",
+    "acc": "auto",
     "use_gpu": True,
     "tps": 8,
-    "file_mode": 2,        # 1=safetensors file, 2=train.log, 3=model folder
+    # 0=auto-discover, 1=safetensors file, 2=train.log, 3=model folder.
+    #
+    # Auto is the default because the previous default (2, train.log) has
+    # no architecture information in it at all: it drew one placeholder
+    # dial and "Σ params ?", so the very first run of `hnx map` — before
+    # anyone has configured anything — showed an empty schematic and no
+    # hint that a path was needed. Mode 0 goes and finds a model.
+    "file_mode": 0,
     "file_path": None,     # required for modes 1 (-f) and 3 (-F)
 }
+
+#: Directories :func:`discover_model` searches, nearest-first. The working
+#: directory and its usual output folders come before the shared model
+#: cache, because a model sitting in the directory you ran the command
+#: from is almost certainly the one you meant.
+_DISCOVERY_DIRS: tuple[str, ...] = (
+    ".",
+    "checkpoints",
+    "out",
+    "output",
+    "model",
+    "models",
+)
+
+#: Weight files worth drawing, best-first. safetensors is preferred over
+#: pickle formats because it can be read for shapes alone — no torch.load,
+#: no arbitrary code execution, and no need to hold the weights in memory
+#: just to count them.
+_WEIGHT_GLOBS: tuple[str, ...] = ("*.safetensors", "*.bin", "*.pt", "*.pth")
+
+
+def _shared_models_dir() -> Path | None:
+    """The configured shared model directory, if hypernix has one.
+
+    Imported lazily and defensively: ``hypernix.system.config`` pulls in
+    more than the map needs, and a broken or absent config should degrade
+    discovery to "look in the working directory", never break the TUI.
+    """
+    try:
+        from hypernix.system.config import get_models_dir
+
+        return get_models_dir()
+    except Exception:  # noqa: BLE001 - discovery is best-effort by design
+        return None
+
+
+def discover_model(start: Path | None = None) -> Path | None:
+    """Find a model to draw, or None.
+
+    Looks for a weight file in the working directory and its usual output
+    folders, then in the shared model directory. Returns a *file* for a
+    lone weight file and a *directory* when one holds several shards, so
+    the caller can hand it to the matching snapshot builder.
+
+    Deliberately shallow — one level into each candidate directory. A
+    recursive walk of a home directory is a good way to make a TUI take
+    ten seconds to start, and the payoff (finding a model somebody buried
+    four levels deep) is not worth it when ``-f``/``-F`` says exactly
+    where to look.
+    """
+    roots: list[Path] = []
+    base = Path(start) if start is not None else Path.cwd()
+    roots.extend(base / d for d in _DISCOVERY_DIRS)
+    shared = _shared_models_dir()
+    if shared is not None:
+        roots.append(shared)
+        # One level into the shared dir: models live in per-repo subfolders.
+        try:
+            roots.extend(p for p in sorted(shared.iterdir()) if p.is_dir())
+        except OSError:
+            pass
+
+    for root in roots:
+        try:
+            if not root.is_dir():
+                continue
+        except OSError:
+            continue
+        for pattern in _WEIGHT_GLOBS:
+            try:
+                matches = sorted(root.glob(pattern))
+            except OSError:
+                continue
+            if not matches:
+                continue
+            # Several shards in one directory: hand back the directory so
+            # the folder builder sums them into one model rather than
+            # drawing whichever shard happened to sort first.
+            if len(matches) > 1:
+                return root
+            return matches[0]
+    return None
 
 
 class MapConfigError(ValueError):
@@ -107,15 +207,50 @@ _ACC_RE = re.compile(r"^\s*([0-9]*\.?[0-9]+)\s*([kmbt]?)\s*$", re.IGNORECASE)
 _ACC_SUFFIX = {"": 1.0, "k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
 
 
+#: ``acc: auto`` resolves against the model, not against a fixed number.
+#: See :func:`auto_acc`.
+ACC_AUTO = "auto"
+
+
+def auto_acc(total_params: int, layer_count: int) -> float:
+    """Pick a dial scale that makes a model's dials readable.
+
+    A fixed ``acc`` is wrong for most models: at the old default of
+    ``1m``, every layer of anything larger than a toy pegs its dial at
+    full and the schematic becomes a row of identical full needles, which
+    conveys nothing. Scaling to the *largest single node* instead puts the
+    biggest dial near full and everything else in proportion to it — which
+    is the comparison the schematic exists to show.
+
+    Falls back to 1M for an empty or unreadable model so a dial scale
+    always exists.
+    """
+    if total_params <= 0 or layer_count <= 0:
+        return 1e6
+    # Mean node size, rounded up to a tidy power-of-ten-ish step, then
+    # doubled so a typical node sits around half-scale and an outlier
+    # (embeddings, LM head) has room to read high without pinning.
+    mean = total_params / layer_count
+    magnitude = 10 ** int(math.floor(math.log10(max(mean, 1.0))))
+    return max(1e3, math.ceil(mean / magnitude) * magnitude * 2)
+
+
 def parse_acc(value: str) -> float:
     """Parse an ``acc`` string like ``"1"``/``"1k"``/``"2.5m"``/``"1t"``
     into the raw parameter count it represents. Raises :class:`MapConfigError`
-    on anything that doesn't look like ``<number><k|m|b|t>``."""
+    on anything that doesn't look like ``<number><k|m|b|t>``.
+
+    ``"auto"`` is *not* resolved here — it depends on the model, which
+    this function has no view of. Callers that support it check for
+    :data:`ACC_AUTO` first and call :func:`auto_acc`; this raises for it
+    so a caller that forgets gets an error rather than a silent 1M.
+    """
     m = _ACC_RE.match(value)
     if not m:
         raise MapConfigError(
             f"invalid acc value {value!r} — expected a number optionally "
-            "followed by k/m/b/t, e.g. '1', '1k', '2.5m', '1t'"
+            "followed by k/m/b/t (e.g. '1', '1k', '2.5m', '1t'), or 'auto' "
+            "to scale the dials to the model"
         )
     number, suffix = m.group(1), m.group(2).lower()
     result = float(number) * _ACC_SUFFIX[suffix]
@@ -140,7 +275,10 @@ def set_poly(value: str | int) -> int:
 
 
 def set_acc(value: str) -> str:
-    parse_acc(value)  # validate; raises MapConfigError on bad input
+    if value.strip().lower() != ACC_AUTO:
+        parse_acc(value)  # validate; raises MapConfigError on bad input
+    else:
+        value = ACC_AUTO
     cfg = _load_map_config()
     cfg["acc"] = value
     _save_map_config(cfg)
@@ -183,9 +321,11 @@ def set_file_mode(mode: str | int, path: str | None = None, *, flag: str | None 
     try:
         mode_i = int(mode)
     except (TypeError, ValueError) as exc:
-        raise MapConfigError(f"model must be 1, 2, or 3, got {mode!r}") from exc
+        raise MapConfigError(f"model must be 0, 1, 2, or 3, got {mode!r}") from exc
     if mode_i not in FILE_MODES:
-        raise MapConfigError(f"model must be 1, 2, or 3, got {mode_i}")
+        raise MapConfigError(f"model must be 0, 1, 2, or 3, got {mode_i}")
+    if mode_i == 0 and path:
+        raise MapConfigError("model 0 (auto) finds a model itself and takes no path")
     if mode_i == 1:
         if not path:
             raise MapConfigError('model 1 (safetensors file) requires -f "<path>"')
@@ -396,7 +536,20 @@ def build_snapshot(cfg: dict[str, Any] | None = None) -> ModelSnapshot:
     """Dispatch on ``cfg['file_mode']`` to build the current
     :class:`ModelSnapshot` the schematic should render."""
     cfg = cfg if cfg is not None else _load_map_config()
-    mode = cfg.get("file_mode", 2)
+    mode = cfg.get("file_mode", 0)
+    if mode == 0:
+        found = discover_model()
+        if found is None:
+            return ModelSnapshot(
+                source="(no model found)",
+                error="no model found nearby — point the map at one with "
+                "`hnx map config main file model 1 -f <file.safetensors>` "
+                "or `... model 3 -F <folder>`",
+            )
+        return (
+            _snapshot_from_folder(found) if found.is_dir()
+            else _snapshot_from_safetensors_file(found)
+        )
     if mode == 1:
         path = cfg.get("file_path")
         if not path:
@@ -600,11 +753,7 @@ class HyperMap:
         if self.poly not in POLY_LEVELS:
             self.poly = 32
         self.glyphs = glyphs_for_poly(self.poly)
-        self.acc_label = str(self.cfg.get("acc", "1m"))
-        try:
-            self.acc_value = parse_acc(self.acc_label)
-        except MapConfigError:
-            self.acc_value = parse_acc("1m")
+        self.acc_label = str(self.cfg.get("acc", ACC_AUTO))
         self.use_gpu = bool(self.cfg.get("use_gpu", True))
         self.tps = int(self.cfg.get("tps", 8))
         self._console_width = width
@@ -614,7 +763,20 @@ class HyperMap:
         self.legend_visible = False
         self.mouse_pos: tuple[int, int] | None = None
         self.snapshot: ModelSnapshot = build_snapshot(self.cfg)
+        # acc resolves *after* the snapshot, because "auto" scales to the
+        # model that was actually found.
+        self.acc_value = self._resolve_acc()
         self.log = _LogTail(path=Path(_DEFAULT_TRAIN_LOG))
+
+    def _resolve_acc(self) -> float:
+        """The parameter count one full dial sweep represents."""
+        if self.acc_label.strip().lower() == ACC_AUTO:
+            return auto_acc(self.snapshot.total_params, len(self.snapshot.layers))
+        try:
+            return parse_acc(self.acc_label)
+        except MapConfigError:
+            # A bad stored value should not stop the map from drawing.
+            return auto_acc(self.snapshot.total_params, len(self.snapshot.layers))
 
     # -- polling -----------------------------------------------------
 
@@ -658,9 +820,14 @@ class HyperMap:
         tick = self.tick
 
         # -- title bar ---------------------------------------------
+        acc_shown = (
+            f"auto({_fmt_count(int(self.acc_value))})"
+            if self.acc_label.strip().lower() == ACC_AUTO
+            else self.acc_label
+        )
         title = (
             f" \u25c6 HYPERNIX MAP \u25c6  {self.snapshot.source}  "
-            f"poly={self.poly} acc={self.acc_label} tps={self.tps} "
+            f"poly={self.poly} acc={acc_shown} tps={self.tps} "
         )
         canvas.stamp(0, 0, title[:width])
         canvas.stamp(0, 1, g.pipe_h * min(width, len(title)))
@@ -738,6 +905,20 @@ class HyperMap:
                 if gpu.get("temp_c") is not None:
                     canvas.stamp(panel_x, panel_y + 9, f"{gpu['temp_c']:.0f}\u00b0C")
 
+        # -- snapshot error banner --------------------------------------
+        # A failed read used to show as an empty schematic and "Σ params ?",
+        # which looks identical to "this model has no layers". Say what
+        # went wrong, on the canvas, where the user is already looking.
+        if self.snapshot.error:
+            # Below the pipeline, not through it: stamping at the dial row
+            # drew the message straight across the DATA engine and the
+            # placeholder dial, so the failure and the schematic
+            # overwrote each other.
+            rows_used = (max((r for _c, r in positions), default=0) + 1) if positions else 1
+            banner_y = min(height - 3, dial_area_y + rows_used * row_h + 1)
+            for i, line in enumerate(_wrap(f"! {self.snapshot.error}", max(20, width - 4))[:3]):
+                canvas.stamp(1, banner_y + i, line)
+
         # -- status line -----------------------------------------------
         status_line = (
             f" tick {tick}  \u00b7  mode {self.cfg.get('file_mode')}  \u00b7  "
@@ -776,6 +957,23 @@ class HyperMap:
             pass
         finally:
             reader.stop()
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    """Word-wrap for the on-canvas error banner."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > width and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
 
 
 def _fmt_count(n: int) -> str:
@@ -938,11 +1136,13 @@ dataset input. Run with no arguments to launch the live TUI.
 
 Config subcommands:
   poly <16|32|64|128>              schematic detail level.
-  acc <N|Nk|Nm|Nb|Nt>               params represented by one full dial,
+  acc <N|Nk|Nm|Nb|Nt|auto>          params represented by one full dial,
                                     e.g. "1m" -> a dial reads 0..1,000,000.
+                                    "auto" (default) scales to the model.
   main use-gpu <true|false>        show a GPU pressure readout.
   main tps <1-30>                  refresh rate, ticks per second.
-  main file model <1|2|3> [-f PATH] [-F PATH]
+  main file model <0|1|2|3> [-f PATH] [-F PATH]
+                                    0 = auto-discover (default, no path)
                                     1 = safetensors file  (needs -f PATH)
                                     2 = ./checkpoints/train.log (no path)
                                     3 = full model folder (needs -F PATH)
@@ -950,6 +1150,7 @@ Config subcommands:
 Examples:
   hnx map config poly 64
   hnx map config acc 10m
+  hnx map config acc auto
   hnx map config main use-gpu false
   hnx map config main tps 12
   hnx map config main file model 1 -f ./model.safetensors
@@ -960,11 +1161,11 @@ Examples:
 
 def _cli_config_main_file(rest: list[str]) -> int:
     if not rest or rest[0] != "model":
-        print('[map] usage: hnx map config main file model <1|2|3> [-f PATH] [-F PATH]', file=sys.stderr)
+        print('[map] usage: hnx map config main file model <0|1|2|3> [-f PATH] [-F PATH]', file=sys.stderr)
         return 1
     rest = rest[1:]
     if not rest:
-        print('[map] usage: hnx map config main file model <1|2|3> [-f PATH] [-F PATH]', file=sys.stderr)
+        print('[map] usage: hnx map config main file model <0|1|2|3> [-f PATH] [-F PATH]', file=sys.stderr)
         return 1
     mode = rest[0]
     path: str | None = None
@@ -1069,13 +1270,16 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "ACC_AUTO",
     "Canvas",
     "HyperMap",
     "LayerNode",
     "MapConfigError",
     "ModelSnapshot",
     "PolyGlyphs",
+    "auto_acc",
     "build_snapshot",
+    "discover_model",
     "cli_main",
     "dial_frac",
     "get_map_config",
@@ -1091,3 +1295,10 @@ __all__ = [
     "set_use_gpu",
     "throttle_frac",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via the console script
+    # Without this, `python -m hypernix.monitoring.map` imports the module,
+    # runs nothing, and exits 0 — which looks exactly like a TUI that
+    # started and immediately quit.
+    raise SystemExit(cli_main())

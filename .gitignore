@@ -53,3 +53,6 @@ dist/
 .pytest_cache/
 .coverage*/
 ```
+# Website dependencies
+docs/node_modules/
+docs/dist/
