@@ -282,6 +282,26 @@ pip install --index-url https://download.pytorch.org/whl/cpu 'torch==1.13.1'
 pip install 'hypernix[legacy-torch]'
 ```
 
+### `hypernix: command not found`
+
+The console scripts land in your interpreter's scripts directory, which on
+a lot of systems isn't on `PATH` — `pip install --user` puts them in
+`~/.local/bin`, and Debian/Ubuntu only add that at login *if it already
+existed*. HyperNix fixes this itself the first time you run it, printing
+what it changed. To do it explicitly:
+
+```bash
+python -m hypernix path            # what would change (writes nothing)
+python -m hypernix path --apply    # write the block into your shell profile
+python -m hypernix path --undo     # take it back out
+```
+
+It writes one marked, reversible block into the startup file your shell
+actually reads, and refuses to do anything inside a virtualenv or conda
+env — that directory belongs to the environment and is only meant to be on
+`PATH` while it's activated. Set `HYPERNIX_NO_PATH_SETUP=1` to turn the
+automatic version off entirely.
+
 The main `install_requires` is `torch>=1.13,<3` — 2.7+ is the
 recommended version (native `nn.RMSNorm`, fused SDPA), but 1.13+
 works via `hypernix.torch_compat`. See
@@ -389,6 +409,7 @@ hypernix <subcommand> [options]
   info                  package + optional GGUF header summary
   upload                push files to a HuggingFace repo
   doctor                environment diagnostic  (pass --fix to install deps)
+  path                  put the console scripts on your PATH  (--apply / --undo)
   fetch-llama-quantize  pre-seed the llama-quantize cache
   train init            create a fresh HyperNix snapshot
   train expand          warm-start a bigger model from a smaller one
@@ -397,6 +418,7 @@ hypernix <subcommand> [options]
   oven                  code-generation wrapper (preheat + complete / fill)
   chat                  interactive chat REPL against any supported model
   hyped+ / hyped-pro    Node.js TUI agent CLI w/ real cloud+local model dispatch, /gui desktop mode
+                        (/t1api routes through a local or remote HyperNix T1 API server)
   stml                  VRAM trained context length calculator
 ```
 

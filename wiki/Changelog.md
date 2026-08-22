@@ -20,7 +20,60 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
-## next version 0.71.5
+## 0.71.5rc2
+
+𖢥 **`hyped-pro`'s Escape key cancelled nothing.** It set a flag that made the TUI *discard* the answer when it eventually arrived — the model kept generating, a cloud call kept billing, and the prompt stayed locked the whole time. The cause was one layer down: the bridge dispatched every request inline off its stdin loop, so a ninety-second `chat` held that loop for ninety seconds and a cancel sent at second two wasn't *read* until second ninety-one. Long commands now run on their own thread while the loop stays free to read `cancel`, each in-flight request owns a `threading.Event`, and the local generation loop polls it once per token. The reply says which actually happened rather than implying more than is true: `stopped` for a local safetensors model, `pending` for a cloud call or llama.cpp inside multilama — neither has an interruption point, so those finish and their reply is dropped. A cancelled turn keeps whatever tokens were produced; only a cancel that produced nothing pops the dangling user turn, which the old code never did at all.
+
+🛡️ **Bridge failures no longer hang the TUI.** Every call now has a timeout sized to what it is (30 minutes for a chat, 10 seconds for a config read) — there was none before, so a wedged bridge froze hyped-pro with ctrl+c as the only way out. A failed spawn settles its pending promises, because Node does not guarantee an `exit` event after one and a missing Python otherwise hung every call forever. The read buffer is cleared when the process dies, so a partial line can't corrupt the first response of its replacement.
+
+𖢥 **`neo_oven.stream()` mangled every non-ASCII character.** It decoded each token on its own, and a token is not a character: "café" streamed as `caf` + two replacement characters, and any emoji or arrow came out as one `�` per byte. It now decodes the whole sequence each step and emits only the new suffix, holding back a character whose bytes haven't all arrived. It also honours stop sequences (holding back any tail that could still *become* a marker, so `
+class ` can't leak out one character at a time) and takes a `seed` — without those, the streamed answer and the non-streamed one for the same prompt were simply different text. Joining `stream()` now reproduces `complete()` exactly.
+
+𖢥 **`neo_oven.fill()` could never stop early.** It passed no `eos_ids` at all, so every call ran the full `max_new_tokens` and returned whatever the model rambled into after finishing the middle. It now stops at EOS and at the FIM markers, and trims at FIM-appropriate stops — `
+def ` is a perfectly ordinary thing to generate when filling a hole in existing code, so the completion stop list was the wrong one to apply.
+
+🐛 **EOS was being appended before the loop broke on it**, so the terminator was part of the returned sequence. This only ever looked correct because HF decode is asked to skip special tokens; a byte tokenizer, or an EOS the tokenizer doesn't class as special, would have emitted it verbatim.
+
+🐛 **`max_position_embeddings` was read unguarded** on every generated token, turning a model whose config lacks the field into an `AttributeError` at the first token rather than a clean failure at load.
+
+✨ **A cooperative `should_stop` hook** on `NeoOven.complete`/`chat`/`fill`/`stream`/`generate_batch`, polled once per token. It's what makes the TUI's Escape real for local models, and it returns whatever was generated before the stop rather than discarding it.
+
+✨ **T1 API — Beta 4, and the release candidate.** `POST /usage/report`, `hyped-pro` against a real T1 API server, automatic `PATH` setup, and the `qwen3.8-27b` registry entry. `GET /status` now reports `beta: "beta4"`.
+
+✨ **`POST /usage/report` — the endpoint that makes remote quota real.** Beta 3 could route a request and refuse an exhausted model, but nothing could report consumption back: `UsageMeter.record` had no HTTP surface at all. For any client that runs inference itself, that meant the per-model counters never moved, so the quota cascade never advanced past its first model and per-model limits were unenforceable in practice. Three rules keep it safe to expose to every authenticated key: usage is recorded against **the caller's own key**, never a body-supplied one; the model must be registered *and* allowed for that key; and counts are non-negative and capped, so a report can add usage but never subtract it — a client that could report negative tokens could refund itself quota, which would make every limit in the system advisory. A report that exhausts a model still succeeds (the tokens really were spent); the refusal belongs on the *next* route call, not on the accounting for work already done.
+
+✨ **`hyped-pro` talks to a real T1 API server, local or remote.** New `t1api` vendor and a `t1-routed` model. The division of labour follows the T1 API's own design principle — the client is never trusted to decide what it may access: the **server** authenticates the key, decides which model it may use (`POST /models/route` walks the quota cascade) and owns the counters; the **client** runs that model and reports the tokens it spent. Passing a `model_id` is a *request*, not a choice — the server confirms or refuses it, and the client runs whatever the server said. The server has no inference endpoint, so it never sees prompt text, only token counts; that's a privacy property worth keeping rather than an omission to work around. New `/t1api` command in the TUI, new `t1api_status` / `t1api_get_url` / `t1api_set_url` bridge commands, and `HNX_T1_API_KEY` / `HNX_T1_API_URL` alongside a persisted `t1_api_url`.
+
+✨ **`t1-routed` names no weights, on purpose.** Its `repo` is empty because the real model is whatever the server routes to. Server `model_id`s are stable slugs and this catalog uses short names; the two agree only by coincidence, so the mapping is an explicit `t1_api_model_map` setting with an exact-name fallback and **no fuzzy matching** — running a *similar* model to the one the server authorized would be worse than refusing. When nothing maps, the error names the model, the config key, and the command to fix it instead of quietly running something else.
+
+✨ **`hypernix path` — console scripts that are actually on `PATH`.** `pip install --user` puts ~20 scripts in a directory many systems don't have on `PATH` (Debian's `~/.profile` only adds `~/.local/bin` if it already existed at login), so `pip install hypernix` followed by `hypernix: command not found` looked like a broken package rather than a `PATH` gap. `hypernix.system.pathfix` writes one idempotent, clearly-marked, reversible block into the startup file the person's shell *actually reads* — `~/.bashrc` on Linux, `~/.bash_profile` on macOS, `$ZDOTDIR/.zshrc`, a `conf.d` file for fish, a PowerShell profile on Windows. `--undo` takes it back out; `--check`, `--print` and `--force` cover the rest. Wired into `hypernix doctor` (reported) and `doctor --fix` (repaired).
+
+🛡️ **The `PATH` fix runs automatically, and refuses more often than it acts.** It does nothing when the directory is already on `PATH`, when `HYPERNIX_NO_PATH_SETUP` is set, in CI, or after it has already tried once — so someone who deleted the block doesn't get it silently written back. Above all it refuses **inside a virtualenv or conda env**: that directory belongs to one environment and is on `PATH` only while activated, so baking it into `~/.bashrc` would leak that environment into every shell the person ever opens. It always prints what it changed and how to undo it — a `PATH` edit that happens invisibly is worse than no `PATH` edit. It hangs off the console-script and `python -m hypernix` entry points rather than `cli.main`, so calling the CLI in-process never touches a home directory.
+
+✨ **`hyped-pro` shows the current public release.** `hypernix.system.release` reads PyPI's JSON API once per six hours per machine, caches to `~/.hypernix/release-cache.json`, times out fast, and returns "unknown" instead of raising — a banner is not worth a hung TUI on a machine with no network. `HYPERNIX_NO_VERSION_CHECK` (already honoured by the launcher) turns it off. Pre-releases are tracked separately from stable ones: telling someone on `0.71.5rc2` to "upgrade" to an older stable release would be wrong, so that reads as a pre-release note, not an update prompt. New `/version` command; the status box and banner carry the label.
+
+✨ **`qwen3.8-27b`** — in the download registry (`Qwen/Qwen3.8-27B`) and in the hyped-pro catalog. The catalog entry points at the GGUF build with a conservative partial-offload default, because that's the one that actually fits a consumer card; the safetensors repo is what `hypernix download` resolves.
+
+🐛 **`hypernix.__version__` was `0.71.5postr1`**, which is not a valid PEP 440 version — pip normalizes it to something quite different from the intended `post1`, and it disagreed with `pyproject.toml` besides. Every version string in the tree now says `0.71.5rc2`.
+
+🔧 A stray Markdown code fence (` ``` `) was sitting in `.gitignore` as a literal pattern.
+
+## 0.71.5.post1
+
+Everything between Beta 3 and the release candidate: three modules that didn't work, and the documentation site.
+
+𖢥 **`hnx map` didn't find models, and its `acc` setting did nothing.** It now auto-discovers a checkpoint from the working directory (`.`, `checkpoints/`, `out/`, `output/`, `model/`, `models/`), reads shapes from safetensors headers without `torch.load`, and resolves `acc=auto` from the real parameter and layer counts instead of a constant. Errors are drawn in their own banner below the pipeline rather than over the DATA engine, and the module gained the `__main__` guard it needed to be runnable as `python -m`.
+
+𖢥 **`ethanol` (`eth`) claimed to work with no backend at all.** `backend=none` now exits non-zero and says so instead of reporting success. `auto` reads real temperatures and picks a level from them, with a hard abort above 85 °C. Level 0 performs a genuine reset on every backend — ROCm was issuing the wrong subcommands entirely, and Intel was missing its reset flag — so "turn it back to stock" now does that. New `status` and `reset` commands, and the `backend=none` check moved ahead of the confirmation gate so it can't be confirmed past.
+
+𖢥 **`ups` had no entry point, a lock held across a network call, and unbounded history.** The HTTP check and the snapshot callback both moved outside the lock (a slow or hanging endpoint was blocking every other reader), history is capped, and the guard grew `stop()` plus context-manager support so `threat_now()` can't leak a background thread. It now has a real CLI and a `ups` console script — it was a complete module that nothing could run.
+
+🛜 **The documentation site was rebuilt** — structure, type and density only; every colour value is unchanged. Self-hosted Inter + JetBrains Mono (no font CDN), a two-column hero with a terminal transcript, a shared kicker/title/lede rhythm for every section and page, and the 40-card "All subsystems" wall replaced by a grouped, searchable table with stage filters. Fixed along the way: the docs cards ran "wiki ↗" into the page name, and the stats page orphaned "Issues" onto its own row.
+
+🐛 **Two T1 API bugs found by running the server for real**, not by testing it: `waiter doctor` passed a raw dict where a `ServerStatus` was expected, and a key created while the server was running was rejected until restart because the key cache was never refreshed.
+
+🔧 CI fixes for macOS (a long temp path wrapped in `rich` output) and Windows (`WinError 10106` importing `_overlapped` through the anyio plugin), plus a timing race in a synthetic timer test.
+
 ## 0.71.5b3
 
 ✨ **T1 API — Beta 3: production hardening.** The T1 API is now feature-complete against its spec. PostgreSQL, a durable audit log, mTLS, advanced rate limiting, IP allow/blocklists, real remote multi-server module transport, the key directory, usage cost/estimates/forecasts, the complete SDK, the full `waiter` TUI, and production configuration validation. Full contract in `wiki/T1-API.md`; deployment examples in `examples/t1api/`.

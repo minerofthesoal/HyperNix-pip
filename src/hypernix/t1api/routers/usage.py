@@ -19,9 +19,11 @@ import time
 
 from fastapi import APIRouter, Depends, Query
 
+from ..audit import AuditCategory
 from ..auth import AuthContext
 from ..cost import CostCalculator
 from ..deps import (
+    get_audit_log,
     get_auth_context,
     get_cost_calculator,
     get_key_directory,
@@ -39,6 +41,8 @@ from ..schemas import (
     UsageHistoryItem,
     UsageHistoryResponse,
     UsageRemainingResponse,
+    UsageReportRequest,
+    UsageReportResponse,
 )
 from ..storage import GROUPABLE
 from ..usage import UsageMeter
@@ -310,6 +314,83 @@ def usage_estimate(
         requests=body.requests,
     )
     return UsageEstimateResponse(**estimate, request_id=request_id)
+
+
+@router.post("/report", response_model=UsageReportResponse)
+def usage_report(
+    body: UsageReportRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    meter: UsageMeter = Depends(get_usage_meter),
+    keys=Depends(get_key_directory),
+    audit=Depends(get_audit_log),
+    request_id: str = Depends(get_request_id),
+) -> UsageReportResponse:
+    """Record tokens a client consumed running a model this server routed it to.
+
+    **Why this exists (Beta 4).** Beta 3 could route a request and refuse
+    an exhausted model, but nothing could ever *report* consumption back:
+    ``UsageMeter.record`` had no HTTP surface. For a client that runs
+    inference itself — ``hyped-pro`` against a remote T1 server is the
+    motivating case — that meant the quota cascade never advanced, so
+    every call routed to the same first model forever and per-model
+    limits were unenforceable in practice.
+
+    Three rules make this safe to expose to any authenticated key:
+
+    * **Usage is recorded against the caller's own key**, never a
+      body-supplied one, so a key can only ever spend its own budget.
+    * **The model must be registered** (``UsageMeter.record`` calls
+      ``registry.require``) **and allowed for this key**, so a report
+      can't invent a model or a budget line.
+    * **Counts are non-negative and capped** by the request schema, so a
+      report can add usage but never subtract it. A client that could
+      report negative tokens could refund itself quota, which would make
+      every limit in the system advisory.
+
+    Reporting is not the same as being permitted: a report that pushes a
+    model past its cap succeeds and is recorded (the tokens really were
+    spent), and the response says ``exhausted: true``. The refusal
+    belongs on the *next* route call, not on the accounting for work
+    already done.
+    """
+    keys.assert_model_allowed(ctx.key_id, body.model_id)
+    meter.record(
+        key_id=ctx.key_id,
+        model_id=body.model_id,
+        input_tokens=body.input_tokens,
+        output_tokens=body.output_tokens,
+        requests=body.requests,
+        endpoint=body.endpoint,
+        server_id=body.server_id,
+        module_id=body.module_id,
+    )
+    snap = meter.snapshot_for_model(ctx.key_id, body.model_id)
+    audit.record(
+        "usage.report",
+        category=AuditCategory.WRITE,
+        actor_key_id=ctx.key_id,
+        actor_is_admin=ctx.is_admin,
+        resource_type="model",
+        resource_id=body.model_id,
+        request_id=request_id,
+        details={
+            "input_tokens": body.input_tokens,
+            "output_tokens": body.output_tokens,
+            "requests": body.requests,
+            "exhausted_after": snap.is_exhausted,
+        },
+    )
+    return UsageReportResponse(
+        recorded=True,
+        model_id=body.model_id,
+        input_tokens=body.input_tokens,
+        output_tokens=body.output_tokens,
+        requests=body.requests,
+        input_remaining=snap.input_remaining,
+        output_remaining=snap.output_remaining,
+        exhausted=snap.is_exhausted,
+        request_id=request_id,
+    )
 
 
 __all__ = ["router"]

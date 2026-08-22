@@ -56,7 +56,7 @@ Response `200`:
   "environment": "development",
   "t1_api_version": "<t1_api_version>",
   "hypernix_version": "<hypernix_version>",
-  "beta": "beta3",
+  "beta": "beta4",
   "model_count": 9,
   "storage_backend": "sqlite",
   "request_id": "<request_id>",
@@ -868,7 +868,7 @@ Response `200`:
     "status": "unknown",
     "capabilities": [],
     "tags": {},
-    "registered_by": "ff712903-e346-47e8-8a96-f8305b4e0267",
+    "registered_by": "a47b7e7b-34a3-4c64-bcaa-dea809d7d105",
     "created_at": "<created_at>",
     "updated_at": "<updated_at>",
     "last_seen": null
@@ -892,7 +892,7 @@ Response `200`:
       "status": "unknown",
       "capabilities": [],
       "tags": {},
-      "registered_by": "ff712903-e346-47e8-8a96-f8305b4e0267",
+      "registered_by": "a47b7e7b-34a3-4c64-bcaa-dea809d7d105",
       "created_at": "<created_at>",
       "updated_at": "<updated_at>",
       "last_seen": null
@@ -903,7 +903,7 @@ Response `200`:
 }
 ```
 
-### `PATCH /servers/8a7a1a616de84b2f9fcdd9df1a11bb90` *(authenticated)*
+### `PATCH /servers/fb5aad1e2e23448cacfe365d1bd16fd4` *(authenticated)*
 
 Promotion is audited — it is the gate every module push checks.
 
@@ -927,7 +927,7 @@ Response `200`:
     "status": "unknown",
     "capabilities": [],
     "tags": {},
-    "registered_by": "ff712903-e346-47e8-8a96-f8305b4e0267",
+    "registered_by": "a47b7e7b-34a3-4c64-bcaa-dea809d7d105",
     "created_at": "<created_at>",
     "updated_at": "<updated_at>",
     "last_seen": null
@@ -964,7 +964,7 @@ Response `400`:
 }
 ```
 
-### `DELETE /servers/8a7a1a616de84b2f9fcdd9df1a11bb90` *(authenticated)*
+### `DELETE /servers/fb5aad1e2e23448cacfe365d1bd16fd4` *(authenticated)*
 
 Destructive operations need ?confirm=true.
 
@@ -1004,7 +1004,7 @@ Response `200`:
     "module_id": "<module_id>",
     "name": "demo-module",
     "version": "1.0.0",
-    "owner_key_id": "7eda8aff-07e6-445b-bbf7-8e9e77e103dc",
+    "owner_key_id": "41cdbf28-88d6-4291-8e9f-8c8a2ffb0e72",
     "status": "draft",
     "source_type": "none",
     "source_url": null,
@@ -1030,7 +1030,7 @@ Response `200`:
       "module_id": "<module_id>",
       "name": "demo-module",
       "version": "1.0.0",
-      "owner_key_id": "7eda8aff-07e6-445b-bbf7-8e9e77e103dc",
+      "owner_key_id": "41cdbf28-88d6-4291-8e9f-8c8a2ffb0e72",
       "status": "draft",
       "source_type": "none",
       "source_url": null,
@@ -1077,7 +1077,7 @@ Response `429`:
     "details": {
       "rule": "expensive_operations",
       "subject_kind": "key",
-      "retry_after_seconds": 5.84,
+      "retry_after_seconds": 5.76,
       "cost": 10.0
     }
   },
@@ -1085,7 +1085,7 @@ Response `429`:
 }
 ```
 
-### `POST /modules/fa2be64e77a84522bd2f8d9c37cd7aa8/deploy` *(authenticated)*
+### `POST /modules/9017e7c22ac3484c95d89914668c62c4/deploy` *(authenticated)*
 
 Multi-server deployment. Every target is trust-checked before the job is queued.
 
@@ -1211,7 +1211,7 @@ Response `200`:
 ```json
 {
   "account_type": "user",
-  "account_id": "7eda8aff-07e6-445b-bbf7-8e9e77e103dc",
+  "account_id": "41cdbf28-88d6-4291-8e9f-8c8a2ffb0e72",
   "balance": 0.0,
   "request_id": "<request_id>"
 }
@@ -1304,12 +1304,12 @@ Response `200`:
     {
       "transaction_id": "<transaction_id>",
       "account_type": "user",
-      "account_id": "7eda8aff-07e6-445b-bbf7-8e9e77e103dc",
+      "account_id": "41cdbf28-88d6-4291-8e9f-8c8a2ffb0e72",
       "amount": 25.0,
       "kind": "redeem",
       "balance_after": 25.0,
       "note": "payment token redemption",
-      "created_by": "7eda8aff-07e6-445b-bbf7-8e9e77e103dc",
+      "created_by": "41cdbf28-88d6-4291-8e9f-8c8a2ffb0e72",
       "created_at": "<created_at>"
     }
   ],
@@ -1355,7 +1355,7 @@ Response `200`:
       "cidr": "203.0.113.0/24",
       "kind": "block",
       "reason": "abuse",
-      "created_by": "ff712903\u2026",
+      "created_by": "a47b7e7b\u2026",
       "created_at": "<created_at>",
       "expires_at": null,
       "expired": false
@@ -1389,7 +1389,7 @@ Response `200`:
       "cidr": "100.64.0.0/10",
       "kind": "allow",
       "reason": "tailnet",
-      "created_by": "ff712903\u2026",
+      "created_by": "a47b7e7b\u2026",
       "created_at": "<created_at>",
       "expires_at": null,
       "expired": false
@@ -1399,7 +1399,7 @@ Response `200`:
       "cidr": "203.0.113.0/24",
       "kind": "block",
       "reason": "abuse",
-      "created_by": "ff712903\u2026",
+      "created_by": "a47b7e7b\u2026",
       "created_at": "<created_at>",
       "expires_at": null,
       "expired": false

@@ -39,11 +39,18 @@ betas; see [T1-API.md](T1-API.md) for the contract and
 Open, deliberately: module blobs are checksummed but not encrypted at
 rest — see [T1-API.md#known-limitation](T1-API.md#known-limitation).
 
-## 0.71.5b4 (Next)
+## 0.71.5rc2 — Beta 4 (Shipped)
 
+- `POST /usage/report`: the endpoint that lets a client report the tokens
+  it actually spent, so the server's quota cascade advances for clients
+  that run inference themselves
 - `hyped-pro` T1-key support against a local or remote T1 API server
+  (`t1api` vendor, `t1-routed` model, `/t1api` command)
 - `hyped-pro` auto-displaying the current public release version
+  (`hypernix.system.release`, `/version`)
 - `qwen3.8-27b` registry entry
+- `hypernix path`: automatic, reversible `PATH` setup for the console
+  scripts (`hypernix.system.pathfix`)
 
 ## 0.72.0 (Next Milestone)
 

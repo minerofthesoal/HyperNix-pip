@@ -33,7 +33,22 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 
-const VERSION = "0.71.4b10";
+const VERSION = "0.71.5rc2";
+
+// v0.71.5rc2 (Beta 4): what the current *public* release is, so the banner
+// and the status box can say whether this build is behind. Filled in
+// asynchronously after startup — a network lookup must never delay the
+// first prompt, so the UI renders with `null` and simply gains the extra
+// text when (and if) the answer arrives.
+type ReleaseInfo = {
+  installed: string;
+  latest: string | null;
+  status: string;
+  update_available: boolean;
+  summary: string;
+  error: string | null;
+};
+let releaseInfo: ReleaseInfo | null = null;
 const NL = "\r\n"; // raw mode leaves OPOST alone but we own the terminal, so be explicit
 const DEBUG = !!process.env.HYPED_PRO_DEBUG;
 
@@ -240,6 +255,20 @@ function saveConfig(cfg: HypedConfig): boolean {
 // straight through to this terminal so every download progress bar,
 // [hypernix] log line, and Python traceback is visible unmodified.
 // ---------------------------------------------------------------------------
+// How long to wait on a bridge call before giving the prompt back. A chat
+// turn against a large local model legitimately takes minutes, so its budget
+// is generous; a config read that hasn't answered in ten seconds means the
+// bridge is wedged, and waiting longer only hides that. Without any timeout
+// at all — which is how this was — a wedged bridge froze the TUI with no way
+// out but ctrl+c.
+const BRIDGE_TIMEOUTS_MS: Record<string, number> = {
+  chat: 30 * 60_000,
+  download: 60 * 60_000,
+  t1api_status: 30_000,
+  release: 20_000,
+};
+const BRIDGE_DEFAULT_TIMEOUT_MS = 10_000;
+
 class Bridge {
   private proc: ChildProcess | null = null;
   private nextId = 1;
@@ -257,19 +286,32 @@ class Bridge {
     child.stdout!.on('data', (chunk: string) => this.onData(chunk));
     child.on('error', (err: NodeJS.ErrnoException) => {
       elog('HPT-BRIDGE-001', `failed to start the Python bridge (${py} -m hypernix.hyped_pro_bridge): ${err.message}. Install with 'pip install hypernix', or set HYPED_PRO_PYTHON to a python that has it.`);
+      // Node does not guarantee an 'exit' after a failed spawn, so the exit
+      // handler below may never run. Settling here too is what stops a
+      // missing Python from hanging every call forever instead of failing.
+      this.failAllPending('HPT-BRIDGE-001', `bridge failed to start: ${err.message}`);
+      this.proc = null;
+      this.buf = "";
     });
     child.on('exit', (code, signal) => {
       if (this.pending.size > 0) {
         elog('HPT-BRIDGE-002', `Python bridge exited (code=${code}, signal=${signal}) with ${this.pending.size} request(s) still in flight.`);
       }
-      for (const resolve of this.pending.values()) {
-        resolve({ id: null, ok: false, code: 'HPT-BRIDGE-002', error: 'bridge process exited' });
-      }
-      this.pending.clear();
+      this.failAllPending('HPT-BRIDGE-002', 'bridge process exited');
       this.proc = null;
+      // A dead process can leave a partial line behind. Carrying it into the
+      // next process's output would make its first response unparseable.
+      this.buf = "";
     });
     this.proc = child;
     return child;
+  }
+
+  private failAllPending(code: string, error: string): void {
+    for (const resolve of this.pending.values()) {
+      resolve({ id: null, ok: false, code, error });
+    }
+    this.pending.clear();
   }
 
   private onData(chunk: string): void {
@@ -293,19 +335,51 @@ class Bridge {
     }
   }
 
+  // The id the most recent chat turn was sent under, so /cancel and Escape
+  // can name it. Cancelling is per-request by design: a stale Escape must
+  // not kill whatever turn happens to be running when it lands.
+  lastChatId: number | null = null;
+
   async call(cmd: string, params: Record<string, unknown> = {}): Promise<BridgeResponse> {
     const child = this.ensureStarted();
     const id = this.nextId++;
+    if (cmd === 'chat') this.lastChatId = id;
     const req = { id, cmd, ...params };
+    const timeoutMs = BRIDGE_TIMEOUTS_MS[cmd] ?? BRIDGE_DEFAULT_TIMEOUT_MS;
     return new Promise<BridgeResponse>((resolve) => {
-      this.pending.set(id, resolve);
+      let settled = false;
+      const settle = (r: BridgeResponse) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.pending.delete(id);
+        resolve(r);
+      };
+      const timer = setTimeout(() => {
+        settle({
+          id, ok: false, code: 'HPT-BRIDGE-004',
+          error: `the bridge did not answer '${cmd}' within ${Math.round(timeoutMs / 1000)}s. `
+               + `It may still be working — check the log lines above. Use /quit and restart if it stays stuck.`,
+        });
+      }, timeoutMs);
+      // Don't let a pending timer keep the process alive on its own.
+      if (typeof timer.unref === 'function') timer.unref();
+
+      this.pending.set(id, settle);
       child.stdin!.write(JSON.stringify(req) + "\n", (err) => {
         if (err) {
-          this.pending.delete(id);
-          resolve({ id, ok: false, code: 'HPT-BRIDGE-001', error: `write to bridge failed: ${err.message}` });
+          settle({ id, ok: false, code: 'HPT-BRIDGE-001', error: `write to bridge failed: ${err.message}` });
         }
       });
     });
+  }
+
+  /** Ask the bridge to stop request *id*. Fire-and-forget: the answer only
+   *  says whether the backend could be interrupted, and the caller has
+   *  already moved on. */
+  cancel(id: number | null): Promise<BridgeResponse> | null {
+    if (id === null) return null;
+    return this.call('cancel', { target: id });
   }
 
   shutdown(): void {
@@ -414,6 +488,8 @@ const COMMANDS: CommandDef[] = [
   { name: "/save", desc: "Save the transcript to a file" },
   { name: "/retry", desc: "Regenerate the last agent reply" },
   { name: "/key", desc: "Set/view a cloud API key: /key <vendor> [api-key]" },
+  { name: "/t1api", desc: "HyperNix T1 API server: /t1api [status | url <url>]" },
+  { name: "/version", desc: "Show the installed version and the latest public release" },
   { name: "/settings", desc: "View/change max input, output, and thinking tokens" },
   { name: "/tools", desc: "Toggle file create/edit/read/search tools on or off" },
   { name: "/gui", desc: "Launch the hyped-pro desktop GUI in a new window" },
@@ -622,7 +698,7 @@ function buildFooterLines(): string[] {
   if (currentModel.short.includes("hyper-nix.2")) {
     statusLines.push(c256(196, " \u26a0\ufe0f  hyper-Nix.2 is severely undertrained — expect weird output"));
   }
-  const lines = renderBox(`HYPED+ TUI (v${VERSION})`, statusLines, width, t.border, t.title);
+  const lines = renderBox(`HYPED+ TUI (${versionLabel()})`, statusLines, width, t.border, t.title);
 
   if (modelPickerOpen) {
     lines.push(...renderModelPicker());
@@ -786,10 +862,34 @@ function buildHypedBanner(): string[] {
   return rows;
 }
 
+// "v0.71.5rc2", plus what PyPI says if we know it. Anything other than
+// being behind is shown quietly: telling someone on a release candidate to
+// "upgrade" to an older stable would be wrong, so that case reads as a
+// pre-release note rather than a warning.
+function versionLabel(): string {
+  if (!releaseInfo || !releaseInfo.latest) return `v${VERSION}`;
+  if (releaseInfo.update_available) return `v${VERSION} \u2192 v${releaseInfo.latest} available`;
+  if (releaseInfo.status === "prerelease") return `v${VERSION} (pre-release)`;
+  return `v${VERSION} (latest)`;
+}
+
+// Fire-and-forget. A failed or slow lookup leaves releaseInfo null, which
+// every reader already handles, so there is nothing to report.
+function refreshReleaseInfo(force = false): Promise<void> {
+  return bridge.call('release', { force })
+    .then(r => {
+      if (r.ok && r.data && typeof r.data.installed === "string") {
+        releaseInfo = r.data as ReleaseInfo;
+        if (process.stdout.isTTY) redrawFooter();
+      }
+    })
+    .catch(() => { /* offline is not an error worth showing */ });
+}
+
 function printBanner(): void {
   console.log("");
   buildHypedBanner().forEach(line => console.log(line));
-  console.log(dim("  hyped-pro \u00b7 TUI agent for HyperNix"));
+  console.log(dim(`  hyped-pro \u00b7 TUI agent for HyperNix \u00b7 ${versionLabel()}`));
   console.log("");
   console.log(dim("Tips: /  for commands & skills \u00b7 alt+y to switch models \u00b7 /configure to set up \u00b7 /help for everything."));
   if (LOADED_MODELS.length === 0) {
@@ -1025,7 +1125,8 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
     }
 
     case "/key": {
-      const validVendors = Object.keys(PROVIDERS).filter(v => PROVIDERS[v].kind === "cloud" || v === "t1");
+      const validVendors = Object.keys(PROVIDERS).filter(
+        v => PROVIDERS[v].kind === "cloud" || v === "t1" || v === "t1api");
       if (!argText) {
         const out = [c256(96, "\n  Cloud API keys:")];
         for (const v of validVendors) {
@@ -1056,6 +1157,91 @@ async function handleSlashCommand(cmdStr: string): Promise<void> {
       } else {
         elog(setResp.code || 'HPT-BRIDGE-002', setResp.error || 'could not save key');
       }
+      break;
+    }
+
+    case "/version": {
+      log(dim("  checking pypi.org ..."));
+      await refreshReleaseInfo(true);
+      if (!releaseInfo) {
+        log(c256(220, `  Installed: v${VERSION}`));
+        log(dim("  Could not reach PyPI (offline, or HYPERNIX_NO_VERSION_CHECK is set)."));
+        break;
+      }
+      const rows = [
+        c256(96, "\n  Version:"),
+        `  ${c256(33, "installed".padEnd(18))} v${releaseInfo.installed}`,
+        `  ${c256(33, "latest release".padEnd(18))} ${releaseInfo.latest ? "v" + releaseInfo.latest : dim("unknown")}`,
+      ];
+      if (releaseInfo.update_available) {
+        rows.push(c256(220, `\n  An update is available: pip install -U hypernix`));
+      } else if (releaseInfo.status === "prerelease") {
+        rows.push(dim("\n  You're on a pre-release, ahead of the latest stable."));
+      } else if (releaseInfo.status === "current") {
+        rows.push(c256(82, "\n  Up to date."));
+      }
+      if (releaseInfo.error) rows.push(dim(`  (${releaseInfo.error})`));
+      log(rows.join(NL));
+      break;
+    }
+
+    case "/t1api": {
+      const [sub, ...rest] = args;
+
+      if (sub === "url") {
+        const url = rest.join(" ").trim();
+        if (!url) {
+          const r = await bridge.call('t1api_get_url', {});
+          log(r.ok
+            ? `  T1 API server: ${c256(33, r.data.url)}`
+            : c256(196, `  ${r.error}`));
+          log(dim("  Usage: /t1api url <http://host:port>"));
+          break;
+        }
+        if (!/^https?:\/\//i.test(url)) {
+          log(c256(196, "  URL must start with http:// or https://"));
+          break;
+        }
+        const setResp = await bridge.call('t1api_set_url', { url });
+        log(setResp.ok
+          ? c256(82, `  T1 API server set to ${setResp.data.url}`)
+          : c256(196, `  ${setResp.error}`));
+        break;
+      }
+
+      if (sub && sub !== "status") {
+        log(c256(96, "  Usage: /t1api [status | url <http://host:port>]"));
+        break;
+      }
+
+      log(dim("  querying the T1 API ..."));
+      const resp = await bridge.call('t1api_status', {});
+      if (!resp.ok) {
+        elog(resp.code || 'HPT-T1API-001', resp.error || 'could not reach the T1 API');
+        log(dim("  Set the server with /t1api url <url> and the key with /key t1api <key>."));
+        break;
+      }
+      const d = resp.data;
+      const runnable = (d.models || []).filter((m: any) => m.runnable_here).length;
+      const out = [
+        c256(96, "\n  HyperNix T1 API:"),
+        `  ${c256(33, "server".padEnd(14))} ${d.url}`,
+        `  ${c256(33, "version".padEnd(14))} ${d.t1_api_version || dim("?")} ${dim(`(${d.beta || "?"}, ${d.environment || "?"})`)}`,
+        `  ${c256(33, "key".padEnd(14))} ${d.key_id || dim("?")} ${dim(`(${d.key_type || "?"})`)}`,
+        `  ${c256(33, "plan".padEnd(14))} ${d.plan || dim("(none assigned)")}`,
+        `  ${c256(33, "models".padEnd(14))} ${d.model_count} registered, ${runnable} runnable here`,
+      ];
+      for (const m of (d.models || []).slice(0, 12)) {
+        const mark = m.runnable_here ? c256(82, "\u2713") : c256(196, "\u2717");
+        out.push(`    ${mark} ${String(m.model_id).padEnd(28)} ${dim(m.status || "")}`);
+      }
+      if ((d.models || []).length > 12) out.push(dim(`    ... and ${d.models.length - 12} more`));
+      if (runnable < d.model_count) {
+        out.push(dim("\n  \u2717 = no local catalog entry for that model_id; map it with"));
+        out.push(dim("      hypernix config set t1_api_model_map '{\"<model_id>\": \"<catalog-short>\"}'"));
+      }
+      out.push(dim("\n  Select it for chat with /model t1-routed \u2014 the server picks the model."));
+      log(out.join(NL));
       break;
     }
 
@@ -1318,6 +1504,29 @@ async function runConfigureWizard(): Promise<void> {
 // ---------------------------------------------------------------------------
 let cancelRequested = false;
 
+// Escape used to only set this flag, which did nothing but discard the
+// answer once it eventually arrived — the model kept generating, a cloud
+// call kept billing, and the prompt stayed locked the whole time. Now it
+// tells the bridge, and says honestly whether that backend can actually be
+// interrupted rather than implying every cancel is immediate.
+function requestCancel(): void {
+  if (!pending || cancelRequested) return;
+  cancelRequested = true;
+  const target = bridge.lastChatId;
+  const p = bridge.cancel(target);
+  if (!p) return;
+  void p.then(r => {
+    const result = r.ok ? r.data.result : "unknown";
+    if (result === "stopped") {
+      log(dim("  cancelling — stopping generation"));
+    } else if (result === "pending") {
+      log(dim("  cancelling — this backend has no interruption point, so the"));
+      log(dim("  request finishes first and its reply is discarded"));
+    }
+    // "unknown" means it already finished; the reply is about to print.
+  }).catch(() => { /* the turn's own error path reports this */ });
+}
+
 async function runChatTurn(line: string, record = true): Promise<void> {
   if (record) history.push({ role: 'user', content: line });
 
@@ -1364,15 +1573,23 @@ async function runChatTurn(line: string, record = true): Promise<void> {
   spinner.stop();
   pending = false;
 
-  if (cancelRequested) {
-    log(dim("  (cancelled)"));
+  if (!resp.ok) {
+    if (record) history.pop(); // don't leave a dangling user turn with no reply
+    elog(resp.code || 'HPB-INTERNAL-001', resp.error || 'chat request failed');
     redrawFooter();
     return;
   }
 
-  if (!resp.ok) {
-    if (record) history.pop(); // don't leave a dangling user turn with no reply
-    elog(resp.code || 'HPB-INTERNAL-001', resp.error || 'chat request failed');
+  // A cancelled turn can still carry the tokens the model produced before
+  // it stopped. Keeping them (and the user turn they answer) is the useful
+  // behaviour — throwing away a half-answer means throwing away the work
+  // that was actually done. Only a cancel that produced nothing pops the
+  // dangling user turn, which is what the old code never did at all.
+  const wasCancelled = cancelRequested || resp.data.cancelled === true;
+  const reply: string = resp.data.reply || "";
+  if (wasCancelled && !reply.trim()) {
+    if (record) history.pop();
+    log(dim("  (cancelled — nothing had been generated yet)"));
     redrawFooter();
     return;
   }
@@ -1381,9 +1598,9 @@ async function runChatTurn(line: string, record = true): Promise<void> {
   if (resp.data.thinking && thinkingDisplay !== "hidden") {
     log(`${c256(90, 'thinking>')} ${renderThinking(resp.data.thinking)}`);
   }
-  const reply: string = resp.data.reply;
   history.push({ role: 'assistant', content: reply });
   log(`${c256(33, 'agent>')} ${reply}`);
+  if (wasCancelled) log(dim("  (cancelled — the reply above is partial)"));
 
   if (autoCompact && history.length > 20) {
     history = history.slice(-10);
@@ -1456,7 +1673,7 @@ function onKeypress(str: string | undefined, key: readline.Key): void {
   if (key.ctrl && key.name === 'c') { cleanupAndExit(0); }
 
   if (pending) {
-    if (key.name === 'escape') { cancelRequested = true; }
+    if (key.name === 'escape') requestCancel();
     return; // everything else is swallowed while a reply is in flight
   }
 
@@ -1600,6 +1817,7 @@ async function main(argv?: string[]): Promise<void> {
   }
 
   printBanner();
+  void refreshReleaseInfo();
 
   if (!process.stdin.isTTY) {
     runSimpleTUI();

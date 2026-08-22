@@ -61,9 +61,21 @@ def test_kimi_k2_7_code_stays_local_open_weight():
     assert m.kind == "local"
 
 
-def test_provider_kinds_are_only_local_or_cloud():
+# v0.71.5rc2 added a third kind. It is listed explicitly rather than
+# dropping the check, so a *fourth* one still has to be a deliberate edit.
+PROVIDER_KINDS = ("local", "cloud", "t1api")
+
+
+def test_provider_kinds_are_from_the_known_set():
     for info in core.PROVIDERS.values():
-        assert info.kind in ("local", "cloud")
+        assert info.kind in PROVIDER_KINDS
+
+
+def test_exactly_one_provider_speaks_to_a_t1_api_server():
+    """`t1` (in-process Gatekeeper) and `t1api` (HTTP to a real server) are
+    different things; only the second one is this kind."""
+    t1api_vendors = [v for v, info in core.PROVIDERS.items() if info.kind == "t1api"]
+    assert t1api_vendors == ["t1api"]
 
 
 def test_cloud_providers_have_api_base_and_auth_env_var():
@@ -77,9 +89,11 @@ def test_catalog_json_round_trips_through_json():
     data = core.catalog_json()
     encoded = json.dumps(data)
     decoded = json.loads(encoded)
-    assert set(decoded.keys()) == {"providers", "models"}
+    assert set(decoded.keys()) == {"providers", "models", "t1_api_url"}
     assert len(decoded["models"]) == len(core.MODELS)
     assert set(decoded["providers"].keys()) == set(core.PROVIDERS.keys())
+    # The TUI shows this in /t1api, so it has to survive the JSON hop.
+    assert isinstance(decoded["t1_api_url"], str) and decoded["t1_api_url"]
 
 
 # ---------------------------------------------------------------------------

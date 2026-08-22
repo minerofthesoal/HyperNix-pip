@@ -15,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -38,10 +39,14 @@ class TestConfigDefaults:
     def test_defaults_when_no_file_exists(self):
         cfg = hmap.get_map_config()
         assert cfg["poly"] == 32
-        assert cfg["acc"] == "1m"
+        # "auto" for both, so a first run with no configuration at all
+        # finds a model and scales its dials to it. The old defaults
+        # (acc "1m", file_mode 2) drew an empty schematic reading
+        # "Σ params ?" and gave no hint that a path was needed.
+        assert cfg["acc"] == hmap.ACC_AUTO
         assert cfg["use_gpu"] is True
         assert cfg["tps"] == 8
-        assert cfg["file_mode"] == 2
+        assert cfg["file_mode"] == 0
         assert cfg["file_path"] is None
 
     def test_round_trip_persists_to_disk(self):
@@ -109,7 +114,7 @@ class TestParseAcc:
     def test_set_acc_rejects_invalid_without_persisting(self):
         with pytest.raises(hmap.MapConfigError):
             hmap.set_acc("bogus")
-        assert hmap.get_map_config()["acc"] == "1m"  # unchanged
+        assert hmap.get_map_config()["acc"] == hmap.ACC_AUTO  # unchanged
 
 
 class TestSetUseGpu:
@@ -737,3 +742,143 @@ class TestCliMain:
     def test_config_with_no_args_prints_usage(self, capsys):
         assert hmap.cli_main(["config"]) == 0
         assert "hnx map" in capsys.readouterr().out
+
+
+# ===========================================================================
+# Auto-discovery, auto acc, and the failure banner
+# ===========================================================================
+
+
+class TestDiscoverModel:
+    """`hnx map` with no configuration has to find something to draw.
+
+    The map's rendering and safetensors parsing were always fine; what
+    made it look broken was that the default mode (train.log) carries no
+    architecture at all, so the very first run drew one placeholder dial
+    and "Σ params ?" with nothing on screen saying why.
+    """
+
+    def test_finds_a_weight_file_in_the_working_directory(self, tmp_path):
+        (tmp_path / "model.safetensors").write_bytes(b"")
+        assert hmap.discover_model(tmp_path) == tmp_path / "model.safetensors"
+
+    def test_finds_a_weight_file_in_checkpoints(self, tmp_path):
+        ckpt = tmp_path / "checkpoints"
+        ckpt.mkdir()
+        (ckpt / "step-100.safetensors").write_bytes(b"")
+        assert hmap.discover_model(tmp_path) == ckpt / "step-100.safetensors"
+
+    def test_returns_the_directory_when_a_model_is_sharded(self, tmp_path):
+        """Several shards are one model, not several — handing back the
+        first shard would draw a fraction of the network."""
+        for i in range(3):
+            (tmp_path / f"model-0000{i}-of-00003.safetensors").write_bytes(b"")
+        assert hmap.discover_model(tmp_path) == tmp_path
+
+    def test_prefers_the_working_directory_over_a_subfolder(self, tmp_path):
+        (tmp_path / "model.safetensors").write_bytes(b"")
+        ckpt = tmp_path / "checkpoints"
+        ckpt.mkdir()
+        (ckpt / "other.safetensors").write_bytes(b"")
+        assert hmap.discover_model(tmp_path) == tmp_path / "model.safetensors"
+
+    def test_prefers_safetensors_over_pickle_formats(self, tmp_path):
+        """Shapes can be read from safetensors without torch.load, so
+        there is no reason to execute a pickle to count parameters."""
+        (tmp_path / "pytorch_model.bin").write_bytes(b"")
+        (tmp_path / "model.safetensors").write_bytes(b"")
+        assert hmap.discover_model(tmp_path) == tmp_path / "model.safetensors"
+
+    def test_returns_none_when_there_is_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HYPERNIX_MODELS_DIR", str(tmp_path / "no-such-dir"))
+        assert hmap.discover_model(tmp_path) is None
+
+    def test_an_unreadable_directory_does_not_raise(self, tmp_path, monkeypatch):
+        """Discovery is best-effort: a permissions error somewhere in the
+        search path must not stop the TUI from starting."""
+        monkeypatch.setenv("HYPERNIX_MODELS_DIR", str(tmp_path / "nope"))
+        monkeypatch.setattr(
+            hmap.Path, "glob",
+            lambda self, pattern: (_ for _ in ()).throw(OSError("permission denied")),
+        )
+        assert hmap.discover_model(tmp_path) is None
+
+
+class TestAutoAcc:
+    def test_scales_to_the_model(self):
+        """A fixed acc pegs every dial on anything but a toy model, which
+        makes the schematic a row of identical full needles."""
+        acc = hmap.auto_acc(total_params=40_000_000, layer_count=6)
+        assert acc > 1e6
+        # The mean node reads somewhere in the readable middle, not pinned.
+        assert 0.1 < (40_000_000 / 6) / acc < 1.0
+
+    def test_falls_back_for_an_empty_model(self):
+        assert hmap.auto_acc(0, 0) == 1e6
+        assert hmap.auto_acc(100, 0) == 1e6
+
+    def test_parse_acc_rejects_auto_rather_than_silently_defaulting(self):
+        """parse_acc has no view of the model, so it cannot resolve
+        "auto" — it says so instead of quietly returning 1M."""
+        with pytest.raises(hmap.MapConfigError):
+            hmap.parse_acc(hmap.ACC_AUTO)
+
+    def test_set_acc_accepts_auto(self):
+        assert hmap.set_acc("auto") == hmap.ACC_AUTO
+        assert hmap.get_map_config()["acc"] == hmap.ACC_AUTO
+
+
+class TestFileModeZero:
+    def test_mode_zero_takes_no_path(self):
+        with pytest.raises(hmap.MapConfigError):
+            hmap.set_file_mode(0, "/some/path", flag="-f")
+
+    def test_mode_zero_is_settable(self):
+        assert hmap.set_file_mode(0)["file_mode"] == 0
+
+    def test_build_snapshot_reports_when_nothing_is_found(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERNIX_MODELS_DIR", str(tmp_path / "nope"))
+        snap = hmap.build_snapshot({"file_mode": 0})
+        assert snap.error is not None
+        assert "no model found" in snap.error
+        # ...and it says what to do about it.
+        assert "-f" in snap.error
+
+
+class TestErrorBanner:
+    def test_a_failed_read_is_shown_on_the_canvas(self, tmp_path, monkeypatch):
+        """An empty schematic and "Σ params ?" looks identical to a model
+        with no layers. The reason belongs on screen."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERNIX_MODELS_DIR", str(tmp_path / "nope"))
+        app = hmap.HyperMap(
+            {"file_mode": 0, "poly": 32, "acc": "auto", "use_gpu": False, "tps": 8},
+            width=100, height=24,
+        )
+        frame = app.render()
+        assert "no model found" in frame
+
+    def test_the_banner_does_not_overwrite_the_schematic(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERNIX_MODELS_DIR", str(tmp_path / "nope"))
+        app = hmap.HyperMap(
+            {"file_mode": 0, "poly": 32, "acc": "auto", "use_gpu": False, "tps": 8},
+            width=100, height=24,
+        )
+        lines = app.render().splitlines()
+        # "! " is the banner's own marker. Matching on "no model found"
+        # alone also hits the title bar, which shows it as the source.
+        banner_rows = [i for i, ln in enumerate(lines) if "! no model found" in ln]
+        engine_rows = [i for i, ln in enumerate(lines) if "PROMPT" in ln or "DATA" in ln]
+        assert banner_rows and engine_rows
+        assert min(banner_rows) > max(engine_rows), "banner drew through the engines"
+
+
+class TestModuleEntryPoint:
+    def test_module_has_a_main_guard(self):
+        """`python -m hypernix.monitoring.map` used to import the module,
+        run nothing and exit 0 — indistinguishable from a TUI that
+        started and instantly quit."""
+        source = Path(hmap.__file__).read_text(encoding="utf-8")
+        assert '__name__ == "__main__"' in source

@@ -3154,6 +3154,113 @@
         "title": "UsageRemainingResponse",
         "type": "object"
       },
+      "UsageReportRequest": {
+        "description": "Tokens a client actually consumed running a model the server routed it to.\n\nThere is deliberately no ``key_id`` field. Usage is always recorded\nagainst the caller's own key: a body-supplied key_id would let any\nholder of a valid key burn somebody else's quota, which is the same\nclass of mistake as Beta 2's client-supplied ``plan``.",
+        "properties": {
+          "endpoint": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "input_tokens": {
+            "default": 0,
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_id": {
+            "description": "Must be a registered model_id.",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "module_id": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Module Id",
+            "type": "string"
+          },
+          "output_tokens": {
+            "default": 0,
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "requests": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Requests",
+            "type": "integer"
+          },
+          "server_id": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id"
+        ],
+        "title": "UsageReportRequest",
+        "type": "object"
+      },
+      "UsageReportResponse": {
+        "properties": {
+          "exhausted": {
+            "title": "Exhausted",
+            "type": "boolean"
+          },
+          "input_remaining": {
+            "title": "Input Remaining",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_remaining": {
+            "title": "Output Remaining",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "recorded",
+          "model_id",
+          "input_tokens",
+          "output_tokens",
+          "requests",
+          "input_remaining",
+          "output_remaining",
+          "exhausted",
+          "request_id"
+        ],
+        "title": "UsageReportResponse",
+        "type": "object"
+      },
       "ValidateKeyRequest": {
         "properties": {
           "key": {
@@ -3267,7 +3374,7 @@
   "info": {
     "description": "Controlled gateway into HyperNix-pip. The client requests an operation; the server decides what exists, what's available, and how much is left. See wiki/T1-API.md for the full contract.",
     "title": "HyperNix T1 API",
-    "version": "0.71.5b3"
+    "version": "0.71.5rc2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6961,6 +7068,66 @@
           }
         },
         "summary": "Usage Remaining",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/report": {
+      "post": {
+        "description": "Record tokens a client consumed running a model this server routed it to.\n\n**Why this exists (Beta 4).** Beta 3 could route a request and refuse\nan exhausted model, but nothing could ever *report* consumption back:\n``UsageMeter.record`` had no HTTP surface. For a client that runs\ninference itself \u2014 ``hyped-pro`` against a remote T1 server is the\nmotivating case \u2014 that meant the quota cascade never advanced, so\nevery call routed to the same first model forever and per-model\nlimits were unenforceable in practice.\n\nThree rules make this safe to expose to any authenticated key:\n\n* **Usage is recorded against the caller's own key**, never a\n  body-supplied one, so a key can only ever spend its own budget.\n* **The model must be registered** (``UsageMeter.record`` calls\n  ``registry.require``) **and allowed for this key**, so a report\n  can't invent a model or a budget line.\n* **Counts are non-negative and capped** by the request schema, so a\n  report can add usage but never subtract it. A client that could\n  report negative tokens could refund itself quota, which would make\n  every limit in the system advisory.\n\nReporting is not the same as being permitted: a report that pushes a\nmodel past its cap succeeds and is recorded (the tokens really were\nspent), and the response says ``exhausted: true``. The refusal\nbelongs on the *next* route call, not on the accounting for work\nalready done.",
+        "operationId": "usage_report_usage_report_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Report",
         "tags": [
           "usage"
         ]

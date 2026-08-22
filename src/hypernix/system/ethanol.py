@@ -51,6 +51,20 @@ MAX_POWER_LIMIT_PCT: int = 115      # power limit % of stock
 #: Number of valid levels, inclusive.  Level 0 resets to stock.
 MAX_LEVEL: int = 30
 
+#: Above this die temperature, :meth:`Ethanol.apply` refuses to raise
+#: clocks any further (levels above 10).
+THERMAL_ABORT_C: float = 85.0
+
+#: ``(temperature_below, level)``, coldest first — the bands
+#: :meth:`Ethanol.auto_level` picks from. A GPU already running warm gets
+#: a smaller bump, and one running hot gets none.
+_AUTO_LEVEL_BANDS: tuple[tuple[float, int], ...] = (
+    (50.0, 20),
+    (65.0, 15),
+    (75.0, 10),
+    (THERMAL_ABORT_C, 5),
+)
+
 
 @dataclass
 class OverclockResult:
@@ -141,22 +155,73 @@ class Ethanol:
             notes="(plan only)",
         )
 
-    def _check_temperature_safe(self) -> tuple[bool, float, str]:
-        """Check if GPU temperature is safe for overclocking."""
-        if self.backend not in ["nvidia", "nvidia-smi-only"]:
-            return True, 0.0, ""
-        try:
+    def read_temperature(self) -> float | None:
+        """Current GPU temperature in °C, or None if it can't be read.
+
+        None means "unknown", which is deliberately distinct from a
+        reading of 0: :meth:`auto_level` refuses to pick a level from an
+        unknown temperature, and returning 0.0 for "couldn't read" would
+        have made an unreadable GPU look like the coldest possible one.
+        """
+        if self.backend in ("nvidia", "nvidia-smi-only"):
             res = _run([
                 "nvidia-smi", "--query-gpu=temperature.gpu",
-                "--format=csv,noheader", "-i", str(self.gpu_index),
+                "--format=csv,noheader,nounits", "-i", str(self.gpu_index),
             ])
-            temp = float(res.stdout.strip())
-            # Throttle if above 85C
-            if temp > 85.0 and self.level > 10:
-                return False, temp, f"GPU too hot ({temp}C > 85C) for level {self.level}"
-            return True, temp, f"Temp OK ({temp}C)"
-        except Exception:
-            return True, 0.0, "Could not read temp"
+            if res.returncode != 0:
+                return None
+            try:
+                return float(res.stdout.strip().splitlines()[0])
+            except (ValueError, IndexError):
+                return None
+        if self.backend == "rocm":
+            res = _run(["rocm-smi", "--showtemp", "--csv"])
+            if res.returncode != 0:
+                return None
+            for line in res.stdout.splitlines():
+                for cell in line.split(","):
+                    try:
+                        value = float(cell.strip())
+                    except ValueError:
+                        continue
+                    # Plausible die temperature; skips the card index and
+                    # any other small integers in the row.
+                    if 10.0 <= value <= 130.0:
+                        return value
+            return None
+        return None
+
+    def auto_level(self) -> tuple[int, str]:
+        """Pick a level from the *measured* temperature.
+
+        Returns ``(level, reason)``. This used to be the literal constant
+        15 with a comment claiming it auto-detected — the CLI advertised
+        "auto-pick safe level based on temperature" and never read a
+        temperature at all. With no reading available it returns 0
+        (stock), because the honest response to "I can't tell how hot
+        this GPU is" is not to overclock it.
+        """
+        temp = self.read_temperature()
+        if temp is None:
+            return 0, (
+                "could not read GPU temperature — staying at stock. "
+                "Pass an explicit level to override."
+            )
+        for ceiling, level in _AUTO_LEVEL_BANDS:
+            if temp < ceiling:
+                return level, f"GPU at {temp:.0f}°C -> level {level}"
+        return 0, f"GPU at {temp:.0f}°C is too hot to overclock — staying at stock"
+
+    def _check_temperature_safe(self) -> tuple[bool, float, str]:
+        """Whether it is safe to apply the *current* level right now."""
+        temp = self.read_temperature()
+        if temp is None:
+            return True, 0.0, "could not read temperature"
+        if temp > THERMAL_ABORT_C and self.level > 10:
+            return False, temp, (
+                f"GPU too hot ({temp:.0f}°C > {THERMAL_ABORT_C:.0f}°C) for level {self.level}"
+            )
+        return True, temp, f"temperature OK ({temp:.0f}°C)"
 
     def apply(self, *, confirm: bool = False, auto_throttle: bool = True) -> OverclockResult:
         """Apply the offsets via the detected vendor tool.
@@ -165,6 +230,18 @@ class Ethanol:
         this returns a planned result without touching the GPU.
         """
         plan = self.plan()
+        # Report "there is nothing here to drive" *before* the confirm
+        # gate. The other order told a user on a machine with no GPU tools
+        # to set HYPERNIX_ETHANOL_CONFIRM=1 — advice that cannot help,
+        # since confirming only gets them to the same dead end one step
+        # later.
+        if self.backend == "none":
+            plan.notes = (
+                "ethanol: no supported overclocking tool found on this machine "
+                "(looked for nvidia-settings, nvidia-smi, rocm-smi, "
+                "intel_gpu_frequency). Nothing to apply."
+            )
+            return plan
         if not _confirmed(confirm):
             plan.notes = (
                 "ethanol: refusing to apply without confirm=True or "
@@ -223,9 +300,20 @@ class Ethanol:
         return self._run_cmds(cmds, plan)
 
     def _apply_rocm(self, plan: OverclockResult) -> OverclockResult:
-        # rocm-smi maps nicely: --setperflevel manual + --setsclk N
-        # is the standard pattern.  We pick the highest sclk index
-        # the card exposes (index 7 is conventional on RDNA).
+        # Level 0 is documented as "reset to stock", and it has to
+        # actually reset. The previous version ran `--setperflevel manual`
+        # + `--setsclk 7` unconditionally, so `eth 0` on an AMD card
+        # pinned it to manual mode at the *highest* clock index — the
+        # exact opposite of the documented behaviour, in the dangerous
+        # direction, on the one command a user reaches for when something
+        # has gone wrong.
+        if plan.level == 0:
+            cmds = [
+                ["rocm-smi", "--resetclocks"],
+                ["rocm-smi", "--setperflevel", "auto"],
+                ["rocm-smi", "--setpoweroverdrive", "0"],
+            ]
+            return self._run_cmds(cmds, plan)
         cmds = [
             ["rocm-smi", "--setperflevel", "manual"],
             ["rocm-smi", "--setsclk", "7"],
@@ -234,6 +322,11 @@ class Ethanol:
         return self._run_cmds(cmds, plan)
 
     def _apply_intel(self, plan: OverclockResult) -> OverclockResult:
+        # Same reset problem: `-s +0` is a no-op, not a reset, so level 0
+        # left whatever the previous level had set still in place.
+        if plan.level == 0:
+            cmds = [["intel_gpu_frequency", "-d"]]
+            return self._run_cmds(cmds, plan)
         cmds = [["intel_gpu_frequency", "-s", f"+{plan.core_offset_mhz}"]]
         return self._run_cmds(cmds, plan)
 
@@ -281,9 +374,71 @@ class Ethanol:
         return int(round(stock * power_pct / 100.0))
 
 
+    # ------------------------------------------------------------------
+    # Read-only state
+    # ------------------------------------------------------------------
+
+    def status(self) -> dict[str, Any]:
+        """Current GPU state: clocks, power, temperature, utilisation.
+
+        Read-only and unguarded — nothing here changes a setting, so it
+        needs no confirmation. It exists because every other entry point
+        in this module either plans or applies an overclock, which left
+        no way to answer "what is my GPU doing right now", the question
+        you actually want before and after touching anything.
+
+        Missing values come back as None rather than being omitted, so a
+        caller can tell "this backend does not report it" from "this key
+        does not exist".
+        """
+        info: dict[str, Any] = {
+            "backend": self.backend,
+            "gpu_index": self.gpu_index,
+            "name": None,
+            "temperature_c": None,
+            "power_draw_w": None,
+            "power_limit_w": None,
+            "clock_graphics_mhz": None,
+            "clock_memory_mhz": None,
+            "utilization_pct": None,
+        }
+        if self.backend in ("nvidia", "nvidia-smi-only"):
+            fields = [
+                "name", "temperature.gpu", "power.draw", "power.limit",
+                "clocks.current.graphics", "clocks.current.memory",
+                "utilization.gpu",
+            ]
+            res = _run([
+                "nvidia-smi", f"--query-gpu={','.join(fields)}",
+                "--format=csv,noheader,nounits", "-i", str(self.gpu_index),
+            ])
+            if res.returncode == 0 and res.stdout.strip():
+                cells = [c.strip() for c in res.stdout.strip().splitlines()[0].split(",")]
+                keys = [
+                    "name", "temperature_c", "power_draw_w", "power_limit_w",
+                    "clock_graphics_mhz", "clock_memory_mhz", "utilization_pct",
+                ]
+                for key, cell in zip(keys, cells, strict=False):
+                    if cell in ("", "[N/A]", "N/A"):
+                        continue
+                    info[key] = cell if key == "name" else _maybe_float(cell)
+            return info
+        if self.backend == "rocm":
+            info["temperature_c"] = self.read_temperature()
+            return info
+        return info
+
+
 # ---------------------------------------------------------------------------
 # Convenience
 # ---------------------------------------------------------------------------
+
+def _maybe_float(text: str) -> float | str:
+    try:
+        return float(text)
+    except ValueError:
+        return text
+
 
 def ethanol(level: int = 0, **kw: Any) -> Ethanol:
     return Ethanol(level=level, **kw)
@@ -299,38 +454,95 @@ def overclock(level: int, *, confirm: bool = False, gpu_index: int = 0) -> Overc
 # CLI entry point — installed as ``eth``
 # ---------------------------------------------------------------------------
 
+_USAGE = """\
+usage: eth <level 0..30 | auto | status | reset> [--confirm] [--gpu N]
+
+  eth status     show the GPU's current clocks, power, and temperature
+  eth 0          reset to stock
+  eth reset      same as `eth 0`
+  eth 5          mild bump
+  eth 30         max-supported offset
+  eth auto       pick a level from the GPU's measured temperature
+
+Applying requires --confirm or HYPERNIX_ETHANOL_CONFIRM=1; without one,
+the plan is printed and nothing is touched.
+
+Overclocking can crash your machine and may damage hardware. Level 0 is
+always a reset, on every supported backend.
+"""
+
+
+def _print_status(eth: Ethanol) -> int:
+    info = eth.status()
+    if info["backend"] == "none":
+        print(
+            "eth: no supported GPU tool found (looked for nvidia-smi, "
+            "rocm-smi, intel_gpu_frequency).",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"backend  {info['backend']}  (gpu {info['gpu_index']})")
+    if info["name"]:
+        print(f"gpu      {info['name']}")
+    rows = (
+        ("temp", info["temperature_c"], "°C"),
+        ("power", info["power_draw_w"], "W"),
+        ("limit", info["power_limit_w"], "W"),
+        ("core", info["clock_graphics_mhz"], "MHz"),
+        ("mem", info["clock_memory_mhz"], "MHz"),
+        ("util", info["utilization_pct"], "%"),
+    )
+    for label, value, unit in rows:
+        # "not reported" rather than a blank: a missing reading is
+        # information, and printing nothing looks like a rendering bug.
+        shown = f"{value:g}{unit}" if isinstance(value, (int, float)) else "not reported"
+        print(f"{label:<8} {shown}")
+    return 0
+
+
 def cli_main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
-    if not args or args[0] in ("-h", "--help"):
-        print(
-            "usage: eth <level 0..30|auto> [--confirm] [--gpu N]\n"
-            "       eth 0          # reset to stock\n"
-            "       eth 5          # mild bump\n"
-            "       eth 30         # max-supported offset\n"
-            "       eth auto       # auto-pick safe level based on temperature\n"
-            "Set HYPERNIX_ETHANOL_CONFIRM=1 to actually apply; otherwise "
-            "the CLI prints the plan and exits.",
-        )
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(_USAGE)
         return 0
-    
-    if args[0].lower() == "auto":
-        # Auto detect a safe level
-        level = 15
-    else:
-        try:
-            level = int(args[0])
-        except ValueError:
-            print(f"eth: level must be 'auto' or an integer 0..{MAX_LEVEL}", file=sys.stderr)
-            return 2
-    if level < 0 or level > MAX_LEVEL:
-        print(f"eth: level must be in 0..{MAX_LEVEL}", file=sys.stderr)
-        return 2
+
     confirm = "--confirm" in args
     gpu = 0
     if "--gpu" in args:
         i = args.index("--gpu")
-        if i + 1 < len(args):
+        if i + 1 >= len(args):
+            print("eth: --gpu requires an index", file=sys.stderr)
+            return 2
+        try:
             gpu = int(args[i + 1])
+        except ValueError:
+            print(f"eth: --gpu takes an integer, got {args[i + 1]!r}", file=sys.stderr)
+            return 2
+
+    command = args[0].lower()
+
+    if command == "status":
+        return _print_status(Ethanol(level=0, gpu_index=gpu))
+
+    if command == "auto":
+        level, reason = Ethanol(level=0, gpu_index=gpu).auto_level()
+        print(f"eth auto: {reason}")
+    elif command == "reset":
+        level = 0
+    else:
+        try:
+            level = int(args[0])
+        except ValueError:
+            print(
+                f"eth: expected a level 0..{MAX_LEVEL}, 'auto', 'status' or "
+                f"'reset', got {args[0]!r}",
+                file=sys.stderr,
+            )
+            return 2
+        if level < 0 or level > MAX_LEVEL:
+            print(f"eth: level must be in 0..{MAX_LEVEL}", file=sys.stderr)
+            return 2
+
     res = Ethanol(level=level, gpu_index=gpu).apply(confirm=confirm)
     print(
         f"ethanol level={res.level} core+{res.core_offset_mhz} MHz "
@@ -341,11 +553,16 @@ def cli_main(argv: list[str] | None = None) -> int:
         print(res.notes)
     if res.stderr:
         print(res.stderr, file=sys.stderr)
+    # No backend is a real failure of the requested operation, not a
+    # successful no-op — it used to exit 0 and look like it worked.
+    if res.backend == "none":
+        return 1
     return 0 if res.applied or not _confirmed(confirm) else 1
 
 
 __all__ = [
     "Ethanol",
+    "THERMAL_ABORT_C",
     "MAX_CORE_OFFSET_MHZ",
     "MAX_LEVEL",
     "MAX_MEM_OFFSET_MHZ",
@@ -355,3 +572,7 @@ __all__ = [
     "ethanol",
     "overclock",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via the console script
+    raise SystemExit(cli_main())

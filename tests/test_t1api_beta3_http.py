@@ -151,9 +151,9 @@ def _key_id(gk, key: str) -> str:
 
 
 class TestStatusAndConfig:
-    def test_status_reports_beta3_and_protections(self, client):
+    def test_status_reports_beta_and_protections(self, client):
         body = client.get("/status").json()
-        assert body["beta"] == "beta3"
+        assert body["beta"] == "beta4"
         assert body["rate_limit_enabled"] is True
         assert body["audit_enabled"] is True
         assert body["network_policy_enabled"] is True

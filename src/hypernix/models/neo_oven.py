@@ -80,6 +80,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_STOPS: tuple[str, ...] = ("\nclass ", "\ndef ", "\n\n\n", "</s>")
+# Fill-in-the-middle has different natural terminators than a completion:
+# the code around the hole already exists, so "\ndef " is a perfectly
+# ordinary thing to generate rather than a signal to stop.
+FIM_STOPS: tuple[str, ...] = ("<fim_prefix>", "<fim_suffix>", "<fim_middle>",
+                              "<|endoftext|>", "</s>")
 _FIM_PREFIX = "<fim_prefix>"
 _FIM_SUFFIX = "<fim_suffix>"
 _FIM_MIDDLE = "<fim_middle>"
@@ -808,6 +813,17 @@ class NeoOven:
     # Core sampling
     # ------------------------------------------------------------------
 
+    def _max_context(self) -> int:
+        """The model's positional limit.
+
+        ``max_position_embeddings`` is a HyperNixConfig field and a
+        near-universal HF one, but not every architecture's config carries
+        it — reading it unguarded turned a loadable model into an
+        AttributeError at the first generated token rather than at load
+        time. 2048 is the conservative fallback.
+        """
+        return int(getattr(self.model.config, "max_position_embeddings", 2048) or 2048)
+
     @torch.no_grad()
     def _run(
         self,
@@ -818,7 +834,18 @@ class NeoOven:
         top_k: int,
         top_p: float,
         eos_ids: tuple[int, ...] = (),
+        should_stop: Callable[[], bool] | None = None,
     ) -> list[int]:
+        """Sample up to *max_new_tokens*, stopping at EOS or on *should_stop*.
+
+        *should_stop* is polled once per token. It exists so a caller that
+        does not own this thread — the hyped-pro bridge, whose TUI wants
+        Escape to actually stop a local generation rather than only discard
+        its result — can end the loop cooperatively instead of leaving the
+        GPU busy producing tokens nobody will read. Whatever was generated
+        before the stop is returned; a partial answer is more useful than
+        none, and the caller knows it asked.
+        """
         if isinstance(input_ids, str):
             input_ids = self._encode(input_ids)
         elif isinstance(input_ids, torch.Tensor):
@@ -830,19 +857,84 @@ class NeoOven:
                 f"NeoOven._run expected list[int], got {type(input_ids[0]).__name__}"
             )
         ctx = torch.tensor([input_ids], dtype=torch.long, device=self.device)
-        max_ctx = self.model.config.max_position_embeddings
+        max_ctx = self._max_context()
         generated: list[int] = []
         for _ in range(max_new_tokens):
             if ctx.size(1) > max_ctx:
                 ctx = ctx[:, -max_ctx:]
+            if should_stop is not None and should_stop():
+                break
             logits = self.model(ctx)["logits"][:, -1, :].float()
             nxt = _sample_next(logits[0], temperature=temperature, top_k=top_k, top_p=top_p)
             tok = int(nxt.item())
-            generated.append(tok)
+            # EOS terminates the sequence, it isn't part of it. Appending it
+            # first only worked because HF decode is asked to skip special
+            # tokens; a byte tokenizer, or an EOS the tokenizer doesn't
+            # class as special, would have emitted it verbatim.
             if tok in eos_ids:
                 break
+            generated.append(tok)
             ctx = torch.cat([ctx, nxt.view(1, 1)], dim=1)
         return generated
+
+    def _prompt_ids(self, prompt: str) -> list[int]:
+        """Encode *prompt* the way every generation entry point should.
+
+        Shared rather than duplicated because :meth:`stream` used to skip
+        the BOS that :meth:`complete` prepends, which made the two sample
+        different sequences from the same seed — the streamed answer and
+        the non-streamed one for one prompt were simply different text.
+        """
+        ids = self._encode(prompt) if prompt else []
+        if self.tokenizer_kind == "hf":
+            bos = getattr(self.tokenizer, "bos_token_id", None)
+            if isinstance(bos, int) and (not ids or ids[0] != bos):
+                ids = [bos, *ids]
+        return ids or [0]
+
+    @staticmethod
+    def _stable_prefix(text: str) -> str:
+        """*text* minus any trailing replacement characters.
+
+        A trailing U+FFFD means a multi-byte character is still missing
+        bytes that a later token will supply — decoding it again once they
+        arrive produces a *different* character in that position. Emitting
+        it now would put a character in the stream that the finished text
+        does not contain, so it is held back until it resolves.
+        """
+        return text.rstrip("\ufffd")
+
+    @staticmethod
+    def _emit_safe_length(text: str, stops: tuple[str, ...]) -> int:
+        """How much of *text* is safe to emit without leaking half a stop marker.
+
+        A stop sequence arrives one character at a time. Emitting eagerly
+        means ``"\nclass "`` goes out as ``\n``, then ``c``, then ``l`` —
+        each of which looks harmless on its own, and by the time the whole
+        marker is recognisable its prefix is already in the stream. So any
+        trailing text that *could* still turn into a stop marker is held
+        back until the next token settles it either way.
+
+        Same shape as :meth:`_stable_prefix`, one level up: that one holds
+        back an incomplete character, this one holds back an incomplete
+        marker.
+        """
+        if not stops:
+            return len(text)
+        held = 0
+        for marker in stops:
+            for n in range(min(len(marker) - 1, len(text)), 0, -1):
+                if text.endswith(marker[:n]):
+                    held = max(held, n)
+                    break
+        return len(text) - held
+
+    def _eos_ids(self) -> tuple[int, ...]:
+        """EOS token ids for this tokenizer, or ``()`` if it has none."""
+        if self.tokenizer_kind != "hf":
+            return ()
+        eid = getattr(self.tokenizer, "eos_token_id", None)
+        return (eid,) if isinstance(eid, int) else ()
 
     # ------------------------------------------------------------------
     # Generation API
@@ -858,23 +950,14 @@ class NeoOven:
         top_p: float = 0.95,
         stop: tuple[str, ...] = DEFAULT_STOPS,
         seed: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> str:
         """Continue ``prompt`` as code / text."""
         if seed is not None:
             torch.manual_seed(seed)
-        ids = self._encode(prompt) if prompt else []
-        bos = getattr(self.tokenizer, "bos_token_id", None) if self.tokenizer_kind == "hf" else None
-        if bos is not None and (not ids or ids[0] != bos):
-            ids = [bos, *ids]
-        if not ids:
-            ids = [0]
-        eos: tuple[int, ...] = ()
-        if self.tokenizer_kind == "hf":
-            eid = getattr(self.tokenizer, "eos_token_id", None)
-            if isinstance(eid, int):
-                eos = (eid,)
-        out_ids = self._run(ids, max_new_tokens=max_new_tokens,
-                             temperature=temperature, top_k=top_k, top_p=top_p, eos_ids=eos)
+        out_ids = self._run(self._prompt_ids(prompt), max_new_tokens=max_new_tokens,
+                            temperature=temperature, top_k=top_k, top_p=top_p,
+                            eos_ids=self._eos_ids(), should_stop=should_stop)
         return _trim_at_stop(self._decode(out_ids), stop)
 
     def fill(
@@ -886,21 +969,33 @@ class NeoOven:
         temperature: float = 0.2,
         top_k: int = 40,
         top_p: float = 0.95,
+        stop: tuple[str, ...] = FIM_STOPS,
         seed: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> str:
-        """Fill-in-the-middle generation (starcoder FIM convention)."""
+        """Fill-in-the-middle generation (starcoder FIM convention).
+
+        Stops at EOS and at the FIM markers themselves. Previously this
+        passed no ``eos_ids`` at all, so a fill could never terminate early
+        — every call ran the full ``max_new_tokens`` and then returned
+        whatever the model had rambled into after finishing the middle.
+        """
         if seed is not None:
             torch.manual_seed(seed)
         pre_id = self._fim_token_id(_FIM_PREFIX)
         suf_id = self._fim_token_id(_FIM_SUFFIX)
         mid_id = self._fim_token_id(_FIM_MIDDLE)
+        eos = self._eos_ids()
         if pre_id is not None and suf_id is not None and mid_id is not None:
             ids = [pre_id, *self._encode(prefix), suf_id, *self._encode(suffix), mid_id]
+            # A model that re-opens a FIM section has finished the middle.
+            eos = (*eos, pre_id, suf_id, mid_id)
         else:
             ids = self._encode(prefix) or [0]
         out_ids = self._run(ids, max_new_tokens=max_new_tokens,
-                             temperature=temperature, top_k=top_k, top_p=top_p)
-        return self._decode(out_ids)
+                            temperature=temperature, top_k=top_k, top_p=top_p,
+                            eos_ids=eos, should_stop=should_stop)
+        return _trim_at_stop(self._decode(out_ids), stop)
 
     def chat(
         self,
@@ -911,18 +1006,15 @@ class NeoOven:
         top_k: int = 40,
         top_p: float = 0.95,
         seed: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> str:
         """Run a chat turn given a ``[{"role": ..., "content": ...}]`` list."""
         if seed is not None:
             torch.manual_seed(seed)
         ids = self._format_chat(messages) or [0]
-        eos: tuple[int, ...] = ()
-        if self.tokenizer_kind == "hf":
-            eid = getattr(self.tokenizer, "eos_token_id", None)
-            if isinstance(eid, int):
-                eos = (eid,)
         out_ids = self._run(ids, max_new_tokens=max_new_tokens,
-                             temperature=temperature, top_k=top_k, top_p=top_p, eos_ids=eos)
+                            temperature=temperature, top_k=top_k, top_p=top_p,
+                            eos_ids=self._eos_ids(), should_stop=should_stop)
         return self._decode(out_ids)
 
     @torch.no_grad()
@@ -934,23 +1026,54 @@ class NeoOven:
         temperature: float = 0.7,
         top_k: int = 40,
         top_p: float = 0.95,
+        stop: tuple[str, ...] = DEFAULT_STOPS,
+        seed: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ):
-        """Token-by-token generator. Yields decoded strings as they arrive.
+        """Token-by-token generator. Yields decoded text as it arrives.
 
         Usage::
 
             for chunk in oven.stream("def hello():"):
                 print(chunk, end="", flush=True)
+
+        Concatenating everything this yields gives the same string
+        :meth:`complete` would return for the same prompt and seed. Getting
+        that right needs two things it used to skip:
+
+        **Incremental decoding.** A token is not a character. Decoding each
+        token on its own — which is what this did — splits every multi-byte
+        UTF-8 character across chunks, so a byte tokenizer streamed "café"
+        as ``caf`` + ``\ufffd`` + ``\ufffd``, and a BPE tokenizer mangled
+        anything non-ASCII the same way. Instead the whole sequence is
+        decoded each step and only the *new* suffix is emitted; a character
+        whose bytes aren't all present yet simply doesn't appear until the
+        token that completes it arrives.
+
+        **Stop sequences.** :meth:`complete` trims at *stop*, so a streamed
+        turn that ignored them returned different text than the
+        non-streamed one for the same input. Text past a stop marker is
+        never emitted, and a chunk that would straddle one is truncated at
+        it.
         """
-        ids = self._encode(prompt) or [0]
-        ctx = torch.tensor([ids], dtype=torch.long, device=self.device)
-        max_ctx = self.model.config.max_position_embeddings
-        eos: tuple[int, ...] = ()
-        if self.tokenizer_kind == "hf":
-            eid = getattr(self.tokenizer, "eos_token_id", None)
-            if isinstance(eid, int):
-                eos = (eid,)
+        if seed is not None:
+            torch.manual_seed(seed)
+        ctx = torch.tensor([self._prompt_ids(prompt)], dtype=torch.long, device=self.device)
+        max_ctx = self._max_context()
+        eos = self._eos_ids()
+
+        generated: list[int] = []
+        emitted = ""
+
+        def _advance(text: str) -> str:
+            """The chunk to yield for *text*, given what's already out."""
+            if not text.startswith(emitted) or len(text) <= len(emitted):
+                return ""
+            return text[len(emitted):]
+
         for _ in range(max_new_tokens):
+            if should_stop is not None and should_stop():
+                break
             if ctx.size(1) > max_ctx:
                 ctx = ctx[:, -max_ctx:]
             logits = self.model(ctx)["logits"][:, -1, :].float()
@@ -958,8 +1081,30 @@ class NeoOven:
             tok = int(nxt.item())
             if tok in eos:
                 break
+            generated.append(tok)
             ctx = torch.cat([ctx, nxt.view(1, 1)], dim=1)
-            yield self._decode([tok])
+
+            text = self._decode(generated)
+            trimmed = _trim_at_stop(text, stop)
+            if trimmed != text:
+                # A stop marker landed inside this chunk: emit whatever
+                # precedes it and end the stream there.
+                chunk = _advance(trimmed)
+                if chunk:
+                    yield chunk
+                return
+            stable = self._stable_prefix(text)
+            chunk = _advance(stable[:self._emit_safe_length(stable, stop)])
+            if chunk:
+                yield chunk
+                emitted += chunk
+
+        # Flush whatever was held back — a trailing character that never
+        # resolved, or the tail of a generation that hit max_new_tokens.
+        # Without this, joining the stream would be short of complete().
+        chunk = _advance(_trim_at_stop(self._decode(generated), stop))
+        if chunk:
+            yield chunk
 
     def generate_batch(
         self,
@@ -969,18 +1114,35 @@ class NeoOven:
         temperature: float = 0.7,
         top_k: int = 40,
         top_p: float = 0.95,
+        stop: tuple[str, ...] = DEFAULT_STOPS,
+        seed: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> list[str]:
         """Generate completions for multiple prompts sequentially.
 
         For true batched GPU inference, the model's own ``generate`` method
         should be used; this is a convenience wrapper that calls
-        :meth:`complete` for each prompt.
+        :meth:`complete` for each prompt. It accepts the same *stop*, *seed*
+        and *should_stop* arguments so a batch behaves like the individual
+        calls it is made of — *seed* is applied once, before the first
+        prompt, so the batch as a whole is reproducible.
+
+        A *should_stop* that fires mid-batch ends it: the prompts already
+        generated keep their text and the rest come back empty, rather than
+        the batch ignoring the stop until it happens to finish.
         """
-        return [
-            self.complete(p, max_new_tokens=max_new_tokens,
-                          temperature=temperature, top_k=top_k, top_p=top_p)
-            for p in prompts
-        ]
+        if seed is not None:
+            torch.manual_seed(seed)
+        out: list[str] = []
+        for p in prompts:
+            if should_stop is not None and should_stop():
+                out.extend([""] * (len(prompts) - len(out)))
+                break
+            out.append(self.complete(
+                p, max_new_tokens=max_new_tokens, temperature=temperature,
+                top_k=top_k, top_p=top_p, stop=stop, should_stop=should_stop,
+            ))
+        return out
 
     # ------------------------------------------------------------------
     # Memory management (in-object shortcuts to module-level functions)
