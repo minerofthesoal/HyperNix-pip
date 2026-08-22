@@ -7,7 +7,7 @@ name = "hypernix"
 version = "0.71.5.post1"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
-license = { text = "LLU-0.1" }
+license = { text = "HOL-1.0" }
 # Python 3.12 is preferred and will auto-run if installed.
 # If 3.12 is not found, the package supports running on 3.13 or 3.14.
 # The code is pure-Python and runs on any CPython that has a compatible torch wheel.
@@ -106,34 +106,34 @@ gui-gtk = ["PyGObject>=3.48"]
 gui = ["hypernix[gui-qt]"]
 
 [project.scripts]
-hypernix = "hypernix.version_launcher:main"
-hypernix-quantize = "hypernix.version_launcher:main"
-hnx = "hypernix.version_launcher:main"
+hypernix = "hypernix.interfaces.version_launcher:main"
+hypernix-quantize = "hypernix.interfaces.version_launcher:main"
+hnx = "hypernix.interfaces.version_launcher:main"
 # v0.70.4b12: cctvtop C++ dashboard replaces tvtop++.
-tvtop = "hypernix.cctvtop:cli_main"
-cctvtop = "hypernix.cctvtop:cli_main"
-tvtop-old = "hypernix.tvtop_plus_plus:cli_main"
-tvtop-older = "hypernix.tv:cli_main"
-tvtop-plus-plus = "hypernix.tvtop_plus_plus:cli_main"
-tvtoppp = "hypernix.tvtop_plus_plus:cli_main"
-eth = "hypernix.ethanol:cli_main"
+tvtop = "hypernix.monitoring.cctvtop:cli_main"
+cctvtop = "hypernix.monitoring.cctvtop:cli_main"
+tvtop-old = "hypernix.monitoring.tvtop_plus_plus:cli_main"
+tvtop-older = "hypernix.monitoring.tv:cli_main"
+tvtop-plus-plus = "hypernix.monitoring.tvtop_plus_plus:cli_main"
+tvtoppp = "hypernix.monitoring.tvtop_plus_plus:cli_main"
+eth = "hypernix.system.ethanol:cli_main"
 # v0.61.1: high-quality TUI chat CLI with a configurator.
-hyped = "hypernix.hyped:cli_main"
-hyped-pro = "hypernix.hyped_pro:cli_main"
-hyped-plus = "hypernix.hyped_pro:cli_main"
+hyped = "hypernix.interfaces.hyped:cli_main"
+hyped-pro = "hypernix.interfaces.hyped_pro:cli_main"
+hyped-plus = "hypernix.interfaces.hyped_pro:cli_main"
 # v0.71.4b6: hyped-pro's desktop GUI (Qt6 X11/Wayland, GTK4 fallback).
-hyped-pro-gui = "hypernix.hyped_pro_gui:cli_main"
+hyped-pro-gui = "hypernix.interfaces.hyped_pro_gui:cli_main"
 # v0.71.4b7: unified interface over multiple llama.cpp variants (vanilla,
 # ik_llama.cpp, PrismML fork, KoboldCpp) for broader GGUF model support.
-multilama = "hypernix.multilama:cli_main"
+multilama = "hypernix.models.multilama:cli_main"
 # v0.71.0: unified Gatekeeper + Keymaster CLI.
-gkey = "hypernix.gkey_cli:main"
+gkey = "hypernix.security.gkey_cli:main"
 # v0.71.5b1: HyperNix T1 API's official client TUI/CLI. Zero-extra-deps
 # client (stdlib urllib) — does NOT require `pip install hypernix[t1api]`,
 # that extra is only for running the server (hypernix.t1api.create_app()).
 waiter = "hypernix.waiter.cli:main"
 # v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).
-hnx-map = "hypernix.map:cli_main"
+hnx-map = "hypernix.monitoring.map:cli_main"
 
 [project.urls]
 Homepage = "https://minerofthesoal.github.io/HyperNix-pip/"
@@ -165,6 +165,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hypernix"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

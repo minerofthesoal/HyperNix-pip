@@ -36,8 +36,9 @@ import logging
 import time
 from dataclasses import dataclass
 
-from ..gatekeeper import Gatekeeper, QuotaViolation
-from ..keymaster import Keymaster, KeyMeta, KeyScope, KeyType
+from hypernix.security.gatekeeper import Gatekeeper, QuotaViolation
+from hypernix.security.keymaster import Keymaster, KeyMeta, KeyScope, KeyType
+
 from .errors import T1APIError, T1ErrorCode
 
 logger = logging.getLogger(__name__)

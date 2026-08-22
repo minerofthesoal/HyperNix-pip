@@ -20,8 +20,8 @@
 ## 0.72.0 (Next Milestone)
 
 - Advanced multi-agent orchestration & subagent execution protocols
-- Web-based TUI live streaming over WebSockets
 - Enhanced quantization formats & Pascal sm_61 auto-tuning
+- and more
 
 ---
 

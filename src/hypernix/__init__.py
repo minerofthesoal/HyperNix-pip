@@ -59,6 +59,8 @@ own script).
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import sys
 from typing import TYPE_CHECKING, Any
 
 __version__ = "0.71.5postr1"
@@ -67,6 +69,8 @@ DEFAULT_MODEL = "qwen3.5-4b"  # New default model
 
 __all__ = [
     "ARCH_PRESETS",
+    "CATEGORY_OF",
+    "MODULE_CATEGORIES",
     "Abbicus",
     "AbbicusConfig",
     "Agedcookerv4",
@@ -243,6 +247,163 @@ __all__ = [
     "search_web_non_api",
 ]
 
+# ---------------------------------------------------------------------------
+# Module layout
+# ---------------------------------------------------------------------------
+# Modules live in a category subpackage (``hypernix/timing/timer.py``) rather
+# than in one flat directory of 100+ files. This table is the single source of
+# truth for that layout: the lazy loader below, the back-compat alias finder,
+# and the ``scripts/autofix-*`` tooling all read it instead of hardcoding
+# paths, so moving a module between categories is a one-line change here.
+MODULE_CATEGORIES: dict[str, tuple[str, ...]] = {
+    # Chat templating, prompt presets and multi-turn session state.
+    "chat": (
+        "cookbook",
+        "countertop",
+        "flour",
+        "injection",
+        "menu",
+    ),
+    # Datasets: collection, cleaning, splitting, packing and augmentation.
+    "data": (
+        "blender",
+        "cardboard_box",
+        "cutting_board",
+        "food_processor",
+        "lunchbox",
+        "mediocre_fridge",
+        "pans",
+        "pepper_shaker",
+        "qa",
+        "salt_shaker",
+        "scavenger",
+        "sink",
+        "strainer",
+        "toaster",
+        "tupperware",
+    ),
+    # Scoring, rubric labelling, judging and module verification.
+    "evaluation": (
+        "espresso_maker",
+        "industrial_range",
+        "new_fridge",
+        "new_range",
+        "old_range",
+        "vera",
+    ),
+    # Human-facing front ends: CLIs, TUIs, GUIs and launchers.
+    "interfaces": (
+        "assistant",
+        "cli",
+        "hyped",
+        "hyped_pro",
+        "hyped_pro_bridge",
+        "hyped_pro_core",
+        "hyped_pro_gui",
+        "hyped_pro_tools",
+        "version_launcher",
+        "websearch",
+        "wiki_cli",
+    ),
+    # Architectures, snapshot loading, generation and model utilities.
+    "models": (
+        "arch",
+        "download",
+        "generate",
+        "microwave",
+        "multilama",
+        "nano_nano",
+        "neo_oven",
+        "old_oven",
+        "stml",
+        "whisk",
+        "workshop",
+    ),
+    # Live dashboards, logging, telemetry and hardware sampling.
+    "monitoring": (
+        "cctvtop",
+        "hyper_log",
+        "map",
+        "plasma",
+        "table",
+        "thermometer",
+        "tv",
+        "tvtop",
+        "tvtop_plus_plus",
+    ),
+    # The Pressure Cooker optimizer family and optimizer plumbing.
+    "optimizers": (
+        "optimizer_framework",
+        "pressure_cooker",
+        "pressure_cooker_v3",
+        "pressure_cooker_v4",
+        "pressure_cooker_v5",
+        "pressure_cooker_v5s",
+        "pressure_cooker_v6",
+        "pressure_cooker_v6v",
+    ),
+    # The GGUF pipeline: convert, quantize, fetch tooling and upload.
+    "quant": (
+        "convert",
+        "fetcher",
+        "quantize",
+        "upload",
+    ),
+    # API keys, quotas and request gating.
+    "security": (
+        "gatekeeper",
+        "gkey_cli",
+        "keymaster",
+    ),
+    # Environment, dependencies, hardware and housekeeping.
+    "system": (
+        "compactor",
+        "config",
+        "deps",
+        "dishwasher",
+        "doctor",
+        "ethanol",
+        "freezer",
+        "net",
+        "old_fridge",
+        "outage",
+        "protect",
+        "torch_compat",
+        "ups",
+        "utils",
+    ),
+    # Timers, alarms, cadence control and progress animation.
+    "timing": (
+        "bell",
+        "coffee_maker",
+        "smoke_alarm",
+        "spinner",
+        "timer",
+    ),
+    # Training entry points, schedules and weight perturbation.
+    "training": (
+        "abbicus",
+        "apron",
+        "brewer",
+        "cake_pan",
+        "camouflage",
+        "compute_framework",
+        "deep_fryer",
+        "fizzle",
+        "instant_pot",
+        "lazy_suzan",
+        "mtp",
+        "recipe_book",
+        "smoker",
+        "train",
+    ),
+}
+
+#: Reverse of :data:`MODULE_CATEGORIES` — module name to category name.
+CATEGORY_OF: dict[str, str] = {
+    mod: cat for cat, mods in MODULE_CATEGORIES.items() for mod in mods
+}
+
 # Every public name hypernix exposes, mapped to the one submodule that
 # actually defines it (and, if it's a re-exported member rather than the
 # submodule itself, the attribute name to pull off of it once imported).
@@ -250,188 +411,201 @@ __all__ = [
 # module load time — see scripts/regen_lazy_attrs.py to rebuild it if the
 # public API changes.
 _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
-    'ARCH_PRESETS': ('old_oven', 'ARCH_PRESETS'),
-    'Abbicus': ('abbicus', 'Abbicus'),
-    'AbbicusConfig': ('abbicus', 'AbbicusConfig'),
-    'Agedcookerv4': ('pressure_cooker_v4', 'Agedcookerv4'),
-    'Agedcookerv5': ('pressure_cooker_v5', 'Agedcookerv5'),
-    'CPUPreset': ('freezer', 'CPUPreset'),
-    'CPU_PRESETS': ('freezer', 'CPU_PRESETS'),
-    'CardboardBox': ('cardboard_box', 'CardboardBox'),
-    'CodeOven': ('old_oven', 'CodeOven'),
-    'NanoNanoModel': ('nano_nano', 'NanoNanoModel'),
-    'NeoOven': ('neo_oven', 'NeoOven'),
-    'ComputeArch': ('compute_framework', 'ComputeArch'),
-    'ComputeFramework': ('compute_framework', 'ComputeFramework'),
-    'CookerLite': ('pressure_cooker_v4', 'CookerLite'),
-    'GPUPreset': ('freezer', 'GPUPreset'),
-    'GPU_PRESETS': ('freezer', 'GPU_PRESETS'),
-    'HealthReport': ('utils', 'HealthReport'),
-    'HyperNixConfig': ('train', 'HyperNixConfig'),
-    'HyperNixModel': ('train', 'HyperNixModel'),
-    'HyperNixQuantizer': ('quantize', 'HyperNixQuantizer'),
-    'KNOWN_MODELS': ('download', 'KNOWN_MODELS'),
-    'LazySusan': ('lazy_suzan', 'LazySusan'),
-    'LazySusanConfig': ('lazy_suzan', 'LazySusanConfig'),
-    'ModelInfo': ('download', 'ModelInfo'),
-    'PressureCookerV3': ('pressure_cooker_v3', 'PressureCookerV3'),
-    'PressureCookerV3Plus': ('pressure_cooker_v3', 'PressureCookerV3Plus'),
-    'PressureCookerV4': ('pressure_cooker_v4', 'PressureCookerV4'),
-    'PressureCookerV5': ('pressure_cooker_v5', 'PressureCookerV5'),
-    'PressureCookerV5Plus': ('pressure_cooker_v5', 'PressureCookerV5Plus'),
-    'PressureCookerV5S': ('pressure_cooker_v5s', 'PressureCookerV5S'),
-    'V5SConfig': ('pressure_cooker_v5s', 'V5SConfig'),
-    'PressureCookerV6': ('pressure_cooker_v6', 'PressureCookerV6'),
-    'PressureCookerV6V': ('pressure_cooker_v6v', 'PressureCookerV6V'),
-    'QAProcessor': ('qa', 'QAProcessor'),
-    'QUANT_CATALOG': ('quantize', 'CATALOG'),
-    'QUANT_TYPES': ('quantize', 'QUANT_TYPES'),
-    'QuantConfig': ('pressure_cooker_v3', 'QuantConfig'),
-    'QuantDtype': ('pressure_cooker_v3', 'QuantDtype'),
-    'QuantJob': ('quantize', 'QuantJob'),
-    'QuantSpec': ('quantize', 'QuantSpec'),
-    'RoundPlan': ('tupperware', 'RoundPlan'),
-    'STML': ('stml', 'STML'),
-    'StovetopV3Cooker': ('pressure_cooker_v3', 'StovetopV3Cooker'),
-    'StovetopV3CookerPlus': ('pressure_cooker_v3', 'StovetopV3CookerPlus'),
-    'StovetopV4Cooker': ('pressure_cooker_v4', 'StovetopV4Cooker'),
-    'StovetopV4CookerPlus': ('pressure_cooker_v4', 'StovetopV4CookerPlus'),
-    'Tupperware': ('tupperware', 'Tupperware'),
-    'TupperwareConfig': ('tupperware', 'TupperwareConfig'),
-    'TurboAbbicus': ('abbicus', 'TurboAbbicus'),
-    'TurboAbbicusConfig': ('abbicus', 'TurboAbbicusConfig'),
-    'ULTRAagedcookerv4': ('pressure_cooker_v4', 'ULTRAagedcookerv4'),
-    'ULTRAagedcookerv5': ('pressure_cooker_v5', 'ULTRAagedcookerv5'),
-    'Ultracookerv4': ('pressure_cooker_v4', 'Ultracookerv4'),
-    'abbicus': ('abbicus', None),
-    'apron': ('apron', None),
-    'assistant': ('assistant', None),
-    'bake_code': ('old_oven', 'bake_code'),
-    'bell': ('bell', None),
-    'blender': ('blender', None),
-    'cake_pan': ('cake_pan', None),
-    'calculate_vram_context': ('stml', 'calculate_vram_context'),
-    'cardboard_box': ('cardboard_box', None),
-    'coffee_maker': ('coffee_maker', None),
-    'compactor': ('compactor', None),
-    'compute_framework': ('compute_framework', None),
-    'convert': ('convert', None),
-    'convert_to_gguf': ('convert', 'convert_to_gguf'),
-    'cookbook': ('cookbook', None),
-    'countertop': ('countertop', None),
-    'cpu_preset': ('freezer', 'cpu_preset'),
-    'cutting_board': ('cutting_board', None),
-    'deep_fryer': ('deep_fryer', None),
-    'diagnostic_info': ('utils', 'diagnostic_info'),
-    'dishwasher': ('dishwasher', None),
-    'download': ('download', None),
-    'download_model': ('download', 'download_model'),
-    'espresso_maker': ('espresso_maker', None),
-    'ethanol': ('ethanol', None),
-    'expand_checkpoint': ('train', 'expand_checkpoint'),
-    'fetch_llama_quantize': ('fetcher', 'fetch_llama_quantize'),
-    'fetcher': ('fetcher', None),
-    'fill_middle': ('old_oven', 'fill_middle'),
-    'fizzle': ('fizzle', None),
-    'flour': ('flour', None),
-    'food_processor': ('food_processor', None),
-    'freezer': ('freezer', None),
-    'generate': ('generate', None),
-    'generate_text': ('generate', 'generate_text'),
-    'gpu_preset': ('freezer', 'gpu_preset'),
-    'healthcheck': ('utils', 'healthcheck'),
-    'hyped': ('hyped', None),
-    'hyper_log': ('hyper_log', None),
-    'industrial_range': ('industrial_range', None),
-    'init_from_scratch': ('train', 'init_from_scratch'),
-    'injection': ('injection', None),
-    'instant_pot': ('instant_pot', None),
-    'lazy_suzan': ('lazy_suzan', None),
-    'list_models': ('utils', 'list_models'),
-    'load_pt': ('old_oven', 'load_pt'),
-    'load_snapshot': ('train', 'load_snapshot'),
-    'lunchbox': ('lunchbox', None),
-    'mediocre_fridge': ('mediocre_fridge', None),
-    'menu': ('menu', None),
-    'microwave': ('microwave', None),
-    'nano_nano': ('nano_nano', None),
-    'neo_oven': ('neo_oven', None),
-    'net': ('net', None),
-    'new_fridge': ('new_fridge', None),
-    'new_oven': ('old_oven', 'new_oven'),
-    'new_range': ('new_range', None),
-    'old_fridge': ('old_fridge', None),
-    'old_oven': ('old_oven', None),
-    'old_range': ('old_range', None),
-    'optimizer_framework': ('optimizer_framework', None),
-    'outage': ('outage', None),
-    'pans': ('pans', None),
-    'pepper_shaker': ('pepper_shaker', None),
-    'plasma': ('plasma', None),
-    'preheat': ('old_oven', 'preheat'),
-    'pressure_cooker': ('pressure_cooker', None),
-    'pressure_cooker_v3': ('pressure_cooker_v3', None),
-    'pressure_cooker_v4': ('pressure_cooker_v4', None),
-    'pressure_cooker_v5': ('pressure_cooker_v5', None),
-    'pressure_cooker_v5s': ('pressure_cooker_v5s', None),
-    'pressurecooker_v5s': ('pressure_cooker_v5s', None),
-    'pressure_cooker_v6': ('pressure_cooker_v6', None),
-    'pressure_cooker_v6v': ('pressure_cooker_v6v', None),
-    'print_models': ('utils', 'print_models'),
-    'qa': ('qa', None),
-    'quant_batch': ('quantize', 'batch_quantize'),
-    'quant_by_category': ('quantize', 'by_category'),
-    'quant_estimate_size': ('quantize', 'estimate_size'),
-    'quant_for_size': ('quantize', 'for_size'),
-    'quant_list_types': ('quantize', 'list_types'),
-    'quant_recommend_profile': ('quantize', 'recommend_profile'),
-    'quant_recommended': ('quantize', 'recommended'),
-    'quant_resolve_spec': ('quantize', 'resolve_spec'),
-    'quantize': ('quantize', None),
-    'quantize_gguf': ('quantize', 'quantize_gguf'),
-    'recipe_book': ('recipe_book', None),
-    'resolve_model_info': ('download', 'resolve_model_info'),
-    'resolve_repo_id': ('download', 'resolve_repo_id'),
-    'salt_shaker': ('salt_shaker', None),
-    'save_snapshot': ('train', 'save_snapshot'),
-    'session_dir': ('utils', 'session_dir'),
-    'sink': ('sink', None),
-    'smoke_alarm': ('smoke_alarm', None),
-    'smoker': ('smoker', None),
-    'spinner': ('spinner', None),
-    'stml': ('stml', None),
-    'strainer': ('strainer', None),
-    'table': ('table', None),
-    'thermometer': ('thermometer', None),
-    'timer': ('timer', None),
-    'toaster': ('toaster', None),
-    'torch_compat': ('torch_compat', None),
-    'train': ('train', 'train'),
-    'tupperware': ('tupperware', None),
-    'tv': ('tv', None),
-    'tvtop': ('tvtop', None),
-    'tvtop_plus_plus': ('tvtop_plus_plus', None),
-    'upload': ('upload', None),
-    'upload_gguf': ('upload', 'upload_gguf'),
-    'ups': ('ups', None),
-    'utils': ('utils', None),
-    'verify_snapshot': ('download', 'verify_snapshot'),
-    'whisk': ('whisk', None),
-    'workshop': ('workshop', None),
+    'ARCH_PRESETS': ('models.old_oven', 'ARCH_PRESETS'),
+    'Abbicus': ('training.abbicus', 'Abbicus'),
+    'AbbicusConfig': ('training.abbicus', 'AbbicusConfig'),
+    'Agedcookerv4': ('optimizers.pressure_cooker_v4', 'Agedcookerv4'),
+    'Agedcookerv5': ('optimizers.pressure_cooker_v5', 'Agedcookerv5'),
+    'CPUPreset': ('system.freezer', 'CPUPreset'),
+    'CPU_PRESETS': ('system.freezer', 'CPU_PRESETS'),
+    'CardboardBox': ('data.cardboard_box', 'CardboardBox'),
+    'CodeOven': ('models.old_oven', 'CodeOven'),
+    'NanoNanoModel': ('models.nano_nano', 'NanoNanoModel'),
+    'NeoOven': ('models.neo_oven', 'NeoOven'),
+    'ComputeArch': ('training.compute_framework', 'ComputeArch'),
+    'ComputeFramework': ('training.compute_framework', 'ComputeFramework'),
+    'CookerLite': ('optimizers.pressure_cooker_v4', 'CookerLite'),
+    'GPUPreset': ('system.freezer', 'GPUPreset'),
+    'GPU_PRESETS': ('system.freezer', 'GPU_PRESETS'),
+    'HealthReport': ('system.utils', 'HealthReport'),
+    'HyperNixConfig': ('training.train', 'HyperNixConfig'),
+    'HyperNixModel': ('training.train', 'HyperNixModel'),
+    'HyperNixQuantizer': ('quant.quantize', 'HyperNixQuantizer'),
+    'KNOWN_MODELS': ('models.download', 'KNOWN_MODELS'),
+    'LazySusan': ('training.lazy_suzan', 'LazySusan'),
+    'LazySusanConfig': ('training.lazy_suzan', 'LazySusanConfig'),
+    'ModelInfo': ('models.download', 'ModelInfo'),
+    'PressureCookerV3': ('optimizers.pressure_cooker_v3', 'PressureCookerV3'),
+    'PressureCookerV3Plus': ('optimizers.pressure_cooker_v3', 'PressureCookerV3Plus'),
+    'PressureCookerV4': ('optimizers.pressure_cooker_v4', 'PressureCookerV4'),
+    'PressureCookerV5': ('optimizers.pressure_cooker_v5', 'PressureCookerV5'),
+    'PressureCookerV5Plus': ('optimizers.pressure_cooker_v5', 'PressureCookerV5Plus'),
+    'PressureCookerV5S': ('optimizers.pressure_cooker_v5s', 'PressureCookerV5S'),
+    'V5SConfig': ('optimizers.pressure_cooker_v5s', 'V5SConfig'),
+    'PressureCookerV6': ('optimizers.pressure_cooker_v6', 'PressureCookerV6'),
+    'PressureCookerV6V': ('optimizers.pressure_cooker_v6v', 'PressureCookerV6V'),
+    'QAProcessor': ('data.qa', 'QAProcessor'),
+    'QUANT_CATALOG': ('quant.quantize', 'CATALOG'),
+    'QUANT_TYPES': ('quant.quantize', 'QUANT_TYPES'),
+    'QuantConfig': ('optimizers.pressure_cooker_v3', 'QuantConfig'),
+    'QuantDtype': ('optimizers.pressure_cooker_v3', 'QuantDtype'),
+    'QuantJob': ('quant.quantize', 'QuantJob'),
+    'QuantSpec': ('quant.quantize', 'QuantSpec'),
+    'RoundPlan': ('data.tupperware', 'RoundPlan'),
+    'STML': ('models.stml', 'STML'),
+    'StovetopV3Cooker': ('optimizers.pressure_cooker_v3', 'StovetopV3Cooker'),
+    'StovetopV3CookerPlus': ('optimizers.pressure_cooker_v3', 'StovetopV3CookerPlus'),
+    'StovetopV4Cooker': ('optimizers.pressure_cooker_v4', 'StovetopV4Cooker'),
+    'StovetopV4CookerPlus': ('optimizers.pressure_cooker_v4', 'StovetopV4CookerPlus'),
+    'Tupperware': ('data.tupperware', 'Tupperware'),
+    'TupperwareConfig': ('data.tupperware', 'TupperwareConfig'),
+    'TurboAbbicus': ('training.abbicus', 'TurboAbbicus'),
+    'TurboAbbicusConfig': ('training.abbicus', 'TurboAbbicusConfig'),
+    'ULTRAagedcookerv4': ('optimizers.pressure_cooker_v4', 'ULTRAagedcookerv4'),
+    'ULTRAagedcookerv5': ('optimizers.pressure_cooker_v5', 'ULTRAagedcookerv5'),
+    'Ultracookerv4': ('optimizers.pressure_cooker_v4', 'Ultracookerv4'),
+    'abbicus': ('training.abbicus', None),
+    'apron': ('training.apron', None),
+    'assistant': ('interfaces.assistant', None),
+    'bake_code': ('models.old_oven', 'bake_code'),
+    'bell': ('timing.bell', None),
+    'blender': ('data.blender', None),
+    'cake_pan': ('training.cake_pan', None),
+    'calculate_vram_context': ('models.stml', 'calculate_vram_context'),
+    'cardboard_box': ('data.cardboard_box', None),
+    'coffee_maker': ('timing.coffee_maker', None),
+    'compactor': ('system.compactor', None),
+    'compute_framework': ('training.compute_framework', None),
+    'convert': ('quant.convert', None),
+    'convert_to_gguf': ('quant.convert', 'convert_to_gguf'),
+    'cookbook': ('chat.cookbook', None),
+    'countertop': ('chat.countertop', None),
+    'cpu_preset': ('system.freezer', 'cpu_preset'),
+    'cutting_board': ('data.cutting_board', None),
+    'deep_fryer': ('training.deep_fryer', None),
+    'diagnostic_info': ('system.utils', 'diagnostic_info'),
+    'dishwasher': ('system.dishwasher', None),
+    'download': ('models.download', None),
+    'download_model': ('models.download', 'download_model'),
+    'espresso_maker': ('evaluation.espresso_maker', None),
+    'ethanol': ('system.ethanol', None),
+    'expand_checkpoint': ('training.train', 'expand_checkpoint'),
+    'fetch_llama_quantize': ('quant.fetcher', 'fetch_llama_quantize'),
+    'fetcher': ('quant.fetcher', None),
+    'fill_middle': ('models.old_oven', 'fill_middle'),
+    'fizzle': ('training.fizzle', None),
+    'flour': ('chat.flour', None),
+    'food_processor': ('data.food_processor', None),
+    'freezer': ('system.freezer', None),
+    'generate': ('models.generate', None),
+    'generate_text': ('models.generate', 'generate_text'),
+    'gpu_preset': ('system.freezer', 'gpu_preset'),
+    'healthcheck': ('system.utils', 'healthcheck'),
+    'hyped': ('interfaces.hyped', None),
+    'hyper_log': ('monitoring.hyper_log', None),
+    'industrial_range': ('evaluation.industrial_range', None),
+    'init_from_scratch': ('training.train', 'init_from_scratch'),
+    'injection': ('chat.injection', None),
+    'instant_pot': ('training.instant_pot', None),
+    'lazy_suzan': ('training.lazy_suzan', None),
+    'list_models': ('system.utils', 'list_models'),
+    'load_pt': ('models.old_oven', 'load_pt'),
+    'load_snapshot': ('training.train', 'load_snapshot'),
+    'lunchbox': ('data.lunchbox', None),
+    'mediocre_fridge': ('data.mediocre_fridge', None),
+    'menu': ('chat.menu', None),
+    'microwave': ('models.microwave', None),
+    'nano_nano': ('models.nano_nano', None),
+    'neo_oven': ('models.neo_oven', None),
+    'net': ('system.net', None),
+    'new_fridge': ('evaluation.new_fridge', None),
+    'new_oven': ('models.old_oven', 'new_oven'),
+    'new_range': ('evaluation.new_range', None),
+    'old_fridge': ('system.old_fridge', None),
+    'old_oven': ('models.old_oven', None),
+    'old_range': ('evaluation.old_range', None),
+    'optimizer_framework': ('optimizers.optimizer_framework', None),
+    'outage': ('system.outage', None),
+    'pans': ('data.pans', None),
+    'pepper_shaker': ('data.pepper_shaker', None),
+    'plasma': ('monitoring.plasma', None),
+    'preheat': ('models.old_oven', 'preheat'),
+    'pressure_cooker': ('optimizers.pressure_cooker', None),
+    'pressure_cooker_v3': ('optimizers.pressure_cooker_v3', None),
+    'pressure_cooker_v4': ('optimizers.pressure_cooker_v4', None),
+    'pressure_cooker_v5': ('optimizers.pressure_cooker_v5', None),
+    'pressure_cooker_v5s': ('optimizers.pressure_cooker_v5s', None),
+    'pressurecooker_v5s': ('optimizers.pressure_cooker_v5s', None),
+    'pressure_cooker_v6': ('optimizers.pressure_cooker_v6', None),
+    'pressure_cooker_v6v': ('optimizers.pressure_cooker_v6v', None),
+    'print_models': ('system.utils', 'print_models'),
+    'qa': ('data.qa', None),
+    'quant_batch': ('quant.quantize', 'batch_quantize'),
+    'quant_by_category': ('quant.quantize', 'by_category'),
+    'quant_estimate_size': ('quant.quantize', 'estimate_size'),
+    'quant_for_size': ('quant.quantize', 'for_size'),
+    'quant_list_types': ('quant.quantize', 'list_types'),
+    'quant_recommend_profile': ('quant.quantize', 'recommend_profile'),
+    'quant_recommended': ('quant.quantize', 'recommended'),
+    'quant_resolve_spec': ('quant.quantize', 'resolve_spec'),
+    'quantize': ('quant.quantize', None),
+    'quantize_gguf': ('quant.quantize', 'quantize_gguf'),
+    'recipe_book': ('training.recipe_book', None),
+    'resolve_model_info': ('models.download', 'resolve_model_info'),
+    'resolve_repo_id': ('models.download', 'resolve_repo_id'),
+    'salt_shaker': ('data.salt_shaker', None),
+    'save_snapshot': ('training.train', 'save_snapshot'),
+    'session_dir': ('system.utils', 'session_dir'),
+    'sink': ('data.sink', None),
+    'smoke_alarm': ('timing.smoke_alarm', None),
+    'smoker': ('training.smoker', None),
+    'spinner': ('timing.spinner', None),
+    'stml': ('models.stml', None),
+    'strainer': ('data.strainer', None),
+    'table': ('monitoring.table', None),
+    'thermometer': ('monitoring.thermometer', None),
+    'timer': ('timing.timer', None),
+    'toaster': ('data.toaster', None),
+    'torch_compat': ('system.torch_compat', None),
+    'train': ('training.train', 'train'),
+    'tupperware': ('data.tupperware', None),
+    'tv': ('monitoring.tv', None),
+    'tvtop': ('monitoring.tvtop', None),
+    'tvtop_plus_plus': ('monitoring.tvtop_plus_plus', None),
+    'upload': ('quant.upload', None),
+    'upload_gguf': ('quant.upload', 'upload_gguf'),
+    'ups': ('system.ups', None),
+    'utils': ('system.utils', None),
+    'verify_snapshot': ('models.download', 'verify_snapshot'),
+    'whisk': ('models.whisk', None),
+    'workshop': ('models.workshop', None),
     # v0.71.0 — security & usage management
-    'gatekeeper': ('gatekeeper', None),
-    'keymaster': ('keymaster', None),
-    'gkey_cli': ('gkey_cli', None),
-    'Gatekeeper': ('gatekeeper', 'Gatekeeper'),
-    'Keymaster': ('keymaster', 'Keymaster'),
-    'T1KeyGenerator': ('keymaster', 'T1KeyGenerator'),
-    'KeyType': ('keymaster', 'KeyType'),
-    'KeyScope': ('keymaster', 'KeyScope'),
-    'KeyMeta': ('keymaster', 'KeyMeta'),
-    'Quota': ('gatekeeper', 'Quota'),
-    'QuotaViolation': ('gatekeeper', 'QuotaViolation'),
-    'websearch': ('websearch', None),
-    'search_web_non_api': ('websearch', 'search_web_non_api'),
+    'gatekeeper': ('security.gatekeeper', None),
+    'keymaster': ('security.keymaster', None),
+    'gkey_cli': ('security.gkey_cli', None),
+    'Gatekeeper': ('security.gatekeeper', 'Gatekeeper'),
+    'Keymaster': ('security.keymaster', 'Keymaster'),
+    'T1KeyGenerator': ('security.keymaster', 'T1KeyGenerator'),
+    'KeyType': ('security.keymaster', 'KeyType'),
+    'KeyScope': ('security.keymaster', 'KeyScope'),
+    'KeyMeta': ('security.keymaster', 'KeyMeta'),
+    'Quota': ('security.gatekeeper', 'Quota'),
+    'QuotaViolation': ('security.gatekeeper', 'QuotaViolation'),
+    'websearch': ('interfaces.websearch', None),
+    # v0.71.5post2 — the category packages themselves.
+    'chat': ('chat', None),
+    'data': ('data', None),
+    'evaluation': ('evaluation', None),
+    'interfaces': ('interfaces', None),
+    'models': ('models', None),
+    'monitoring': ('monitoring', None),
+    'optimizers': ('optimizers', None),
+    'quant': ('quant', None),
+    'security': ('security', None),
+    'system': ('system', None),
+    'timing': ('timing', None),
+    'training': ('training', None),
+    'search_web_non_api': ('interfaces.websearch', 'search_web_non_api'),
 }
 
 
@@ -457,95 +631,143 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_LAZY_ATTRS))
 
 
+# ---------------------------------------------------------------------------
+# Back-compat: ``import hypernix.timer`` still works
+# ---------------------------------------------------------------------------
+# Modules moved into category packages in v0.71.5post2. Every one of them is
+# still importable under the flat name it has always had — ``hypernix.timer``
+# resolves to the very same module object as ``hypernix.timing.timer``, so
+# ``is`` comparisons, ``isinstance`` checks and monkeypatching keep working
+# across both spellings. The finder only ever claims names it knows about;
+# anything else (``hypernix.t1api``, ``hypernix.cctvtop_ext``, a typo) falls
+# through to the normal import machinery.
+
+
+class _FlatAliasLoader:
+    """Loader that hands back the module from its real, categorised home."""
+
+    def __init__(self, real_name: str) -> None:
+        self._real_name = real_name
+
+    def create_module(self, spec: Any) -> Any:
+        return importlib.import_module(self._real_name)
+
+    def exec_module(self, module: Any) -> None:
+        """No-op: :meth:`create_module` returned an already-executed module."""
+
+    # ``runpy`` (``python -m hypernix.cli``), ``inspect.getsource`` and
+    # ``linecache`` don't go through create_module — they ask the loader for
+    # the code/source directly. Delegate to the real module's loader, passing
+    # it the real dotted name: ``FileLoader`` methods are name-checked and
+    # would reject the flat alias.
+    def _real_loader(self) -> Any:
+        module = importlib.import_module(self._real_name)
+        return module.__spec__.loader
+
+    def get_code(self, fullname: str | None = None) -> Any:
+        return self._real_loader().get_code(self._real_name)
+
+    def get_source(self, fullname: str | None = None) -> str | None:
+        return self._real_loader().get_source(self._real_name)
+
+    def get_filename(self, fullname: str | None = None) -> str:
+        return self._real_loader().get_filename(self._real_name)
+
+    def is_package(self, fullname: str | None = None) -> bool:
+        return False  # only modules are aliased, never packages
+
+    def __repr__(self) -> str:
+        return f"<_FlatAliasLoader for {self._real_name!r}>"
+
+
+class _FlatAliasFinder:
+    """Meta-path finder for the pre-v0.71.5post2 flat module names."""
+
+    _prefix = __name__ + "."
+
+    @classmethod
+    def find_spec(cls, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if not fullname.startswith(cls._prefix):
+            return None
+        flat = fullname[len(cls._prefix):]
+        category = CATEGORY_OF.get(flat)
+        if category is None:
+            return None
+        return importlib.util.spec_from_loader(
+            fullname,
+            _FlatAliasLoader(f"{__name__}.{category}.{flat}"),
+            origin=f"{__name__}.{category}.{flat}",
+        )
+
+    def __repr__(self) -> str:
+        return "<_FlatAliasFinder>"
+
+
+def _install_flat_alias_finder() -> None:
+    """Register the finder once, even if this module is reloaded."""
+    for existing in sys.meta_path:
+        if getattr(existing, "__name__", None) == "_FlatAliasFinder":
+            return
+    sys.meta_path.append(_FlatAliasFinder)
+
+
+_install_flat_alias_finder()
+
 if TYPE_CHECKING:
     # Not executed at runtime (TYPE_CHECKING is always False), so this
     # costs nothing at import time — it exists purely so IDEs/type
     # checkers still see real symbols instead of "Any" for every
     # hypernix.* access. Keep this in sync with _LAZY_ATTRS above.
     # v0.71.0
-    from . import (
-        abbicus,
-        apron,
-        assistant,
-        bell,
-        blender,
-        cardboard_box,
-        coffee_maker,
-        compactor,
-        compute_framework,
+    from .chat import (
         cookbook,
         countertop,
-        cutting_board,
-        deep_fryer,
-        dishwasher,
-        espresso_maker,
-        ethanol,
-        fizzle,
         flour,
-        food_processor,
-        freezer,
-        gatekeeper,
-        gkey_cli,
-        hyped,
-        hyper_log,
-        industrial_range,
         injection,
-        instant_pot,
-        keymaster,
-        lazy_suzan,
+        menu,
+    )
+    from .data import (
+        blender,
+        cardboard_box,
+        cutting_board,
+        food_processor,
         lunchbox,
         mediocre_fridge,
-        menu,
+        pans,
+        pepper_shaker,
+        qa,
+        salt_shaker,
+        sink,
+        strainer,
+        toaster,
+        tupperware,
+    )
+    from .data.cardboard_box import CardboardBox
+    from .data.qa import QAProcessor
+    from .data.tupperware import RoundPlan, Tupperware, TupperwareConfig
+    from .evaluation import (
+        espresso_maker,
+        industrial_range,
+        new_fridge,
+        new_range,
+        old_range,
+    )
+    from .interfaces import (
+        assistant,
+        hyped,
+        websearch,
+    )
+    from .interfaces.websearch import search_web_non_api
+    from .models import (
         microwave,
         nano_nano,
         neo_oven,
-        net,
-        new_fridge,
-        new_range,
-        old_fridge,
         old_oven,
-        old_range,
-        optimizer_framework,
-        outage,
-        pans,
-        pepper_shaker,
-        plasma,
-        pressure_cooker,
-        pressure_cooker_v3,
-        pressure_cooker_v4,
-        pressure_cooker_v5,
-        pressure_cooker_v5s,
-        pressure_cooker_v6,
-        pressure_cooker_v6v,
-        pressurecooker_v5s,
-        qa,
-        recipe_book,
-        salt_shaker,
-        sink,
-        smoke_alarm,
-        smoker,
-        spinner,
         stml,
-        strainer,
-        table,
-        thermometer,
-        timer,
-        toaster,
-        torch_compat,
-        tupperware,
-        tv,
-        tvtop,
-        tvtop_plus_plus,
-        ups,
-        websearch,
         whisk,
         workshop,
     )
-    from .abbicus import Abbicus, AbbicusConfig, TurboAbbicus, TurboAbbicusConfig
-    from .cardboard_box import CardboardBox
-    from .compute_framework import ComputeArch, ComputeFramework
-    from .convert import convert_to_gguf
-    from .download import (
+    from .models.download import (
         KNOWN_MODELS,
         ModelInfo,
         download_model,
@@ -553,22 +775,10 @@ if TYPE_CHECKING:
         resolve_repo_id,
         verify_snapshot,
     )
-    from .fetcher import fetch_llama_quantize
-    from .freezer import (
-        CPU_PRESETS,
-        GPU_PRESETS,
-        CPUPreset,
-        GPUPreset,
-        cpu_preset,
-        gpu_preset,
-    )
-    from .gatekeeper import Gatekeeper, Quota, QuotaViolation
-    from .generate import generate_text
-    from .keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
-    from .lazy_suzan import LazySusan, LazySusanConfig
-    from .nano_nano import NanoNanoModel
-    from .neo_oven import NeoOven
-    from .old_oven import (
+    from .models.generate import generate_text
+    from .models.nano_nano import NanoNanoModel
+    from .models.neo_oven import NeoOven
+    from .models.old_oven import (
         ARCH_PRESETS,
         CodeOven,
         bake_code,
@@ -577,7 +787,30 @@ if TYPE_CHECKING:
         new_oven,
         preheat,
     )
-    from .pressure_cooker_v3 import (
+    from .models.stml import STML, calculate_vram_context
+    from .monitoring import (
+        hyper_log,
+        plasma,
+        table,
+        thermometer,
+        tv,
+        tvtop,
+        tvtop_plus_plus,
+    )
+    from .optimizers import (
+        optimizer_framework,
+        pressure_cooker,
+        pressure_cooker_v3,
+        pressure_cooker_v4,
+        pressure_cooker_v5,
+        pressure_cooker_v5s,
+        pressure_cooker_v6,
+        pressure_cooker_v6v,
+    )
+
+    # Historical misspelling kept as a public alias.
+    from .optimizers import pressure_cooker_v5s as pressurecooker_v5s
+    from .optimizers.pressure_cooker_v3 import (
         PressureCookerV3,
         PressureCookerV3Plus,
         QuantConfig,
@@ -585,7 +818,7 @@ if TYPE_CHECKING:
         StovetopV3Cooker,
         StovetopV3CookerPlus,
     )
-    from .pressure_cooker_v4 import (
+    from .optimizers.pressure_cooker_v4 import (
         Agedcookerv4,
         CookerLite,
         PressureCookerV4,
@@ -594,31 +827,87 @@ if TYPE_CHECKING:
         ULTRAagedcookerv4,
         Ultracookerv4,
     )
-    from .pressure_cooker_v5 import (
+    from .optimizers.pressure_cooker_v5 import (
         Agedcookerv5,
         PressureCookerV5,
         PressureCookerV5Plus,
         ULTRAagedcookerv5,
     )
-    from .pressure_cooker_v5s import (
+    from .optimizers.pressure_cooker_v5s import (
         PressureCookerV5S,
         V5SConfig,
     )
-    from .pressure_cooker_v6 import PressureCookerV6
-    from .pressure_cooker_v6v import PressureCookerV6V
-    from .qa import QAProcessor
-    from .quantize import CATALOG as QUANT_CATALOG  # noqa: I001
-    from .quantize import QUANT_TYPES, HyperNixQuantizer, QuantJob, QuantSpec, quantize_gguf
-    from .quantize import batch_quantize as quant_batch
-    from .quantize import by_category as quant_by_category
-    from .quantize import estimate_size as quant_estimate_size
-    from .quantize import for_size as quant_for_size
-    from .quantize import list_types as quant_list_types
-    from .quantize import recommend_profile as quant_recommend_profile
-    from .quantize import recommended as quant_recommended
-    from .quantize import resolve_spec as quant_resolve_spec
-    from .stml import STML, calculate_vram_context
-    from .train import (
+    from .optimizers.pressure_cooker_v6 import PressureCookerV6
+    from .optimizers.pressure_cooker_v6v import PressureCookerV6V
+    from .quant.convert import convert_to_gguf
+    from .quant.fetcher import fetch_llama_quantize
+    from .quant.quantize import CATALOG as QUANT_CATALOG  # noqa: I001
+    from .quant.quantize import QUANT_TYPES, HyperNixQuantizer, QuantJob, QuantSpec, quantize_gguf
+    from .quant.quantize import batch_quantize as quant_batch
+    from .quant.quantize import by_category as quant_by_category
+    from .quant.quantize import estimate_size as quant_estimate_size
+    from .quant.quantize import for_size as quant_for_size
+    from .quant.quantize import list_types as quant_list_types
+    from .quant.quantize import recommend_profile as quant_recommend_profile
+    from .quant.quantize import recommended as quant_recommended
+    from .quant.quantize import resolve_spec as quant_resolve_spec
+    from .quant.upload import upload_gguf
+    from .security import (
+        gatekeeper,
+        gkey_cli,
+        keymaster,
+    )
+    from .security.gatekeeper import Gatekeeper, Quota, QuotaViolation
+    from .security.keymaster import Keymaster, KeyMeta, KeyScope, KeyType, T1KeyGenerator
+    from .system import (
+        compactor,
+        dishwasher,
+        ethanol,
+        freezer,
+        net,
+        old_fridge,
+        outage,
+        torch_compat,
+        ups,
+    )
+    from .system.freezer import (
+        CPU_PRESETS,
+        GPU_PRESETS,
+        CPUPreset,
+        GPUPreset,
+        cpu_preset,
+        gpu_preset,
+    )
+    from .system.utils import (
+        HealthReport,
+        diagnostic_info,
+        healthcheck,
+        list_models,
+        print_models,
+        session_dir,
+    )
+    from .timing import (
+        bell,
+        coffee_maker,
+        smoke_alarm,
+        spinner,
+        timer,
+    )
+    from .training import (
+        abbicus,
+        apron,
+        compute_framework,
+        deep_fryer,
+        fizzle,
+        instant_pot,
+        lazy_suzan,
+        recipe_book,
+        smoker,
+    )
+    from .training.abbicus import Abbicus, AbbicusConfig, TurboAbbicus, TurboAbbicusConfig
+    from .training.compute_framework import ComputeArch, ComputeFramework
+    from .training.lazy_suzan import LazySusan, LazySusanConfig
+    from .training.train import (
         HyperNixConfig,
         HyperNixModel,
         expand_checkpoint,
@@ -627,14 +916,3 @@ if TYPE_CHECKING:
         save_snapshot,
         train,
     )
-    from .tupperware import RoundPlan, Tupperware, TupperwareConfig
-    from .upload import upload_gguf
-    from .utils import (
-        HealthReport,
-        diagnostic_info,
-        healthcheck,
-        list_models,
-        print_models,
-        session_dir,
-    )
-    from .websearch import search_web_non_api

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/2d5eb37/assets/logo.png" alt="hypernix logo" width="240" />
+  <img src="https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/2d5eb37/assets/logo1.png" alt="hypernix logo" width="240" />
 </p>
 
 # hypernix
@@ -11,10 +11,13 @@
 **End-to-end toolkit for training ai models on modern or old devices, originaly for converting hypernix.1 into gguf, now for all around training**
 
 ## What's fixed in this update
-See changlog.md
+See [Changelog.md](/wiki/Changelog.md)
+for most updates
+
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
+- [Package layout](#package-layout)
 - [Module reference](#module-reference)
 - [What's new in v0.70.5](#whats-new-in-v0705)
 - [What's new in v0.70.4](#whats-new-in-v0704)
@@ -27,12 +30,50 @@ See changlog.md
 - [Wiki / deep dives](#wiki--deep-dives)
 - [How the GGUF pipeline works](#how-the-gguf-pipeline-works)
 - [Platform notes](#platform-notes)
+- [CI autofix](#ci-autofix)
 - [Build / release](#build--release)
 - [Usage & Documentation](#usage--documentation)
 - [License](#license)
 
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
+
+## Package layout
+
+Modules are grouped by what they do rather than sitting in one flat
+directory:
+
+| Directory | Modules | Contents |
+|---|---|---|
+| `hypernix/chat/` | 5 | Chat templating, prompt presets and multi-turn session state. |
+| `hypernix/data/` | 15 | Datasets: collection, cleaning, splitting, packing and augmentation. |
+| `hypernix/evaluation/` | 6 | Scoring, rubric labelling, judging and module verification. |
+| `hypernix/interfaces/` | 11 | Human-facing front ends: CLIs, TUIs, GUIs and launchers. |
+| `hypernix/models/` | 11 | Architectures, snapshot loading, generation and model utilities. |
+| `hypernix/monitoring/` | 9 | Live dashboards, logging, telemetry and hardware sampling. |
+| `hypernix/optimizers/` | 8 | The Pressure Cooker optimizer family and optimizer plumbing. |
+| `hypernix/quant/` | 4 | The GGUF pipeline: convert, quantize, fetch tooling and upload. |
+| `hypernix/security/` | 3 | API keys, quotas and request gating. |
+| `hypernix/system/` | 14 | Environment, dependencies, hardware and housekeeping. |
+| `hypernix/timing/` | 5 | Timers, alarms, cadence control and progress animation. |
+| `hypernix/training/` | 14 | Training entry points, schedules and weight perturbation. |
+| `hypernix/t1api/` | — | The T1 API server (FastAPI app, routers, storage). |
+| `hypernix/waiter/` | — | The T1 API client CLI. |
+
+**Every module keeps its old import path.** `hypernix.timer` and
+`hypernix.timing.timer` return the same module object, so nothing that
+imported a module before the move needs to change:
+
+```python
+from hypernix.timer import KitchenTimer          # always worked, still works
+from hypernix.timing.timer import KitchenTimer   # where the file actually is
+import hypernix; hypernix.timer is hypernix.timing.timer   # True
+```
+
+`hypernix.MODULE_CATEGORIES` (and its reverse, `hypernix.CATEGORY_OF`) is the
+one place the layout is written down — the lazy loader, the alias finder, the
+`hnx wiki` browser and the `scripts/autofix-*` tooling all read it, so moving a
+module between categories is a one-line change.
 
 ## Module reference
 
@@ -477,6 +518,34 @@ k-quant in the plan.
 - **macOS**: Metal for inference, Homebrew for `llama-quantize`. (untested)
 - **Windows**: native support; doctor accepts Windows; `llama-quantize` auto-downloads Windows binaries; use scoop / chocolatey for system deps. (untested)
 - **Pascal (GTX 1080 / 1080 Ti / Titan Xp)**: install torch from the CUDA 11.8 index first (see above). Use `OldFreezer` or `auto_freezer()`; `pascal_safe_dtype()` picks fp16. `hypernix.freezer.pascal_mode_hints()` returns a dict of recommended settings (batch size, dtype, TF32/SDPA toggles) for the detected card.
+
+## CI autofix
+
+Three scripts in `scripts/`, each owning one failure class, plus a router
+that reads a CI log and runs the right one:
+
+| Script | Owns |
+|---|---|
+| `autofix-B` | ruff diagnostics |
+| `autofix-E` | imports, syntax, anything that stops collection |
+| `autofix-F` | failing tests for a module category (timing by default) |
+
+```bash
+scripts/autofix                      # reproduce the failure, classify, fix
+scripts/autofix --log ci-output.txt  # classify an existing CI log
+scripts/autofix-F --dry-run          # timer-test repair, without writing
+```
+
+`autofix-F` engages only when *some but not all* of the timing tests fail —
+the signature of a wall-clock assertion that lost a race, which is the one
+thing it can fix. It widens the margins in those tests by scaling every time
+constant in them uniformly, re-runs only what it changed, and commits with an
+`Autofix-Scope:` trailer. CI reads that trailer and verifies just those tests
+instead of re-running the 4-OS x 4-Python matrix. Failures it can't honestly
+fix — a renamed symbol, a changed signature, a real regression — are reported
+and left alone.
+
+See [`scripts/README.md`](scripts/README.md) for the full picture.
 
 ## Build / release
 
