@@ -38,6 +38,10 @@ def _to_summary(entry) -> ModelSummary:
         minimum_plan=entry.minimum_plan,
         free_tier_available=entry.free_tier_available,
         routing_priority=entry.routing_priority,
+        context_limit=entry.context_limit,
+        input_token_limit=entry.input_token_limit,
+        output_token_limit=entry.output_token_limit,
+        tool_call_limit=entry.tool_call_limit,
     )
 
 
@@ -50,10 +54,6 @@ def _to_detail(entry) -> ModelDetail:
         api_available=entry.api_available,
         local_available=entry.local_available,
         remote_available=entry.remote_available,
-        context_limit=entry.context_limit,
-        input_token_limit=entry.input_token_limit,
-        output_token_limit=entry.output_token_limit,
-        tool_call_limit=entry.tool_call_limit,
         pricing=entry.pricing.to_dict(),
         fallback_model=entry.fallback_model,
         license=entry.license,

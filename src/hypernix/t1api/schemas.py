@@ -125,6 +125,15 @@ class ModelSummary(BaseModel):
     minimum_plan: str
     free_tier_available: bool
     routing_priority: int
+    # Beta 3: the limits belong in the summary, not just the detail.
+    # "display model limits" is a waiter TUI requirement, and a client
+    # rendering a model list should not have to make one extra request
+    # per model to fill in three columns. Additive, so existing clients
+    # are unaffected.
+    context_limit: int = 0
+    input_token_limit: int = 0
+    output_token_limit: int = 0
+    tool_call_limit: int | None = None
 
 
 class ModelDetail(ModelSummary):
@@ -134,10 +143,6 @@ class ModelDetail(ModelSummary):
     api_available: bool
     local_available: bool
     remote_available: bool
-    context_limit: int
-    input_token_limit: int
-    output_token_limit: int
-    tool_call_limit: int | None
     pricing: dict[str, Any]
     fallback_model: str | None
     license: str
