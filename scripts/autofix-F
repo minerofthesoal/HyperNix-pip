@@ -190,12 +190,26 @@ def _non_assertion_type(message: str) -> str | None:
     return None
 
 
+def _func_key(node_id: str) -> str:
+    """Everything after the first ``::`` — the ``Class::func`` path, minus
+    any ``[parametrize-id]``, with no file component at all.
+
+    The last resort, and the only one that survives a reported node id whose
+    path part is *empty* — which is what Windows actually produces here.
+    It is sound because ``run_tests`` is handed an explicit list of node ids
+    and pytest can only report failures from that list, so a failure's
+    function path always names one of the candidates we already hold a
+    ``Path`` for. It is still only used where unambiguous.
+    """
+    _, _, rest = node_id.partition("::")
+    return "::".join(part.split("[", 1)[0] for part in rest.split("::"))
+
+
 def _shape_key(node_id: str) -> str:
     """A node id reduced to what no platform can change: the file's basename
     and the ``Class::func`` path under it, minus any ``[parametrize-id]``."""
     path, _, rest = node_id.partition("::")
-    rest = "::".join(part.split("[", 1)[0] for part in rest.split("::"))
-    return f"{PurePosixPath(path.replace(chr(92), '/')).name}::{rest}"
+    return f"{PurePosixPath(path.replace(chr(92), '/')).name}::{_func_key(node_id)}"
 
 
 def _node_path(node_id: str, known: dict[str, Path] | None = None) -> Path | None:
@@ -220,15 +234,20 @@ def _node_path(node_id: str, known: dict[str, Path] | None = None) -> Path | Non
     from the cause.
     """
     if known:
-        match = known.get(node_key(node_id))
-        if match is None:
-            # node_key normalises through REPO_ROOT, which still assumes the
-            # two spellings share a root. When pytest's rootdir is elsewhere
-            # they don't, so fall back to the part of a node id that never
-            # varies by platform: the file's basename and the function path.
-            match = known.get(_shape_key(node_id))
-        if match is not None and match.is_file():
-            return match
+        # Three tiers, each giving up less of the node id than the last:
+        # the full normalised path, then basename + function path, then the
+        # function path alone. node_key assumes the two spellings share a
+        # root, which fails when pytest's rootdir is on another drive; the
+        # basename tier fails when the reported path is empty, which is what
+        # Windows produces for an out-of-tree --tests-dir.
+        for key, table in (
+            (node_key(node_id), known),
+            (_shape_key(node_id), known),
+            (_func_key(node_id), known),
+        ):
+            match = table.get(key)
+            if match is not None and match.is_file():
+                return match
 
     file_part = node_id.split("::")[0].strip()
     if not file_part:
@@ -443,14 +462,16 @@ def main(argv: list[str] | None = None) -> int:
     # so a failure can be matched to it without trusting how pytest spelled
     # the path back to us.
     known_paths = {node_key(ref.node_id): ref.path for ref in refs}
-    # The basename+function index is only safe where it is unambiguous; two
-    # test files with the same name and the same test would make it a guess.
-    shapes: dict[str, list[Path]] = {}
-    for ref in refs:
-        shapes.setdefault(_shape_key(ref.node_id), []).append(ref.path)
-    known_paths.update(
-        {shape: paths[0] for shape, paths in shapes.items() if len(set(paths)) == 1}
-    )
+    # The looser indexes are only safe where they are unambiguous: two test
+    # files carrying the same test name would make either one a guess, and
+    # guessing which file to edit is worse than reporting a skip.
+    for key_fn in (_shape_key, _func_key):
+        buckets: dict[str, set[Path]] = {}
+        for ref in refs:
+            buckets.setdefault(key_fn(ref.node_id), set()).add(ref.path)
+        known_paths.update(
+            {key: next(iter(paths)) for key, paths in buckets.items() if len(paths) == 1}
+        )
 
     for node_id, message in sorted(result.failures.items()):
         if not message:
@@ -465,8 +486,12 @@ def main(argv: list[str] | None = None) -> int:
 
         path = _node_path(node_id, known_paths)
         if path is None:
+            # The repr matters: the reason this was unresolvable is almost
+            # always something about the *spelling* that a bare echo of the
+            # id hides — an empty path part, a stray separator, whitespace.
             skipped.append(
-                (node_id, "could not resolve a test file from this node id"),
+                (node_id, "could not resolve a test file from this node id "
+                          f"({node_id!r})"),
             )
             continue
         try:
