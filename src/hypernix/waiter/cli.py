@@ -1218,6 +1218,470 @@ def _cmd_smoke(rest: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# T1 v1.0.26.8.0.1 — `waiter lmstudio`, `waiter hyperlink`, `waiter fetch`
+# ---------------------------------------------------------------------------
+
+_LMSTUDIO_HELP = """\
+waiter lmstudio — the bridge to a model loaded in LM Studio.
+
+    waiter lmstudio status              is it reachable, is anything loaded
+    waiter lmstudio status --discover   also sweep localhost + the tailnet (admin)
+    waiter lmstudio models              what LM Studio has, loaded ones marked
+    waiter lmstudio chat "your prompt"  one completion through the bridge
+    waiter lmstudio local               probe from *this* machine, no T1 server
+
+`status`, `models` and `chat` ask the T1 API, which asks LM Studio — so
+LM Studio only has to be reachable from the server, not from here.
+`local` is the exception: it probes directly from this machine, which is
+what you want when working out why the server cannot see it.
+"""
+
+
+def _cmd_lmstudio(rest: list[str]) -> int:
+    if not rest or rest[0] in ("-h", "--help"):
+        print(_LMSTUDIO_HELP)
+        return 0
+    sub, rest = rest[0], rest[1:]
+
+    if sub == "local":
+        return _lmstudio_local(rest)
+
+    p = argparse.ArgumentParser(prog=f"waiter lmstudio {sub}")
+    if sub == "status":
+        p.add_argument("--discover", action="store_true", help="Sweep localhost and the tailnet (admin)")
+    if sub == "chat":
+        p.add_argument("prompt", nargs="+")
+        p.add_argument("--model", default=None)
+        p.add_argument("--system", default="", help="System prompt")
+        p.add_argument("--temperature", type=float, default=None)
+        p.add_argument("--max-tokens", dest="max_tokens", type=int, default=None)
+    if sub in ("models", "chat"):
+        p.add_argument("--base-url", dest="base_url", default=None, help="Admin-only override")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, cfg = _client_for(args)
+
+    if sub == "status":
+        data = client.lmstudio_status(discover=args.discover)
+        if args.as_json:
+            _print_json(data)
+            return 0
+        if not data.get("enabled"):
+            _err("The LM Studio bridge is disabled on this server (T1_LMSTUDIO_ENABLED=0).")
+            return 1
+        probe = data.get("probe")
+        if not probe:
+            _warn(f"No LM Studio address configured on {cfg.server}. Set T1_LMSTUDIO_URL there.")
+        else:
+            _print_table(
+                ["check", "value"],
+                [
+                    ["address", probe["base_url"]],
+                    ["reachable", str(probe["reachable"])],
+                    ["models", str(probe["model_count"])],
+                    ["loaded", str(probe["loaded_count"])],
+                    ["native API", str(probe["native_api"])],
+                    ["CORS", _cors_text(probe)],
+                    ["latency", f"{probe['latency_ms']:.0f} ms"],
+                ],
+                title="LM Studio bridge",
+            )
+            if not probe["reachable"]:
+                _err(probe.get("error") or "unreachable")
+                return 1
+            if not probe["loaded_count"]:
+                _warn("LM Studio is answering but has nothing loaded — load a model in its UI.")
+        for other in data.get("discovered", []):
+            mark = "✓" if other["usable"] else ("·" if other["reachable"] else "×")
+            _info(f"  {mark} {other['base_url']}  {other['loaded_count']}/{other['model_count']} loaded")
+        return 0
+
+    if sub == "models":
+        data = client.lmstudio_models(base_url=args.base_url)
+        if args.as_json:
+            _print_json(data)
+            return 0
+        rows = [
+            [
+                m["model_id"],
+                "yes" if m["loaded"] else "no",
+                m["kind"],
+                m["quantization"] or "-",
+                str(m["max_context_length"] or m["context_length"] or "-"),
+            ]
+            for m in data["models"]
+        ]
+        _print_table(
+            ["model", "loaded", "kind", "quant", "context"],
+            rows,
+            title=f"LM Studio at {data['base_url']} — {data['loaded_count']}/{data['count']} loaded",
+        )
+        return 0
+
+    if sub == "chat":
+        messages: list[dict[str, Any]] = []
+        if args.system:
+            messages.append({"role": "system", "content": args.system})
+        messages.append({"role": "user", "content": " ".join(args.prompt)})
+        data = client.lmstudio_chat(
+            messages,
+            model=args.model,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            base_url=args.base_url,
+        )
+        if args.as_json:
+            _print_json(data)
+            return 0
+        _info(data["content"])
+        _info(
+            f"\n[dim]{data['model']} via {data['base_url']} — "
+            f"{data['input_tokens']} in / {data['output_tokens']} out[/dim]"
+            if _HAS_RICH
+            else f"\n{data['model']} via {data['base_url']} — "
+            f"{data['input_tokens']} in / {data['output_tokens']} out"
+        )
+        return 0
+
+    _err(f"Unknown lmstudio subcommand {sub!r}")
+    print(_LMSTUDIO_HELP, file=sys.stderr)
+    return 1
+
+
+def _cors_text(probe: dict[str, Any]) -> str:
+    """CORS state as something an operator can act on.
+
+    Only matters for a browser or WKWebView talking to LM Studio
+    directly; a Python client is not subject to it. Saying so inline
+    saves the "do I need to turn this on?" round trip.
+    """
+    enabled = probe.get("cors_enabled")
+    if enabled is None:
+        return "not tested"
+    if enabled:
+        return f"on (allow-origin: {probe.get('cors_allow_origin') or '*'})"
+    return "off — fine for this bridge, needed only for browser clients"
+
+
+def _lmstudio_local(rest: list[str]) -> int:
+    """Probe LM Studio from *this* machine, with no T1 server involved."""
+    from ..bridge.lmstudio import LMStudioBridge, default_endpoints, discover
+
+    p = argparse.ArgumentParser(prog="waiter lmstudio local")
+    p.add_argument("--url", default=None, help="Probe just this address")
+    p.add_argument("--timeout", type=float, default=1.5)
+    p.add_argument("--json", dest="as_json", action="store_true")
+    args = p.parse_args(rest)
+
+    if args.url:
+        probes = [LMStudioBridge(args.url, connect_timeout=args.timeout).probe()]
+    else:
+        probes = discover(connect_timeout=args.timeout)
+    if args.as_json:
+        _print_json([pr.to_dict() for pr in probes])
+        return 0
+    if not probes:
+        _warn("Nowhere to probe. Set HYPERNIX_LMSTUDIO_URL or pass --url.")
+        return 1
+    _print_table(
+        ["address", "reachable", "models", "loaded", "latency"],
+        [
+            [
+                pr.base_url,
+                "yes" if pr.reachable else "no",
+                str(pr.model_count),
+                str(pr.loaded_count),
+                f"{pr.latency_ms:.0f} ms",
+            ]
+            for pr in probes
+        ],
+        title="LM Studio, probed from this machine",
+    )
+    usable = [pr for pr in probes if pr.usable]
+    if usable:
+        _ok(f"Use it with:  T1_LMSTUDIO_URL={usable[0].base_url}")
+        return 0
+    reachable = [pr for pr in probes if pr.reachable]
+    if reachable:
+        _warn(f"{reachable[0].base_url} answers but has nothing loaded — load a model in LM Studio.")
+        return 1
+    _err("No LM Studio server found. Checked: " + ", ".join(default_endpoints()))
+    return 1
+
+
+_HYPERLINK_HELP = """\
+waiter hyperlink — pair phones, and manage what they can see.
+
+    waiter hyperlink pair [--label "Mason iPhone"]   mint a pairing code
+    waiter hyperlink pair --qr                        also print the QR payload
+    waiter hyperlink devices [--all]                  list paired devices
+    waiter hyperlink unpair <device_id>               revoke one device
+    waiter hyperlink endpoints                        addresses this server answers on
+    waiter hyperlink sessions                         chat sessions on the server
+    waiter hyperlink chat <session_id> "message"      send a turn from here
+
+`pair` requires an admin key: a device token is deliberately unable to
+enrol another device.
+"""
+
+
+def _cmd_hyperlink(rest: list[str]) -> int:
+    if not rest or rest[0] in ("-h", "--help"):
+        print(_HYPERLINK_HELP)
+        return 0
+    sub, rest = rest[0], rest[1:]
+
+    p = argparse.ArgumentParser(prog=f"waiter hyperlink {sub}")
+    if sub == "pair":
+        p.add_argument("--label", default="", help="A note for your own records")
+        p.add_argument("--ttl", type=float, default=None, help="Seconds the code stays valid")
+        p.add_argument("--qr", action="store_true", help="Print the QR payload JSON as well")
+    if sub == "devices":
+        p.add_argument("--all", dest="include_revoked", action="store_true")
+    if sub == "unpair":
+        p.add_argument("device_id")
+    if sub == "sessions":
+        p.add_argument("--all", dest="include_archived", action="store_true")
+    if sub == "chat":
+        p.add_argument("session_id")
+        p.add_argument("message", nargs="+")
+        p.add_argument("--model", default=None)
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+    client, cfg = _client_for(args)
+
+    if sub == "pair":
+        data = client.hyperlink_pair(label=args.label, ttl_seconds=args.ttl)
+        if args.as_json:
+            _print_json(data)
+            return 0
+        code = data["code"]
+        # Spaced in the middle because that is how it will be read aloud
+        # and typed: three and three, not six.
+        pretty = f"{code[:3]} {code[3:]}"
+        _ok(f"Pairing code:  {pretty}")
+        _info(f"  valid for {data['seconds_remaining'] / 60:.0f} minutes, single use")
+        _print_table(
+            ["address", "kind", "note"],
+            [[e["url"], e["kind"], e["note"]] for e in data.get("endpoints", [])],
+            title="Enter one of these in the app, then the code",
+        )
+        if not any(e["kind"].startswith("tailscale") for e in data.get("endpoints", [])):
+            _warn(
+                "No Tailscale address on this server — the app will only work on the same "
+                "network. Install Tailscale on both machines to use it from anywhere."
+            )
+        if args.qr:
+            _info("\nQR payload:")
+            _print_json(data["qr_payload"])
+        return 0
+
+    if sub == "devices":
+        data = client.hyperlink_devices(include_revoked=args.include_revoked)
+        if args.as_json:
+            _print_json(data)
+            return 0
+        rows = [
+            [
+                d["device_id"][:12] + "…",
+                d["name"],
+                d["platform"],
+                _ago(d.get("last_seen")),
+                d.get("last_address") or "-",
+                "revoked" if d["revoked"] else "active",
+            ]
+            for d in data["devices"]
+        ]
+        _print_table(
+            ["device_id", "name", "platform", "last seen", "address", "state"],
+            rows,
+            title=f"Paired devices ({data['count']})",
+        )
+        return 0
+
+    if sub == "unpair":
+        data = client.hyperlink_revoke_device(args.device_id)
+        _ok(f"Unpaired {data['device']['name']} — its token stops working immediately.")
+        return 0
+
+    if sub == "endpoints":
+        data = client.hyperlink_endpoints()
+        if args.as_json:
+            _print_json(data)
+            return 0
+        _print_table(
+            ["address", "kind", "note"],
+            [[e["url"], e["kind"], e["note"]] for e in data["endpoints"]],
+            title=f"{data['server_name']} — t1 v{data['t1_version']}",
+        )
+        if not data["reachable_off_lan"]:
+            _warn("Nothing here is reachable off the LAN. Install Tailscale, or set T1_HYPERLINK_PUBLIC_URL.")
+        return 0
+
+    if sub == "sessions":
+        data = client.hyperlink_sessions(include_archived=args.include_archived)
+        if args.as_json:
+            _print_json(data)
+            return 0
+        _print_table(
+            ["session_id", "title", "model", "messages", "updated"],
+            [
+                [
+                    s["session_id"],
+                    s["title"],
+                    s["model_id"] or "-",
+                    str(s["message_count"]),
+                    _ago(s["updated_at"]),
+                ]
+                for s in data["sessions"]
+            ],
+            title=f"Chat sessions ({data['count']})",
+        )
+        return 0
+
+    if sub == "chat":
+        data = client.hyperlink_chat(
+            args.session_id, " ".join(args.message), model_id=args.model
+        )
+        if args.as_json:
+            _print_json(data)
+            return 0
+        _info(data["assistant_message"]["content"])
+        return 0
+
+    _err(f"Unknown hyperlink subcommand {sub!r}")
+    print(_HYPERLINK_HELP, file=sys.stderr)
+    return 1
+
+
+def _ago(timestamp: float | None) -> str:
+    """``3m ago`` / ``2d ago`` / ``never``."""
+    if not timestamp:
+        return "never"
+    delta = max(0.0, time.time() - float(timestamp))
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if delta >= size:
+            return f"{delta / size:.0f}{unit} ago"
+    return f"{delta:.0f}s ago"
+
+
+def _cmd_fetch(rest: list[str]) -> int:
+    """`waiter fetch` — resolve a Hugging Face link into a download plan."""
+    p = argparse.ArgumentParser(
+        prog="waiter fetch",
+        description=(
+            "Turn a Hugging Face model page and/or a direct download link into a complete, "
+            "runnable GGUF download plan — split parts and vision projectors included."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  waiter fetch https://huggingface.co/bartowski/Qwen3-8B-GGUF\n"
+            "  waiter fetch --page <model page> --file <download-arrow link>\n"
+            "  waiter fetch bartowski/Qwen3-8B-GGUF:Q5_K_M\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("link", nargs="?", default="", help="A page link, a file link, or owner/repo[:QUANT]")
+    p.add_argument("--page", default="", help="Model page URL")
+    p.add_argument("--file", dest="file_url", default="", help="Direct file (download-arrow) URL")
+    p.add_argument(
+        "--prefer",
+        choices=["strict", "file", "page"],
+        default="strict",
+        help="Which link wins if the two name different repositories",
+    )
+    p.add_argument("--no-vision", dest="include_vision", action="store_false")
+    p.add_argument("--offline", action="store_true", help="Resolve from the links alone")
+    p.add_argument("--local", action="store_true", help="Resolve here instead of asking the server")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+
+    page, file_url = args.page, args.file_url
+    if args.link:
+        # A single positional link is a page or a file; work out which
+        # rather than making the user remember two flag names.
+        from ..hyperlink.hfmerge import parse_link
+
+        try:
+            ref = parse_link(args.link)
+        except Exception as exc:  # noqa: BLE001 - reported, not raised
+            _err(str(exc))
+            return 1
+        if ref.has_file:
+            file_url = file_url or args.link
+        else:
+            page = page or args.link
+    if not page and not file_url:
+        _err("Give a link: a model page, a file link, or both (--page/--file).")
+        return 1
+
+    if args.local:
+        from ..hyperlink.hfmerge import HFResolveError
+        from ..hyperlink.hfmerge import resolve as hf_resolve
+
+        try:
+            data = hf_resolve(
+                page,
+                file_url,
+                prefer=args.prefer,
+                include_vision=args.include_vision,
+                offline=args.offline,
+            ).to_dict()
+        except HFResolveError as exc:
+            _err(str(exc))
+            if exc.hint:
+                _info(f"  {exc.hint}")
+            return 1
+    else:
+        client, _ = _client_for(args)
+        data = client.hyperlink_resolve_model(
+            page_url=page,
+            file_url=file_url,
+            prefer=args.prefer,
+            include_vision=args.include_vision,
+            offline=args.offline,
+        )
+
+    if args.as_json:
+        _print_json(data)
+        return 0
+
+    _print_table(
+        ["field", "value"],
+        [
+            ["repo", data["repo_id"]],
+            ["revision", data["revision"]],
+            ["quantisation", data["quantization"] or "unknown"],
+            ["primary file", data["primary_file"]],
+            ["files", str(data["file_count"])],
+            ["total size", data["total_size_human"]],
+            ["split model", "yes" if data["is_split"] else "no"],
+            ["vision projector", "yes" if data["has_vision"] else "no"],
+            ["licence", data["license"] or "-"],
+            ["gated", "yes" if data["gated"] else "no"],
+        ],
+        title="Resolved model",
+    )
+    _print_table(
+        ["file", "role", "size"],
+        [[f["filename"], f["role"], _human_bytes(f["size_bytes"])] for f in data["files"]],
+        title="Download plan",
+    )
+    for warning in data.get("warnings", []):
+        _warn(warning)
+    return 0
+
+
+def _human_bytes(size: int) -> str:
+    value = float(size or 0)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            return f"{int(value)} B" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TiB"
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -1247,6 +1711,11 @@ Usage:
   waiter smoke    Run smoke tests against a server
   waiter tui      Open the full curses dashboard (same as `waiter serv -G`)
   waiter config   Show the locally saved config
+
+T1 v1.0.26.8.0.1:
+  waiter lmstudio  Bridge to a model loaded in LM Studio (status/models/chat/local)
+  waiter hyperlink Pair phones, manage devices and server-side chat sessions
+  waiter fetch     Resolve a Hugging Face page + file link into a GGUF download plan
 
 Every subcommand accepts -I/-K/-F/-P/-H to override the saved config for
 just that call, and --json for raw JSON output.
@@ -1293,6 +1762,10 @@ def main(argv: list[str] | None = None) -> int:
         "tui": _cmd_tui,
         "doctor": _cmd_doctor,
         "smoke": _cmd_smoke,
+        # T1 v1.0.26.8.0.1
+        "lmstudio": _cmd_lmstudio,
+        "hyperlink": _cmd_hyperlink,
+        "fetch": _cmd_fetch,
     }
 
     if cmd not in dispatch:

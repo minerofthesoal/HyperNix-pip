@@ -1,0 +1,315 @@
+# Build the HyperLink iOS app and package it as an .ipa.
+#
+# Callable three ways:
+#   * on a push/PR that touches ios/  — build + test, artifact only
+#   * workflow_dispatch                — same, on demand
+#   * workflow_call                    — from release.yml, so the IPA
+#                                        ships with the Python release
+#
+# Signing
+# -------
+# The default build is **unsigned**: CI has no Apple Developer identity
+# and a workflow that requires one cannot run on a fork or for anyone
+# who has not set up secrets. An unsigned IPA is installable with
+# AltStore, Sideloadly, or a free Xcode signing profile, which is how
+# this app is distributed.
+#
+# When the four signing secrets *are* present the job signs properly and
+# exports a distributable IPA instead. The two paths differ only in the
+# export step; everything before it is identical, so an unsigned build
+# is a real test of the signed one.
+name: ios
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run the unit tests on a simulator"
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      run_tests:
+        description: "Run the unit tests on a simulator"
+        type: boolean
+        default: false
+      version:
+        description: "Marketing version to stamp into the build"
+        type: string
+        default: ""
+    outputs:
+      ipa_artifact:
+        description: "Name of the uploaded IPA artifact"
+        value: ${{ jobs.build.outputs.ipa_artifact }}
+      signed:
+        description: "Whether the IPA is signed"
+        value: ${{ jobs.build.outputs.signed }}
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build HyperLink.ipa
+    # macos-15 carries the Xcode 16/26 line. The app's deployment target
+    # is iOS 18, so it builds on any of them; the iOS 27 SDK is picked up
+    # automatically when the runner image ships it (see "Select Xcode").
+    runs-on: macos-15
+    timeout-minutes: 45
+    outputs:
+      ipa_artifact: ${{ steps.package.outputs.artifact_name }}
+      signed: ${{ steps.signing.outputs.available }}
+      version: ${{ steps.version.outputs.marketing }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          # Take the newest Xcode the runner has rather than pinning a
+          # version that will be removed from the image in three months.
+          latest="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$latest" ]; then
+            echo "::error::No Xcode found on this runner"
+            exit 1
+          fi
+          sudo xcode-select -s "$latest/Contents/Developer"
+          xcodebuild -version
+          echo "--- SDKs ---"
+          xcodebuild -showsdks | grep -i iphone || true
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          # The .xcodeproj is generated, not committed — see ios/project.yml.
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Work out the version to stamp
+        id: version
+        run: |
+          set -euo pipefail
+          # The app's marketing version tracks the T1 API's year.month
+          # (1.0.26.8.x), which is what the server reports and what a
+          # support question will quote. CFBundleVersion is the run
+          # number, which is monotonic and unique — App Store Connect
+          # and TestFlight both require that.
+          supplied="${{ inputs.version }}"
+          if [ -n "$supplied" ]; then
+            marketing="$supplied"
+          else
+            marketing="$(python3 ios/scripts/app_version.py)"
+          fi
+          echo "marketing=$marketing" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "::notice::HyperLink $marketing (build ${GITHUB_RUN_NUMBER})"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          ls -la HyperLink.xcodeproj
+
+      - name: Do we have signing secrets?
+        id: signing
+        env:
+          CERT: ${{ secrets.IOS_DIST_CERTIFICATE_P12 }}
+          PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          TEAM: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Signing secrets present — producing a signed IPA"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No signing secrets — producing an unsigned IPA (sideload with AltStore/Sideloadly)"
+          fi
+
+      - name: Run the unit tests
+        if: inputs.run_tests != false
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          # Pick whichever iPhone simulator the runner actually has
+          # rather than naming one: the available devices change with
+          # every image update, and a hard-coded name is the single most
+          # common reason an iOS workflow starts failing on its own.
+          device="$(python3 scripts/pick_simulator.py || true)"
+          if [ -z "$device" ]; then
+            echo "::warning::No iPhone simulator on this runner — skipping tests"
+            exit 0
+          fi
+          echo "Testing on simulator $device"
+          set -o pipefail
+          xcodebuild test \
+            -project HyperLink.xcodeproj \
+            -scheme HyperLink \
+            -configuration Debug \
+            -destination "id=$device" \
+            -resultBundlePath build/TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -60
+
+      - name: Archive
+        working-directory: ios
+        env:
+          MARKETING: ${{ steps.version.outputs.marketing }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          extra=()
+          if [ "${{ steps.signing.outputs.available }}" != "true" ]; then
+            extra+=(CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO)
+          else
+            extra+=(DEVELOPMENT_TEAM="${{ secrets.IOS_TEAM_ID }}")
+          fi
+          xcodebuild archive \
+            -project HyperLink.xcodeproj \
+            -scheme HyperLink \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/HyperLink.xcarchive \
+            MARKETING_VERSION="$MARKETING" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            "${extra[@]}" \
+            | tail -40
+
+      - name: Import the signing identity
+        if: steps.signing.outputs.available == 'true'
+        env:
+          CERT_P12: ${{ secrets.IOS_DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/hyperlink-signing.keychain-db"
+          # A random, one-shot keychain password: this keychain exists
+          # for the length of one job and is never written anywhere.
+          password="$(openssl rand -base64 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 900 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          profiles="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profiles"
+          echo "$PROFILE" | base64 --decode > "$profiles/hyperlink.mobileprovision"
+
+      - name: Package the IPA
+        id: package
+        working-directory: ios
+        env:
+          MARKETING: ${{ steps.version.outputs.marketing }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/output
+
+          if [ "${{ steps.signing.outputs.available }}" = "true" ]; then
+            method="${{ secrets.IOS_EXPORT_METHOD || 'ad-hoc' }}"
+            team="${{ secrets.IOS_TEAM_ID }}"
+            printf '%s\n' \
+              '<?xml version="1.0" encoding="UTF-8"?>' \
+              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+              '<plist version="1.0"><dict>' \
+              "<key>method</key><string>${method}</string>" \
+              "<key>teamID</key><string>${team}</string>" \
+              '<key>signingStyle</key><string>manual</string>' \
+              '<key>compileBitcode</key><false/>' \
+              '<key>stripSwiftSymbols</key><true/>' \
+              '<key>destination</key><string>export</string>' \
+              '</dict></plist>' > build/ExportOptions.plist
+            xcodebuild -exportArchive \
+              -archivePath build/HyperLink.xcarchive \
+              -exportOptionsPlist build/ExportOptions.plist \
+              -exportPath build/output | tail -20
+            suffix=""
+          else
+            # No signing identity: build the IPA layout by hand. An .ipa
+            # is a zip with the .app inside a top-level Payload/
+            # directory and nothing else — Sideloadly and AltStore
+            # re-sign from exactly this.
+            app="build/HyperLink.xcarchive/Products/Applications/HyperLink.app"
+            if [ ! -d "$app" ]; then
+              echo "::error::Archive produced no HyperLink.app"
+              find build/HyperLink.xcarchive -maxdepth 4 -name '*.app' || true
+              exit 1
+            fi
+            rm -rf build/Payload
+            mkdir -p build/Payload
+            cp -R "$app" build/Payload/
+            (cd build && zip -qry output/HyperLink.ipa Payload)
+            rm -rf build/Payload
+            suffix="-unsigned"
+          fi
+
+          produced="$(ls build/output/*.ipa | head -1)"
+          final="build/output/HyperLink-${MARKETING}-b${BUILD_NUMBER}${suffix}.ipa"
+          [ "$produced" = "$final" ] || mv "$produced" "$final"
+          shasum -a 256 "$final" | tee build/output/SHA256SUMS.ios
+
+          name="hyperlink-ipa-${MARKETING}-b${BUILD_NUMBER}"
+          echo "artifact_name=$name" >> "$GITHUB_OUTPUT"
+          echo "ipa_path=ios/$final" >> "$GITHUB_OUTPUT"
+          ls -lah build/output/
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: |
+            ios/build/output/*.ipa
+            ios/build/output/SHA256SUMS.ios
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload the test results
+        if: always() && inputs.run_tests != false
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results-${{ github.run_number }}
+          path: ios/build/TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        env:
+          MARKETING: ${{ steps.version.outputs.marketing }}
+        run: |
+          {
+            echo "### HyperLink iOS"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| version | \`$MARKETING\` (build ${GITHUB_RUN_NUMBER}) |"
+            echo "| signed | ${{ steps.signing.outputs.available }} |"
+            echo "| artifact | \`${{ steps.package.outputs.artifact_name }}\` |"
+            echo
+            if [ "${{ steps.signing.outputs.available }}" != "true" ]; then
+              echo "The IPA is **unsigned**. Install it with AltStore or Sideloadly,"
+              echo "or re-sign it with your own free Apple ID profile in Xcode."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

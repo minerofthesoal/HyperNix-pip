@@ -180,6 +180,10 @@ class ResolvedModel:
         return self.files[0] if self.files else None
 
     @property
+    def file_count(self) -> int:
+        return len(self.files)
+
+    @property
     def is_split(self) -> bool:
         return any(f.role == "weights-part" for f in self.files)
 
@@ -199,7 +203,7 @@ class ResolvedModel:
             "license": self.license,
             "total_bytes": self.total_bytes,
             "total_size_human": human_bytes(self.total_bytes),
-            "file_count": len(self.files),
+            "file_count": self.file_count,
             "is_split": self.is_split,
             "has_vision": self.has_vision,
             "primary_file": primary.filename if primary else "",

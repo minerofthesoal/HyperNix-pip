@@ -36,6 +36,24 @@ jobs:
     uses: ./.github/workflows/build.yml
 
   # ---------------------------------------------------------------------------
+  # Build the HyperLink iOS app alongside the Python package, so the two
+  # ship from one tag. Unsigned unless the signing secrets are set — see
+  # .github/workflows/ios.yml.
+  #
+  # `continue-on-error` is deliberate: the macOS runner is slower, more
+  # expensive, and occasionally short of a working simulator, and none of
+  # that is a reason to block a Python release. A missing IPA is reported
+  # in the release notes rather than failing the tag.
+  # ---------------------------------------------------------------------------
+  ios:
+    name: ios app
+    uses: ./.github/workflows/ios.yml
+    with:
+      run_tests: true
+      version: ""
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
   # Verify the git tag matches pyproject.toml before any publish step.
   # ---------------------------------------------------------------------------
   verify-tag:
@@ -83,8 +101,17 @@ jobs:
   # ---------------------------------------------------------------------------
   github-release:
     name: GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, verify-tag, classify]
+    # `always()` plus explicit result checks on the three required jobs:
+    # the iOS build is allowed to fail or be skipped without holding up
+    # the Python release, but a failed *build* or a mismatched tag must
+    # still stop it.
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.build.result == 'success' &&
+      needs.verify-tag.result == 'success' &&
+      needs.classify.result == 'success'
+    needs: [build, verify-tag, classify, ios]
     runs-on: ubuntu-latest
     steps:
       - name: Download build artifact
@@ -93,8 +120,18 @@ jobs:
           name: ${{ needs.build.outputs.artifact_name }}
           path: dist
 
+      - name: Download the iOS app
+        if: needs.ios.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.ios.outputs.ipa_artifact }}
+          path: dist/ios
+        continue-on-error: true
+
       - name: Show artifacts
-        run: ls -lah dist/
+        run: |
+          ls -lah dist/
+          ls -lah dist/ios/ 2>/dev/null || echo "(no iOS artifact this run)"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -105,6 +142,8 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
             dist/SHA256SUMS
+            dist/ios/*.ipa
+            dist/ios/SHA256SUMS.ios
           body: |
             ## hypernix ${{ github.ref_name }}
             
@@ -136,8 +175,33 @@ jobs:
             hypernix train    expand --src-dir v1 --dst-dir v2 --hidden-size 1536
             ```
 
+            ---
+
+            ### HyperLink for iOS
+
+            The attached `HyperLink-*.ipa` is the companion app: chat with the
+            models on this machine from an iPhone or iPad, on the home network
+            or anywhere over Tailscale. Send photos, upload files and code, and
+            resolve any Hugging Face GGUF link into a real download plan.
+
+            Pair it in two steps — on this machine:
+
+            ```bash
+            pip install "hypernix[t1api]==${{ needs.build.outputs.version }}"
+            waiter hyperlink pair
+            ```
+
+            then type the address and the six-character code into the app.
+
+            The IPA is **unsigned** unless the release was built with signing
+            secrets: install it with AltStore or Sideloadly, or re-sign it in
+            Xcode with a free Apple ID. Requires iOS 18 or newer; developed
+            against the iOS 27 SDK.
+
+            ---
+
             Verify downloads with `sha256sum --check SHA256SUMS` against the
-            attached `SHA256SUMS` file.
+            attached `SHA256SUMS` file (and `SHA256SUMS.ios` for the app).
 
             Changelog: see the auto-generated notes below.
 

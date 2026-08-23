@@ -20,6 +20,146 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.0 — T1 v1.0.26.8.0.1
+
+The T1 API stops tracking the package version. The two ship together but
+answer different questions — "which pip release is this" versus "which
+API contract is this" — and a client pinning a contract could never
+derive one from `0.71.5rc2`. From here the API versions itself.
+
+✨ **The T1 API's own version scheme.** Six parts:
+`api.major.year.month.feature.fix`, in two spellings of one value —
+`1.0.2026.8.0.1` for changelogs and `1.0.26.8.0.1` for the wire, where
+people type it. Both parse, with or without a `v` / `t1 v` prefix, and
+they compare equal; a three-digit year raises rather than being guessed
+at, because a typo that parses is worse than one that does not.
+`generation` (`1.0`) is what a client pins against. `GET /status`
+reports both spellings and the parsed components; its `beta` field says
+`t1-1.0` and keeps its name, because Beta 3 clients read it and renaming
+a field is a breaking change for a cosmetic win. See
+[wiki/T1-API.md#versioning](T1-API.md#versioning).
+
+✨ **The LM Studio bridge** (`hypernix.bridge`, `/bridge/lmstudio`,
+`waiter lmstudio`). Borrow a model already loaded in LM Studio — on
+localhost, across the LAN with CORS on, or over a tailnet. It prefers LM
+Studio's native `/api/v0/models` over `/v1/models` for the one fact the
+OpenAI shape cannot express: whether a model is actually *loaded*.
+`/v1/models` lists everything downloaded, and a chat against an unloaded
+model either stalls on a just-in-time load or fails outright, so
+"appeared in a list" is not treated as "resident". `waiter lmstudio
+status` reports the CORS state explicitly — it only matters for a browser
+or WKWebView talking to LM Studio directly, and "works from curl, not
+from the app" is otherwise a long afternoon. `waiter lmstudio local`
+probes from the machine you are sitting at, with no T1 server involved,
+which is what you want when working out why the server cannot see it.
+The bridge sits behind the T1 API rather than being called directly so
+that authentication, scopes, rate limiting, the audit log and usage
+accounting all apply unchanged — and so LM Studio only has to be
+reachable from the *server*, not from every client.
+
+✨ **HyperLink pairing** (`/hyperlink/pair`, `waiter hyperlink pair`). A
+48-character T1 key is not typeable on a phone, so enrolment is a
+two-step exchange: the PC mints a six-character code — from an alphabet
+with no `0/O/1/I/L`, valid ten minutes, single use, five attempts — and
+the phone redeems it once for a device token stored only as a SHA-256.
+Losing a phone revokes that phone. A device is never an admin whatever
+key paired it: a stolen phone cannot enrol a second one. It *can* unpair
+itself, because that is the app's "sign out" and requiring an admin
+would leave a wiped phone's token valid until somebody noticed.
+
+✨ **Server-side chat sessions** (`/hyperlink/sessions`). Append-only,
+with the answering model recorded per message — people switch models
+mid-thread, and "which model said this" is the first question asked when
+re-reading one. Context is trimmed by token budget rather than message
+count, because a fixed "last 20" either overflows a small context window
+or wastes a large one. A device's owner is the key that paired it, not
+the device id, which is what makes a conversation started on the desktop
+continue on the phone while another operator's stays invisible.
+
+✨ **The attachment store** (`/hyperlink/files`). Content-addressed by
+SHA-256: re-sending the same screenshot costs nothing, ids cannot be
+enumerated, nothing is ever overwritten, and deletion is
+reference-counted so one message's copy going away does not take
+another's bytes. Content type is decided by magic bytes first, then the
+filename, then the client's claim — a `.png` that is really a zip is
+labelled a zip. At inference, images become vision parts, text and code
+become a fenced block with the filename in the fence info, and anything
+else becomes a one-line note so the model can decline rather than
+hallucinate. Downloads are always `Content-Disposition: attachment` with
+`nosniff`: this server can be reached from a WKWebView, and a stored
+file rendering as HTML in the app's origin would be stored XSS.
+
+✨ **Hugging Face link merging** (`/hyperlink/models/resolve`,
+`waiter fetch`). Paste a model page, a direct download link, or both, and
+get one complete download plan. Three pieces of knowledge go into "so it
+runs properly": a split GGUF is pulled as the whole set whichever part
+was clicked (one third of a model is a file llama.cpp refuses); a
+vision projector is included, matched to the weights' quantisation,
+because without it the model loads and then cannot see images — a much
+more confusing failure than not loading at all; and a page and a file
+link naming different repositories raises rather than being silently
+resolved, since that is two tabs open and the wrong one copied. Accepts
+page/tree/blob/resolve URLs, `hf.co`, `hf-mirror.com`, `hf://`, bare
+`owner/repo`, and the Ollama-style `owner/repo:Q4_K_M`. With no network
+it still builds a plan from an exact file link, split part names
+included — a phone on a bad connection should be able to start a
+download it has the URL for.
+
+✨ **Endpoint advertisement** (`/hyperlink/endpoints`). Every address this
+machine answers on, ranked Tailscale-first, so a client tries them in
+order and keeps the one that answers. Nothing to switch when the phone
+leaves the house. Authenticated despite looking innocuous: a list of a
+machine's internal addresses is reconnaissance.
+
+✨ **HyperLink for iOS** (`ios/`). A SwiftUI app: streaming chat, photos,
+file and code upload, per-conversation model switching, and the Hugging
+Face resolver, against a home PC on the LAN or over Tailscale. iOS 18
+and newer, developed against the iOS 27 SDK. Built and packaged as an
+IPA by `.github/workflows/ios.yml` and attached to every GitHub Release
+alongside the wheel — unsigned unless the repository has Apple signing
+secrets, which is what makes the workflow runnable by anyone. The
+`.xcodeproj` is generated from `ios/project.yml` by XcodeGen rather than
+committed. See [ios/README.md](../ios/README.md).
+
+𖢥 **A burnt pairing code came back to life.** The attempt cap deleted the
+code and then raised inside the same `with backend.connect()` block — and
+the connection's `__exit__` rolls back on an exception, so the DELETE was
+undone. A code that had exhausted its five attempts was refused once and
+then worked again on the next try: the exact opposite of a cap.
+Validation, enrolment and cancellation now happen in one transaction and
+the failure is raised after it closes. One transaction, not two, because
+two phones redeeming the same code at the same moment must not both pass
+a check-then-insert.
+
+🐛 **A mistyped pairing code reported the wrong problem.** Normalisation
+stripped every character outside the pairing alphabet, so one wrong
+keystroke silently shortened the code to five characters and the user was
+told "a pairing code is six characters" — an error about something they
+had not done. Only separators are stripped now; a stray character
+survives, the length check passes, and the lookup fails with "unknown
+pairing code", which is true and actionable.
+
+🐛 **`LMStudioModel.publisher` ignored the field it was given.** An
+operator-precedence slip — `str(a or b if c else "")` parses as
+`str((a or b) if c else "")` — meant a model whose id had no `/` in it
+reported no publisher even when the API supplied one.
+
+🐛 **`ResolvedModel.file_count` existed only in `to_dict()`.** Every
+Python caller had to serialise the object to ask it how many files were
+in the plan.
+
+🔧 `hypernix.t1sdk` and `waiter` gained typed methods for all of the
+above; `waiter` gained `lmstudio`, `hyperlink` and `fetch` subcommands.
+`T1_ENVIRONMENT=production` now refuses to start with `T1_LMSTUDIO_URL`
+pointing at a non-loopback, non-Tailscale `http://` address, since that
+sends prompts across the network in the clear. Tailscale is exempt —
+WireGuard already encrypted it.
+
+📚 [wiki/T1-API.md](T1-API.md) gains Versioning, The LM Studio bridge,
+HyperLink and Hugging Face link merging sections, plus the new endpoints
+and environment variables. [ios/README.md](../ios/README.md) covers
+building, sideloading, and how the app is put together.
+
 ## 0.71.5rc2
 
 𖢥 **`hyped-pro`'s Escape key cancelled nothing.** It set a flag that made the TUI *discard* the answer when it eventually arrived — the model kept generating, a cloud call kept billing, and the prompt stayed locked the whole time. The cause was one layer down: the bridge dispatched every request inline off its stdin loop, so a ninety-second `chat` held that loop for ninety seconds and a cancel sent at second two wasn't *read* until second ninety-one. Long commands now run on their own thread while the loop stays free to read `cancel`, each in-flight request owns a `threading.Event`, and the local generation loop polls it once per token. The reply says which actually happened rather than implying more than is true: `stopped` for a local safetensors model, `pending` for a cloud call or llama.cpp inside multilama — neither has an interruption point, so those finish and their reply is dropped. A cancelled turn keeps whatever tokens were produced; only a cancel that produced nothing pops the dangling user turn, which the old code never did at all.

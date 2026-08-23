@@ -5,14 +5,21 @@ mountable into any Python server. The client requests an operation; the
 server decides what exists, what's available, and how much is left — see
 [Design principle](#design-principle).
 
-**Status: Beta 4** (`0.71.5rc2`) — feature-complete against the T1 API
-spec. This page is the living contract for what's actually implemented vs.
-planned; cross-reference against the [Roadmap](#roadmap) before assuming
-an endpoint exists.
+**Status: released — T1 v1.0.26.8.0.1** (long form `1.0.2026.8.0.1`).
+The betas ended here. This page is the living contract for what's actually
+implemented vs. planned; cross-reference against the
+[Roadmap](#roadmap) before assuming an endpoint exists.
+
+The T1 API no longer tracks the `hypernix` package version. The two ship
+together but answer different questions — "which pip release is this"
+versus "which API contract is this" — and a client pinning a contract
+could never derive one from `0.71.5rc2`. See
+[Versioning](#versioning).
 
 ## Contents
 
 - [Quickstart](#quickstart)
+- [Versioning](#versioning)
 - [Installation](#installation)
 - [Architecture](#architecture)
 - [Model registry](#model-registry)
@@ -33,6 +40,9 @@ an endpoint exists.
 - [TLS and mTLS](#tls-and-mtls)
 - [PostgreSQL](#postgresql)
 - [Production deployment](#production-deployment)
+- [The LM Studio bridge](#the-lm-studio-bridge)
+- [HyperLink](#hyperlink)
+- [Hugging Face link merging](#hugging-face-link-merging)
 - [The SDK](#the-sdk)
 - [Endpoint reference](#endpoint-reference)
 - [Configuration](#configuration)
@@ -63,6 +73,66 @@ Then drive the server with `waiter` (see
 waiter serv -A -I http://127.0.0.1:8000 -K <the T1 key from gkey create> -E
 waiter models
 ```
+
+## Versioning
+
+The T1 API has its own version, in six parts:
+
+```
+1   .   0    .   2026  .  8    .   0     .  1
+│       │        │        │        │        │
+│       │        │        │        │        └── bug fix + assorted minor features
+│       │        │        │        └─────────── new feature
+│       │        │        └──────────────────── month of the release
+│       │        └───────────────────────────── year of the release
+│       └────────────────────────────────────── major update
+└────────────────────────────────────────────── T1 API generation
+```
+
+Two spellings of the same version:
+
+| | | |
+|---|---|---|
+| **short** | `1.0.26.8.0.1` | two-digit year. The wire form — what `__t1api_version__`, `GET /status`, `waiter --version` and every response carry, because it is the form people type. |
+| **long** | `1.0.2026.8.0.1` | four-digit year. The changelog form. |
+
+Both parse, with or without a `v` / `t1 v` prefix, and they compare
+equal:
+
+```python
+from hypernix.t1api.version import T1Version, T1_VERSION
+
+T1Version.parse("t1 v1.0.2026.8.0.1") == T1Version.parse("1.0.26.8.0.1")   # True
+T1Version.parse("1.0.26.8.0.1") < "1.0.26.9.0.0"                            # True
+T1_VERSION.generation                                                        # "1.0"
+T1_VERSION.release                                                           # "2026-08"
+```
+
+A three-digit year (`1.0.202.8.0.1`) raises rather than being guessed at:
+a typo that parses is worse than one that does not.
+
+**What a client should pin.** `generation` (`api.major`) is the
+compatibility boundary. Within a generation the API only adds; across one
+it may remove. `T1Version.compatible_with()` is that check.
+
+`GET /status` reports all of it:
+
+```json
+{
+  "t1_api_version": "1.0.26.8.0.1",
+  "t1_api_version_long": "1.0.2026.8.0.1",
+  "beta": "t1-1.0",
+  "t1_version": {"generation": "1.0", "release": "2026-08", "year": 2026, "month": 8}
+}
+```
+
+The `beta` field keeps its name — it used to say `beta4` and now says
+`t1-1.0` — because Beta 3 clients read it, and renaming a field is a
+breaking change for a cosmetic win.
+
+**Package version.** The pip package (`hypernix`) versions
+independently: `0.72.0` ships T1 v1.0.26.8.0.1. `GET /status` reports
+both.
 
 ## Installation
 
@@ -744,6 +814,197 @@ Regenerate the last two after changing a response shape:
 python scripts/t1api_examples.py
 ```
 
+## The LM Studio bridge
+
+*New in T1 v1.0.26.8.0.1.*
+
+LM Studio serves an OpenAI-compatible API. The bridge borrows whatever
+model is loaded in it — on localhost, across the LAN, or over a tailnet —
+and exposes it through the T1 API.
+
+```bash
+export T1_LMSTUDIO_URL=http://localhost:1234
+waiter lmstudio status      # reachable? anything loaded? CORS?
+waiter lmstudio models      # what it has, loaded ones marked
+waiter lmstudio chat "explain SIMD in one line"
+waiter lmstudio local       # probe from *this* machine, no T1 server
+```
+
+**Why it goes through the T1 API rather than being called directly.**
+Authentication, scopes, rate limiting, the audit log and usage accounting
+all sit in front of this router because it is a router. LM Studio has
+none of those. And LM Studio only has to be reachable from the *server*,
+not from every client — which is what lets it stay bound to loopback on
+the desktop while a phone still uses it.
+
+**What it does not do.** Load, unload, or download models in LM Studio.
+LM Studio owns its models; the bridge borrows what is loaded. When
+nothing is loaded, the error says exactly that, with the address it asked
+and the models it saw.
+
+Two details worth knowing:
+
+* The bridge prefers LM Studio's native `/api/v0/models` over `/v1/models`
+  for the one fact the OpenAI shape cannot express: whether a model is
+  actually **loaded**. `/v1/models` lists everything downloaded, and a
+  chat against an unloaded model either stalls on a just-in-time load or
+  fails outright.
+* `waiter lmstudio status` reports the **CORS** state explicitly. It only
+  matters for a browser or WKWebView talking to LM Studio directly — a
+  Python client is not subject to it — but "works from curl, not from the
+  app" is otherwise a long afternoon.
+
+Over a LAN, plain HTTP means prompts cross the network in the clear, so
+`T1_ENVIRONMENT=production` refuses to start with `T1_LMSTUDIO_URL`
+pointing at a non-loopback, non-Tailscale `http://` address. Tailscale is
+exempt: WireGuard already encrypted it.
+
+| Variable | Default | |
+|---|---|---|
+| `T1_LMSTUDIO_ENABLED` | `1` | master switch |
+| `T1_LMSTUDIO_URL` | — | where LM Studio is |
+| `T1_LMSTUDIO_API_KEY` | — | for a reverse proxy in front of it |
+| `T1_LMSTUDIO_DISCOVERY` | `0` | allow admin-triggered tailnet sweeps |
+| `T1_LMSTUDIO_TIMEOUT` | `300` | read timeout, seconds |
+
+## HyperLink
+
+*New in T1 v1.0.26.8.0.1.*
+
+The phone-facing surface, and the backend for the
+[HyperLink iOS app](../ios/README.md): pair a device, hold conversations
+that live on the PC, attach images and code, and resolve model links.
+
+### Pairing
+
+A long `T1_...` key is not typeable on a phone. So enrolment is a
+two-step exchange:
+
+```bash
+waiter hyperlink pair --label "my iPhone"
+```
+
+which prints a six-character code and the addresses this machine answers
+on. The phone posts the code to `POST /hyperlink/pair/redeem` and gets a
+device token back, once.
+
+Properties, and why each:
+
+* **The code is not the credential.** Six characters from an alphabet
+  with no `0/O/1/I/L`, ten minutes, single use, five attempts. The
+  credential it produces is 32 bytes of `secrets.token_urlsafe`.
+* **Tokens are stored hashed.** A stolen `hypernix.db` does not hand over
+  anyone's phone. Verification is `compare_digest` over the SHA-256.
+* **Revocation is per-device.** Losing a phone revokes that phone.
+* **A device is never an admin.** Whatever key paired it, a device token
+  cannot mint pairing codes, list other devices, or unpair one — a stolen
+  phone must not be able to enrol a second one. It *can* unpair itself:
+  that is the app's "sign out", and requiring an admin would leave a wiped
+  phone's token valid until somebody noticed.
+
+`POST /hyperlink/pair/redeem` is the only unauthenticated endpoint in
+HyperLink. Every failure against it is audited with the client address,
+because a run of failures is what guessing looks like.
+
+### Ownership
+
+A device's **owner is the key that paired it**, not the device id. That
+one decision is what makes a conversation started on the desktop
+continue on the phone, while another operator's stays invisible.
+Unpairing a phone does not orphan the threads started on it.
+
+### Sessions
+
+Conversations live on the server (`/hyperlink/sessions`), append-only,
+with the answering model recorded per message — people switch models
+mid-thread and "which model said this" is the first question asked when
+re-reading one.
+
+Context is trimmed by **token budget**, not message count: a fixed "last
+20 messages" either overflows a small context window or wastes a large
+one. The system prompt is always kept and charged first, so a long one
+eats into history rather than being dropped — dropping it changes the
+assistant's behaviour mid-conversation.
+
+`GET /hyperlink/sessions/{id}/messages?after_seq=N` is the incremental
+sync hook.
+
+### Attachments
+
+Content-addressed by SHA-256 (`/hyperlink/files`). Re-sending the same
+screenshot costs nothing, ids cannot be enumerated, and nothing is ever
+overwritten. Deletion is reference-counted, so removing one message's
+copy does not take another's bytes.
+
+At the moment of inference each attachment is expanded differently:
+
+| kind | becomes |
+|---|---|
+| image | an `image_url` part with an inline data URL — what vision models take |
+| text/code | a fenced block in the message, with the filename in the fence info |
+| anything else | a one-line note naming the file and its type, so the model can decline rather than hallucinate |
+
+Content type is decided by **magic bytes first**, then the filename, then
+the client's claim — a `.png` that is really a zip is labelled a zip.
+Downloads are always `Content-Disposition: attachment` with `nosniff`:
+this server can be reached from a WKWebView, and a stored file rendering
+as HTML in the app's origin would be stored XSS.
+
+### Endpoint advertisement
+
+`GET /hyperlink/endpoints` returns every address this machine answers on,
+ranked: Tailscale DNS name, Tailscale IP, LAN, loopback. The app tries
+them in order and keeps the first that answers, so nothing has to change
+when the phone leaves the house. Authenticated, despite looking
+innocuous — a list of a machine's internal addresses is reconnaissance.
+
+## Hugging Face link merging
+
+*New in T1 v1.0.26.8.0.1.* `POST /hyperlink/models/resolve`, and
+`waiter fetch`.
+
+Somebody finds a GGUF they want. What they have is one or two URLs, and
+neither is sufficient:
+
+* a **model page** says which repository and what is in it, but not which
+  of its fourteen quantisations you meant;
+* a **direct download link** — the one behind the download arrow — says
+  exactly which bytes, but nothing about the rest of the repo, and for a
+  vision model or a split GGUF those bytes alone will not load.
+
+Give it either or both and it returns one complete download plan:
+
+```bash
+waiter fetch https://huggingface.co/bartowski/Qwen3-8B-GGUF
+waiter fetch --page <model page> --file <download-arrow link>
+waiter fetch bartowski/Qwen3-8B-GGUF:Q5_K_M
+waiter fetch <any link> --local --offline      # resolve here, no server
+```
+
+Three pieces of knowledge go into "so it runs properly":
+
+1. **Split GGUFs.** `model-00001-of-00003.gguf` is one third of a model.
+   The part someone happened to click gives a file llama.cpp refuses. The
+   whole set is pulled, whichever part was named, and a missing part on
+   the hub is reported.
+2. **Vision projectors.** A VLM's `mmproj-*.gguf` is a separate file, and
+   without it the model loads and then cannot see images — a much more
+   confusing failure than not loading at all. The projector matching the
+   weights' quantisation is preferred.
+3. **Repository conflicts.** When the page and the file link name
+   different repositories, that is two tabs open and the wrong one
+   copied. It raises, unless `prefer` says which side wins (`file` for
+   the bytes, `page` for the repository).
+
+Accepted forms: full page URLs, `/tree/`, `/blob/`, `/resolve/` links,
+`hf.co` and `hf-mirror.com`, `hf://owner/repo/file.gguf`, bare
+`owner/repo`, and the Ollama-style `owner/repo:Q4_K_M` shorthand.
+
+With no network — or with `offline: true` — a plan is still built from a
+direct file link alone, split part names included, marked
+`metadata_from_api: false`. A phone on a bad connection should still be
+able to start a download it has the exact URL for.
+
 ## The SDK
 
 `hypernix.t1sdk` — zero dependencies beyond the standard library, because
@@ -895,6 +1156,42 @@ and regenerating shows the behaviour change as a diff. The exported schema
 is `examples/t1api/openapi.json`; a running server also serves it at
 `/openapi.json` with Swagger UI at `/docs`.
 
+**T1 v1.0.26.8.0.1**
+
+*The LM Studio bridge.* `base_url` is an admin-only per-request override:
+useful when moving a model between two machines, and a server-side
+request forgery primitive if anyone may set it.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/bridge/lmstudio/status` | bearer | reachable? loaded? CORS? (`?discover=true` is admin + opt-in) |
+| GET | `/bridge/lmstudio/models` | bearer | every model, loaded ones marked |
+| POST | `/bridge/lmstudio/chat` | bearer | one completion; reply lifted out of the envelope, full one in `raw` |
+| POST | `/bridge/lmstudio/chat/stream` | bearer | SSE, relayed near-verbatim |
+
+*HyperLink.* Every path accepts a device token **or** a T1 key, except
+where noted.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/hyperlink/endpoints` | bearer | addresses this machine answers on, ranked |
+| POST | `/hyperlink/pair` | bearer, **admin, not a device** | mint a pairing code |
+| POST | `/hyperlink/pair/redeem` | **none** — the code is the credential | one device token, once |
+| DELETE | `/hyperlink/pair/{code}` | bearer, admin | cancel an unredeemed code |
+| GET | `/hyperlink/devices` | bearer, admin | paired devices |
+| GET | `/hyperlink/devices/me` | device token | what this token resolves to |
+| PATCH | `/hyperlink/devices/{id}` | admin, or the device itself | rename |
+| DELETE | `/hyperlink/devices/{id}` | admin, or the device itself | unpair |
+| GET/POST | `/hyperlink/sessions` | bearer | list / create |
+| GET/PATCH/DELETE | `/hyperlink/sessions/{id}` | bearer | one session |
+| GET | `/hyperlink/sessions/{id}/messages` | bearer | `?after_seq=` for incremental sync |
+| POST | `/hyperlink/sessions/{id}/chat` | bearer | one turn; both messages persisted |
+| POST | `/hyperlink/sessions/{id}/chat/stream` | bearer | the same turn, streamed |
+| POST | `/hyperlink/files` | bearer | multipart upload |
+| GET | `/hyperlink/files` | bearer | list; `?session_id=` to scope |
+| GET/DELETE | `/hyperlink/files/{id}` | bearer | download (always `attachment`) / delete |
+| POST | `/hyperlink/models/resolve` | bearer | merge a Hugging Face page + file link |
+
 ## Configuration
 
 See [`examples/t1api/.env.example`](../examples/t1api/.env.example) for
@@ -910,6 +1207,23 @@ booleans only, never values.
 Setting `T1_ENVIRONMENT=production` additionally makes the configuration
 **validated rather than assumed** — see
 [Production deployment](#production-deployment).
+
+T1 v1.0.26.8.0.1 adds:
+
+| Variable | Default | |
+|---|---|---|
+| `T1_LMSTUDIO_ENABLED` | `1` | the LM Studio bridge |
+| `T1_LMSTUDIO_URL` | — | where LM Studio is; plaintext non-loopback is a production error |
+| `T1_LMSTUDIO_API_KEY` | — | secret; reported as set/unset only |
+| `T1_LMSTUDIO_DISCOVERY` | `0` | allow admin-triggered tailnet sweeps |
+| `T1_LMSTUDIO_TIMEOUT` | `300` | read timeout, seconds |
+| `T1_HYPERLINK_ENABLED` | `1` | the phone-facing surface |
+| `T1_HYPERLINK_PUBLIC_URL` | — | a reverse proxy / tunnel address; ranked first |
+| `T1_HYPERLINK_PORT` | `8000` | the port advertised to clients |
+| `T1_HYPERLINK_FILES_DIR` | `~/.hypernix/hyperlink/files` | attachment blobs |
+| `T1_HYPERLINK_MAX_UPLOAD_BYTES` | `67108864` | enforced on bytes read, not `Content-Length` |
+| `T1_HYPERLINK_PAIRING_TTL` | `600` | how long a pairing code lives |
+| `T1_HF_TOKEN` / `HF_TOKEN` | — | secret; for resolving gated repositories |
 
 ## Security
 
@@ -985,7 +1299,14 @@ renumbered or reinterpreted.
 | **1** | Core FastAPI server, T1 auth + scoped tokens, model registry, basic per-key/model usage tracking, `/health` `/status` `/models` + auth/usage/config endpoints, basic `waiter` CLI, SQLite, OpenAPI docs | **Shipped** |
 | **2** | Module registry, module upload/sync, server registry, async jobs, event streaming, quota cascade, model routing engine, billing/payment-token support, Tailscale/local deployment guide | **Shipped** |
 | **3** | Production hardening, PostgreSQL backend, complete audit logging, mTLS, advanced rate limiting, remote multi-server deployment (real module byte transport + remote-source fetch), full `waiter` TUI (curses `-G`), complete SDK, complete test suite, deployment docs, security audit checklist, production configuration validation | **Shipped** (this doc). One item is deliberately still open: module blobs are checksummed but not encrypted at rest — the store relies on filesystem permissions. See [Security](#security). |
-| **4** | `hyped-pro` T1-key support against a local T1 API server; `hyped-pro` auto-displaying the current public release version; `qwen3.8-27b` registry entry | Not started |
+| **4** | `hyped-pro` T1-key support against a local T1 API server; `hyped-pro` auto-displaying the current public release version; `qwen3.8-27b` registry entry | **Shipped** |
+
+The betas end there. Releases from **T1 v1.0.26.8.0.1** onward use the
+six-part scheme in [Versioning](#versioning) rather than a beta number.
+
+| Release | Scope | Status |
+|---|---|---|
+| **1.0.26.8.0.1** | The [LM Studio bridge](#the-lm-studio-bridge); [HyperLink](#hyperlink) pairing, sessions, attachments and endpoint advertisement; [Hugging Face link merging](#hugging-face-link-merging); the [HyperLink iOS app](../ios/README.md) | **Shipped** |
 
 ## Design principle
 

@@ -108,13 +108,26 @@ def generate_code(length: int = CODE_LENGTH) -> str:
     return "".join(secrets.choice(PAIRING_ALPHABET) for _ in range(length))
 
 
+#: Punctuation people add when reading a code off a screen. Stripped;
+#: everything else is left alone.
+_CODE_SEPARATORS = frozenset(" -_.\t\n\r/|,")
+
+
 def normalise_code(code: str) -> str:
     """Accept ``abc-123``, ``ABC 123``, ``abc123`` as the same code.
 
-    People add the separator they saw on screen, or one they invented.
-    Rejecting a correct code over a hyphen is a bad trade.
+    People add the separator they saw on screen, or one they invented,
+    and rejecting a correct code over a hyphen is a bad trade.
+
+    Only separators are removed. An earlier version stripped anything
+    outside :data:`PAIRING_ALPHABET`, which looked tidier and was wrong:
+    a user who mistyped one character got their code silently shortened
+    to five and was then told "a pairing code is six characters" — an
+    error about the wrong thing entirely. Keeping the stray character
+    means the length check passes and the lookup fails, which is
+    "unknown pairing code": true, and actionable.
     """
-    return "".join(ch for ch in code.upper() if ch in PAIRING_ALPHABET)
+    return "".join(ch for ch in code.upper() if ch not in _CODE_SEPARATORS)
 
 
 def hash_token(token: str) -> str:
@@ -310,6 +323,17 @@ class DeviceRegistry:
 
         Returns ``(record, token)``. The token is the only copy — it is
         not recoverable from the registry afterwards, by design.
+
+        Validation and enrolment happen in **one** transaction, and the
+        failure is raised only after that transaction has closed. Both
+        halves of that matter:
+
+        * One transaction, because two phones redeeming the same code at
+          the same moment must not both pass a check-then-insert.
+        * Raise afterwards, because raising inside the ``with`` rolls the
+          transaction back — which silently undid the DELETE on the
+          attempt-cap path, so a burnt code was refused once and then
+          worked again. The exact opposite of a cap.
         """
         cleaned = normalise_code(code)
         now = time.time()
@@ -318,67 +342,83 @@ class DeviceRegistry:
                 T1ErrorCode.VALIDATION_ERROR,
                 f"A pairing code is {CODE_LENGTH} characters; got {len(cleaned)}",
             )
+
+        failure: T1APIError | None = None
+        record: DeviceRecord | None = None
+        token = ""
+
         with self._lock, self.backend.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM hyperlink_pairing_codes WHERE code = ?", (cleaned,)
             ).fetchone()
             if row is None:
-                raise T1APIError(T1ErrorCode.NOT_FOUND, "Unknown pairing code")
-            entry = _code_from_row(row)
-            if entry.used:
-                raise T1APIError(
-                    T1ErrorCode.CONFLICT,
-                    "That pairing code has already been used. Generate a new one "
-                    "on the PC with: waiter hyperlink pair",
-                )
-            if entry.expired:
-                raise T1APIError(
-                    T1ErrorCode.VALIDATION_ERROR,
-                    "That pairing code has expired. Generate a new one on the PC with: "
-                    "waiter hyperlink pair",
-                )
-            if entry.attempts >= MAX_REDEEM_ATTEMPTS:
-                conn.execute("DELETE FROM hyperlink_pairing_codes WHERE code = ?", (cleaned,))
-                raise T1APIError(
-                    T1ErrorCode.VALIDATION_ERROR,
-                    "Too many failed attempts on that pairing code; it has been cancelled",
-                )
+                failure = T1APIError(T1ErrorCode.NOT_FOUND, "Unknown pairing code")
+            else:
+                entry = _code_from_row(row)
+                if entry.used:
+                    failure = T1APIError(
+                        T1ErrorCode.CONFLICT,
+                        "That pairing code has already been used. Generate a new one "
+                        "on the PC with: waiter hyperlink pair",
+                    )
+                elif entry.expired:
+                    failure = T1APIError(
+                        T1ErrorCode.VALIDATION_ERROR,
+                        "That pairing code has expired. Generate a new one on the PC with: "
+                        "waiter hyperlink pair",
+                    )
+                elif entry.attempts >= MAX_REDEEM_ATTEMPTS:
+                    conn.execute(
+                        "DELETE FROM hyperlink_pairing_codes WHERE code = ?", (cleaned,)
+                    )
+                    failure = T1APIError(
+                        T1ErrorCode.VALIDATION_ERROR,
+                        "Too many failed attempts on that pairing code; it has been cancelled",
+                    )
+                else:
+                    token = "HLNK_" + secrets.token_urlsafe(32)
+                    record = DeviceRecord(
+                        device_id=uuid.uuid4().hex,
+                        name=device_name.strip() or "Unnamed device",
+                        platform=platform,
+                        app_version=app_version,
+                        scopes=entry.scopes,
+                        paired_by=entry.created_by,
+                        created_at=now,
+                        last_seen=now,
+                        last_address=address,
+                        token_hash=hash_token(token),
+                    )
+                    conn.execute(
+                        """INSERT INTO hyperlink_devices
+                           (device_id, name, platform, app_version, token_hash, scopes,
+                            paired_by, created_at, last_seen, last_address, revoked_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+                        (
+                            record.device_id,
+                            record.name,
+                            record.platform,
+                            record.app_version,
+                            record.token_hash,
+                            json.dumps(list(record.scopes)),
+                            record.paired_by,
+                            record.created_at,
+                            record.last_seen,
+                            record.last_address,
+                        ),
+                    )
+                    # Marking the code used inside the same transaction
+                    # as the insert is what makes "single use" true under
+                    # concurrency rather than merely usually true.
+                    conn.execute(
+                        "UPDATE hyperlink_pairing_codes "
+                        "SET redeemed_at = ?, redeemed_device = ? WHERE code = ?",
+                        (now, record.device_id, cleaned),
+                    )
 
-            token = "HLNK_" + secrets.token_urlsafe(32)
-            record = DeviceRecord(
-                device_id=uuid.uuid4().hex,
-                name=device_name.strip() or "Unnamed device",
-                platform=platform,
-                app_version=app_version,
-                scopes=entry.scopes,
-                paired_by=entry.created_by,
-                created_at=now,
-                last_seen=now,
-                last_address=address,
-                token_hash=hash_token(token),
-            )
-            conn.execute(
-                """INSERT INTO hyperlink_devices
-                   (device_id, name, platform, app_version, token_hash, scopes,
-                    paired_by, created_at, last_seen, last_address, revoked_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
-                (
-                    record.device_id,
-                    record.name,
-                    record.platform,
-                    record.app_version,
-                    record.token_hash,
-                    json.dumps(list(record.scopes)),
-                    record.paired_by,
-                    record.created_at,
-                    record.last_seen,
-                    record.last_address,
-                ),
-            )
-            conn.execute(
-                "UPDATE hyperlink_pairing_codes SET redeemed_at = ?, redeemed_device = ? WHERE code = ?",
-                (now, record.device_id, cleaned),
-            )
+        if failure is not None:
+            raise failure
+        assert record is not None       # one of the two branches always runs
         return record, token
 
     def note_failed_attempt(self, code: str) -> None:
