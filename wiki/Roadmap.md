@@ -52,11 +52,6 @@ rest — see [T1-API.md#known-limitation](T1-API.md#known-limitation).
 - `hypernix path`: automatic, reversible `PATH` setup for the console
   scripts (`hypernix.system.pathfix`)
 
-## 0.72.0 (Next Milestone)
-
-- Advanced multi-agent orchestration & subagent execution protocols
-- Enhanced quantization formats & Pascal sm_61 auto-tuning
-- and more
 
 ---
 
