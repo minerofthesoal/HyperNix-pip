@@ -372,3 +372,16 @@ timeline
         : f6cfe32 - Fix link to changelog in README
 ```
 
+## Release v0.72.0 (2026-08-23)
+
+```mermaid
+timeline
+    title Release v0.72.0 Commits
+    0.72.0
+        : 7433970 - Regenerate egg-info for 0.72.0
+        : fed3509 - iOS- a send race, a command that did not exist, and project hygiene
+        : 797be9d - HyperLink for iOS, the waiter commands, and the release plumbing
+        : c7eabfd - T1 v1.0.26.8.0.1- the LM Studio bridge and HyperLink
+        : fa8ac81 - chore- update JSON stats (scheduled)
+```
+
