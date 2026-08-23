@@ -9,6 +9,7 @@ setup.py
 .github/workflows/build.yml
 .github/workflows/ci.yml
 .github/workflows/deploy-docs.yml
+.github/workflows/ios.yml
 .github/workflows/public-release.yml
 .github/workflows/release.yml
 .github/workflows/update-json-stats.yml
@@ -60,6 +61,8 @@ src/hypernix/package-lock.json
 src/hypernix/package.json
 src/hypernix/py.typed
 src/hypernix/tsconfig.json
+src/hypernix/bridge/__init__.py
+src/hypernix/bridge/lmstudio.py
 src/hypernix/chat/__init__.py
 src/hypernix/chat/cookbook.py
 src/hypernix/chat/countertop.py
@@ -89,6 +92,12 @@ src/hypernix/evaluation/new_fridge.py
 src/hypernix/evaluation/new_range.py
 src/hypernix/evaluation/old_range.py
 src/hypernix/evaluation/vera.py
+src/hypernix/hyperlink/__init__.py
+src/hypernix/hyperlink/discovery.py
+src/hypernix/hyperlink/files.py
+src/hypernix/hyperlink/hfmerge.py
+src/hypernix/hyperlink/pairing.py
+src/hypernix/hyperlink/sessions.py
 src/hypernix/interfaces/__init__.py
 src/hypernix/interfaces/assistant.py
 src/hypernix/interfaces/cli.py
@@ -184,15 +193,18 @@ src/hypernix/t1api/servers.py
 src/hypernix/t1api/storage.py
 src/hypernix/t1api/transport.py
 src/hypernix/t1api/usage.py
+src/hypernix/t1api/version.py
 src/hypernix/t1api/data/model_registry.example.json
 src/hypernix/t1api/data/routing_policies.example.json
 src/hypernix/t1api/routers/__init__.py
 src/hypernix/t1api/routers/audit.py
 src/hypernix/t1api/routers/auth.py
 src/hypernix/t1api/routers/billing.py
+src/hypernix/t1api/routers/bridge.py
 src/hypernix/t1api/routers/config.py
 src/hypernix/t1api/routers/events.py
 src/hypernix/t1api/routers/health.py
+src/hypernix/t1api/routers/hyperlink.py
 src/hypernix/t1api/routers/jobs.py
 src/hypernix/t1api/routers/keys.py
 src/hypernix/t1api/routers/models.py
@@ -266,6 +278,8 @@ tests/test_quantize_v0703.py
 tests/test_ranges.py
 tests/test_shakers_and_torchcompat.py
 tests/test_snapshot_roundtrip.py
+tests/test_t1_v1_0_26_core.py
+tests/test_t1_v1_0_26_http.py
 tests/test_t1api_auth.py
 tests/test_t1api_beta3_core.py
 tests/test_t1api_beta3_http.py
