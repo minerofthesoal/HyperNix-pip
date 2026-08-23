@@ -214,20 +214,13 @@ final class AppState {
     /// both being on screen — the local placeholder is the only message
     /// that can have a negative sequence.
     func send(text: String, attachmentIDs: [String] = [], modelID: String? = nil) {
-        guard openSessionID != nil, !isSending else { return }
-        // The task is owned by the state, not by the view that started
-        // it: a streamed answer must survive the user leaving the
-        // screen, and `cancelStreaming()` needs something to cancel.
-        streamTask = Task { [weak self] in
-            await self?.runTurn(text: text, attachmentIDs: attachmentIDs, modelID: modelID)
-        }
-    }
-
-    private func runTurn(text: String, attachmentIDs: [String], modelID: String?) async {
-        guard let sessionID = openSessionID else { return }
+        guard let sessionID = openSessionID, !isSending else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachmentIDs.isEmpty else { return }
 
+        // `isSending` flips here, synchronously, not inside the task.
+        // Setting it in the task left a window where two quick taps both
+        // passed the guard and sent the same message twice.
         isSending = true
         streamingText = ""
         lastError = nil
@@ -235,10 +228,29 @@ final class AppState {
             .local(role: "user", content: trimmed, sessionID: sessionID, attachments: attachmentIDs)
         )
 
+        // The task is owned by the state, not by the view that started
+        // it: a streamed answer must survive the user leaving the
+        // screen, and `cancelStreaming()` needs something to cancel.
+        streamTask = Task { [weak self] in
+            await self?.runTurn(
+                sessionID: sessionID, text: trimmed, attachmentIDs: attachmentIDs, modelID: modelID
+            )
+        }
+    }
+
+    private func runTurn(
+        sessionID: String, text: String, attachmentIDs: [String], modelID: String?
+    ) async {
+        // Whatever happens below, the composer must come back. An early
+        // return that leaves `isSending` true is a permanently stuck UI.
+        defer {
+            isSending = false
+            streamTask = nil
+        }
         do {
             let request = try await client.streamingChatRequest(
                 sessionID: sessionID,
-                content: trimmed,
+                content: text,
                 attachmentIDs: attachmentIDs,
                 modelID: modelID
             )
@@ -278,8 +290,6 @@ final class AppState {
             messages.removeAll { $0.seq == -1 }
             messages = (try? await client.messages(in: sessionID)) ?? messages
         }
-        isSending = false
-        streamTask = nil
     }
 
     private func refreshSessionSummary() async {

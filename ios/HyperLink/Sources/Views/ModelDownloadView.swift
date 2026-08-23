@@ -163,13 +163,23 @@ struct ModelDownloadView: View {
                 Label("Copy the command for your PC", systemImage: "doc.on.doc")
             }
         } footer: {
-            Text("The model runs on your PC, so your PC downloads it. Paste this into a terminal there.")
+            Text("The model runs on your PC, so your PC downloads it. Paste this into a terminal there — `hf` ships with huggingface-hub, which HyperNix already installs.")
         }
     }
 
+    /// A command that actually exists and actually downloads.
+    ///
+    /// `waiter fetch` resolves links; it does not fetch bytes. The plan
+    /// this view is showing names exact files in an exact repository,
+    /// which is precisely what `hf download` takes — so hand over that,
+    /// rather than a HyperNix subcommand that would have to be invented
+    /// to make the button true.
     private func downloadCommand(_ model: ResolvedModel) -> String {
         let files = model.files.map(\.filename).joined(separator: " ")
-        return "hnx fetch \(model.repoID) --revision \(model.revision) --files \(files)"
+        let target = model.repoID.split(separator: "/").last.map(String.init) ?? "model"
+        return "hf download \(model.repoID) \(files)"
+            + " --revision \(model.revision)"
+            + " --local-dir ~/.hypernix/models/\(target)"
     }
 
     private func resolve() async {

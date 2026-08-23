@@ -37,11 +37,10 @@ settings:
     SWIFT_STRICT_CONCURRENCY: targeted
     DEAD_CODE_STRIPPING: YES
     CLANG_ENABLE_MODULES: YES
-    # The CI build is unsigned (see the workflow). Signing settings are
-    # supplied on the xcodebuild command line when secrets are present,
-    # so they are deliberately absent here rather than hard-coded to a
-    # team nobody else has.
-    CODE_SIGN_STYLE: Manual
+    # No signing settings here on purpose. CI passes what it needs on the
+    # xcodebuild command line, and pinning a style or a team would mean
+    # anyone opening this in Xcode hits a signing error before they can
+    # run it — with a team id that is not theirs.
   configs:
     Release:
       SWIFT_COMPILATION_MODE: wholemodule
@@ -60,6 +59,9 @@ targets:
       - path: HyperLink/Resources
         buildPhase: resources
     info:
+      # Generated here by XcodeGen on every `xcodegen generate` — this
+      # block is the source of truth, and HyperLink/Info.plist is a build
+      # product (see .gitignore).
       path: HyperLink/Info.plist
       properties:
         CFBundleDisplayName: HyperLink
@@ -101,7 +103,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
 
   HyperLinkTests:
     type: bundle.unit-test

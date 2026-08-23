@@ -62,6 +62,7 @@ docs/dist/
 # committed: a pbxproj is a merge-conflict machine, and CI regenerates it
 # from a clean checkout anyway.
 ios/*.xcodeproj/
+ios/HyperLink/Info.plist
 ios/*.xcworkspace/
 ios/build/
 ios/DerivedData/
