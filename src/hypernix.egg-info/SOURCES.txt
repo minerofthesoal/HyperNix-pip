@@ -26,6 +26,17 @@ examples/train hypernix 1 5 gtx1080.py
 examples/train_hypernix_0_1_5_evaluator.py
 examples/train_hypernix_1_5_gtx1080.py
 examples/upload_to_hub.py
+examples/t1api/.env.example
+examples/t1api/API-EXAMPLES.md
+examples/t1api/Dockerfile
+examples/t1api/README.md
+examples/t1api/docker-compose.yml
+examples/t1api/hypernix-t1api.service
+examples/t1api/nginx.conf
+examples/t1api/openapi.json
+examples/t1api/run_local.sh
+examples/t1api/run_tailscale.sh
+examples/t1api/config/.gitkeep
 scripts/README.md
 scripts/apply_hypernix_fixes.py
 scripts/autofix
@@ -40,6 +51,7 @@ scripts/install_deps.sh
 scripts/install_macos_legacy.sh
 scripts/measure_optimizer_memory.py
 scripts/quantize_i7_7660u.sh
+scripts/t1api_examples.py
 scripts/update_json_stats.py
 src/hypernix/__init__.py
 src/hypernix/__main__.py
@@ -140,7 +152,9 @@ src/hypernix/system/freezer.py
 src/hypernix/system/net.py
 src/hypernix/system/old_fridge.py
 src/hypernix/system/outage.py
+src/hypernix/system/pathfix.py
 src/hypernix/system/protect.py
+src/hypernix/system/release.py
 src/hypernix/system/torch_compat.py
 src/hypernix/system/ups.py
 src/hypernix/system/utils.py
@@ -225,9 +239,12 @@ tests/test_autofix_scripts.py
 tests/test_cli_integration.py
 tests/test_coverage_beef.py
 tests/test_deps_and_windows.py
+tests/test_ethanol.py
 tests/test_fetcher.py
 tests/test_freezer.py
 tests/test_fridges.py
+tests/test_hyped_pro_bridge_cancel.py
+tests/test_hyped_pro_t1api.py
 tests/test_install_pin.py
 tests/test_kitchen_v044.py
 tests/test_kitchen_v045.py
@@ -237,9 +254,11 @@ tests/test_lunchbox.py
 tests/test_map.py
 tests/test_module_layout.py
 tests/test_neo_oven.py
+tests/test_neo_oven_generation.py
 tests/test_new_archs_v035.py
 tests/test_nix_fallback.py
 tests/test_old_oven.py
+tests/test_pathfix.py
 tests/test_pressure_cooker_v048.py
 tests/test_pressure_cooker_v3.py
 tests/test_pressure_cooker_v6.py
@@ -248,7 +267,10 @@ tests/test_ranges.py
 tests/test_shakers_and_torchcompat.py
 tests/test_snapshot_roundtrip.py
 tests/test_t1api_auth.py
+tests/test_t1api_beta3_core.py
+tests/test_t1api_beta3_http.py
 tests/test_t1api_beta3_security.py
+tests/test_t1api_beta4_usage_report.py
 tests/test_t1api_billing.py
 tests/test_t1api_core.py
 tests/test_t1api_events.py
@@ -261,6 +283,7 @@ tests/test_t1api_security.py
 tests/test_t1api_servers.py
 tests/test_tupperware.py
 tests/test_tvtop_plus_plus_comprehensive.py
+tests/test_ups.py
 tests/test_v031_chat_and_archs.py
 tests/test_v047_deep_fryer_cake_pan_presets.py
 tests/test_v050.py
@@ -343,6 +366,7 @@ wiki/STML.md
 wiki/Scavenger.md
 wiki/Shakers.md
 wiki/Smoker.md
+wiki/T1-API-Security-Checklist.md
 wiki/T1-API.md
 wiki/Toaster.md
 wiki/Training.md

@@ -14,6 +14,25 @@ contract):
   multi-server module transport, the key directory (``/keys``), usage
   history/cost/estimate, and production configuration validation.
 
+And then, as **T1 v1.0.26.8.0.1** — the first release under the API's own
+six-part version scheme rather than the package's (see
+:mod:`hypernix.t1api.version`) — six features:
+
+1. **The LM Studio bridge** (``/bridge/lmstudio``, :mod:`hypernix.bridge`)
+   — borrow a model already loaded in LM Studio on localhost, the LAN,
+   or a tailnet.
+2. **HyperLink pairing** (``/hyperlink/pair``) — six-character codes that
+   become per-device tokens, so a phone never types a T1 key.
+3. **Server-side chat sessions** (``/hyperlink/sessions``) — one
+   conversation across the desktop and the phone.
+4. **The attachment store** (``/hyperlink/files``) — content-addressed
+   images, documents and code, expanded into the model's context.
+5. **Hugging Face link merging** (``/hyperlink/models/resolve``) — a
+   model page plus a direct download link resolved into a complete GGUF
+   download plan, split parts and vision projectors included.
+6. **Endpoint advertisement** (``/hyperlink/endpoints``) — every address
+   this machine answers on, ranked, so a client can pick one.
+
 Two import surfaces, on purpose:
 
 * ``.registry`` / ``.storage`` / ``.usage`` / ``.errors`` / ``.auth`` /
@@ -37,10 +56,31 @@ from __future__ import annotations
 
 from typing import Any
 
-__t1api_version__ = "0.71.5rc2"
+from .version import (
+    MIN_CLIENT_VERSION,
+    T1_VERSION,
+    T1_VERSION_LONG,
+    T1_VERSION_SHORT,
+    T1Version,
+)
+
+# T1 v1.0.26.8.0.1. The T1 API no longer tracks the hypernix package
+# version: the two ship together but answer different questions, and a
+# client pinning an API contract could never derive one from
+# "0.71.5rc2". See t1api/version.py for the six-part scheme
+# (api.major.year.month.feature.fix) and for the long spelling,
+# 1.0.2026.8.0.1.
+__t1api_version__ = T1_VERSION.short          # "1.0.26.8.0.1"
+__t1api_version_long__ = T1_VERSION.long      # "1.0.2026.8.0.1"
 
 __all__ = [
     "__t1api_version__",
+    "__t1api_version_long__",
+    "T1Version",
+    "T1_VERSION",
+    "T1_VERSION_SHORT",
+    "T1_VERSION_LONG",
+    "MIN_CLIENT_VERSION",
     "create_app",
     "ModelRegistry",
     "ModelEntry",

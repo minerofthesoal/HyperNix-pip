@@ -40,9 +40,20 @@ class HealthResponse(BaseModel):
 class StatusResponse(BaseModel):
     status: str = "ok"
     environment: str
+    #: The short spelling, ``1.0.26.8.0.1``. Kept as the field clients
+    #: already read; the long spelling and the parsed components arrive
+    #: alongside it rather than replacing it.
     t1_api_version: str
+    t1_api_version_long: str = ""
+    t1_version: dict[str, Any] = Field(default_factory=dict)
     hypernix_version: str
+    #: Historically the beta number ("beta4"). Now the release line —
+    #: "t1-1.0" — because the betas ended at T1 v1.0.26.8.0.1. Still
+    #: present, and still a string, so a Beta 3 client does not break.
     beta: str
+    lmstudio_bridge_enabled: bool = False
+    lmstudio_configured: bool = False
+    hyperlink_enabled: bool = False
     model_count: int
     storage_backend: str
     request_id: str
@@ -927,4 +938,315 @@ class ModuleReceiveResponse(BaseModel):
 class GenericOkResponse(BaseModel):
     ok: bool = True
     detail: str = ""
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# T1 v1.0.26.8.0.1 — LM Studio bridge
+# ---------------------------------------------------------------------------
+
+
+class BridgeModel(BaseModel):
+    model_id: str
+    kind: str = "unknown"
+    loaded: bool = False
+    architecture: str = ""
+    quantization: str = ""
+    context_length: int = 0
+    max_context_length: int = 0
+    publisher: str = ""
+    supports_vision: bool = False
+    supports_tools: bool = False
+
+
+class BridgeProbe(BaseModel):
+    base_url: str
+    reachable: bool
+    usable: bool = False
+    latency_ms: float = 0.0
+    model_count: int = 0
+    loaded_count: int = 0
+    native_api: bool = False
+    cors_enabled: bool | None = None
+    cors_allow_origin: str = ""
+    error: str = ""
+    error_code: str = ""
+
+
+class BridgeStatusResponse(BaseModel):
+    enabled: bool
+    configured_url: str
+    probe: BridgeProbe | None = None
+    discovered: list[BridgeProbe] = Field(default_factory=list)
+    request_id: str
+
+
+class BridgeModelsResponse(BaseModel):
+    base_url: str
+    models: list[BridgeModel]
+    count: int
+    loaded_count: int
+    request_id: str
+
+
+class BridgeChatMessage(BaseModel):
+    role: str
+    # ``content`` is str for a plain message and a list of parts for a
+    # multimodal one (OpenAI's own shape). Typed as Any because
+    # constraining it here would reject a valid vision request that LM
+    # Studio itself accepts, and the far side is the real validator.
+    content: Any
+
+
+class BridgeChatRequest(BaseModel):
+    messages: list[BridgeChatMessage]
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+    stop: list[str] | None = None
+    stream: bool = False
+    base_url: str | None = None
+
+
+class BridgeChatResponse(BaseModel):
+    model: str
+    content: str
+    finish_reason: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    base_url: str = ""
+    raw: dict[str, Any] = Field(default_factory=dict)
+    request_id: str
+
+
+# ---------------------------------------------------------------------------
+# T1 v1.0.26.8.0.1 — HyperLink
+# ---------------------------------------------------------------------------
+
+
+class HyperLinkEndpoint(BaseModel):
+    url: str
+    kind: str
+    priority: int
+    note: str = ""
+
+
+class HyperLinkEndpointsResponse(BaseModel):
+    server_name: str
+    t1_version: str
+    endpoints: list[HyperLinkEndpoint]
+    tailscale: bool
+    reachable_off_lan: bool
+    request_id: str
+
+
+class PairingCreateRequest(BaseModel):
+    label: str = ""
+    scopes: list[str] | None = None
+    ttl_seconds: float | None = None
+
+
+class PairingCodeResponse(BaseModel):
+    code: str
+    expires_at: float
+    seconds_remaining: float
+    scopes: list[str]
+    label: str = ""
+    qr_payload: dict[str, Any] = Field(default_factory=dict)
+    endpoints: list[HyperLinkEndpoint] = Field(default_factory=list)
+    request_id: str
+
+
+class PairingRedeemRequest(BaseModel):
+    code: str
+    device_name: str
+    platform: str = "ios"
+    app_version: str = ""
+
+
+class PairingRedeemResponse(BaseModel):
+    """The one and only time the device token is transmitted."""
+
+    device_id: str
+    device_token: str
+    name: str
+    scopes: list[str]
+    server_name: str = ""
+    t1_version: str = ""
+    request_id: str
+
+
+class DeviceSummary(BaseModel):
+    device_id: str
+    name: str
+    platform: str
+    app_version: str
+    scopes: list[str]
+    paired_by: str
+    created_at: float
+    last_seen: float | None = None
+    last_address: str = ""
+    revoked: bool = False
+    revoked_at: float | None = None
+
+
+class DeviceListResponse(BaseModel):
+    devices: list[DeviceSummary]
+    count: int
+    request_id: str
+
+
+class DeviceResponse(BaseModel):
+    device: DeviceSummary
+    request_id: str
+
+
+class SessionCreateRequest(BaseModel):
+    title: str = ""
+    model_id: str = ""
+    backend: str = ""
+    system_prompt: str = ""
+
+
+class SessionUpdateRequest(BaseModel):
+    title: str | None = None
+    model_id: str | None = None
+    backend: str | None = None
+    system_prompt: str | None = None
+    archived: bool | None = None
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    title: str
+    owner: str
+    device_id: str = ""
+    model_id: str = ""
+    backend: str = ""
+    system_prompt: str = ""
+    created_at: float
+    updated_at: float
+    archived: bool = False
+    message_count: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionSummary]
+    count: int
+    request_id: str
+
+
+class SessionResponse(BaseModel):
+    session: SessionSummary
+    request_id: str
+
+
+class MessageSummary(BaseModel):
+    message_id: str
+    session_id: str
+    seq: int
+    role: str
+    content: str
+    model_id: str = ""
+    attachment_ids: list[str] = Field(default_factory=list)
+    created_at: float
+    input_tokens: int = 0
+    output_tokens: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MessageListResponse(BaseModel):
+    session_id: str
+    messages: list[MessageSummary]
+    count: int
+    request_id: str
+
+
+class HyperLinkChatRequest(BaseModel):
+    content: str = ""
+    attachment_ids: list[str] = Field(default_factory=list)
+    model_id: str | None = None
+    backend: str | None = None          # "lmstudio" (default) | "registry"
+    temperature: float | None = None
+    max_tokens: int | None = None
+    token_budget: int = 8000
+    stream: bool = False
+
+
+class HyperLinkChatResponse(BaseModel):
+    session_id: str
+    user_message: MessageSummary
+    assistant_message: MessageSummary
+    model_id: str
+    backend: str
+    request_id: str
+
+
+class AttachmentSummary(BaseModel):
+    file_id: str
+    sha256: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    owner: str
+    device_id: str = ""
+    session_id: str = ""
+    created_at: float
+    is_image: bool = False
+    is_text: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttachmentResponse(BaseModel):
+    file: AttachmentSummary
+    request_id: str
+
+
+class AttachmentListResponse(BaseModel):
+    files: list[AttachmentSummary]
+    count: int
+    total_bytes: int
+    request_id: str
+
+
+class HFResolveRequest(BaseModel):
+    """Either link, or both. That is the whole point of the endpoint."""
+
+    page_url: str = ""
+    file_url: str = ""
+    prefer: str = "strict"              # strict | file | page
+    include_vision: bool = True
+    offline: bool = False
+
+
+class HFFile(BaseModel):
+    filename: str
+    url: str
+    size_bytes: int = 0
+    role: str = "weights"
+    part_index: int = 0
+    part_total: int = 0
+    sha256: str = ""
+
+
+class HFResolveResponse(BaseModel):
+    repo_id: str
+    revision: str
+    host: str
+    quantization: str = ""
+    gated: bool = False
+    private: bool = False
+    license: str = ""
+    total_bytes: int = 0
+    total_size_human: str = ""
+    file_count: int = 0
+    is_split: bool = False
+    has_vision: bool = False
+    primary_file: str = ""
+    files: list[HFFile] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    metadata_from_api: bool = False
     request_id: str

@@ -9,6 +9,7 @@ set the same ``app.state`` attributes, no global singletons involved.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
 from fastapi import Header, Request
 
@@ -232,3 +233,106 @@ __all__ = [
     "resolve_client_ip",
     "require_confirmation",
 ]
+
+
+# --- T1 v1.0.26.8.0.1: HyperLink principals -----------------------------
+
+
+def get_device_registry(request: Request):
+    return request.app.state.t1_device_registry
+
+
+def get_session_store(request: Request):
+    return request.app.state.t1_session_store
+
+
+def get_attachment_store(request: Request):
+    return request.app.state.t1_attachment_store
+
+
+@dataclass
+class HyperLinkPrincipal:
+    """Who is making a HyperLink request: a paired device, or a T1 key.
+
+    Both are first-class. The phone holds a device token; ``waiter`` and
+    ``hyped-pro`` hold a T1 key; both need to read the same chat
+    sessions, because the whole point of server-side history is that the
+    desktop and the phone see one conversation.
+
+    ``owner`` is what makes that work, and it is deliberately *not* the
+    device id. A device's owner is the key that paired it, so every
+    device an operator enrols shares that operator's sessions and
+    attachments, and unpairing a phone does not orphan the threads that
+    were started on it.
+    """
+
+    owner: str
+    scopes: tuple[str, ...]
+    is_admin: bool = False
+    device_id: str = ""
+    device_name: str = ""
+    auth_context: AuthContext | None = None
+
+    @property
+    def is_device(self) -> bool:
+        return bool(self.device_id)
+
+    @property
+    def label(self) -> str:
+        """What the audit log records. A device is named, not just hashed."""
+        if self.is_device:
+            return f"{self.device_name or 'device'} ({self.device_id[:8]}…)"
+        return self.owner
+
+
+def get_hyperlink_principal(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> HyperLinkPrincipal:
+    """Accept a HyperLink device token *or* any normal T1 credential.
+
+    Device tokens are distinguishable by their ``HLNK_`` prefix, so the
+    branch is on the credential's own shape rather than on a second
+    header — one ``Authorization: Bearer …`` works for every client, and
+    a client does not have to know which kind of credential it is
+    holding.
+    """
+    credential = _extract_credential(authorization)
+    if credential.startswith("HLNK_"):
+        registry = get_device_registry(request)
+        record = registry.authenticate(credential, address=get_client_ip(request))
+        return HyperLinkPrincipal(
+            owner=record.paired_by,
+            scopes=tuple(record.scopes),
+            is_admin=False,          # a phone is never an admin, whatever paired it
+            device_id=record.device_id,
+            device_name=record.name,
+        )
+    ctx = get_auth_context(request, authorization)
+    return HyperLinkPrincipal(
+        owner=ctx.key_id,
+        scopes=tuple(scope.value for scope in ctx.scopes),
+        is_admin=ctx.is_admin,
+        auth_context=ctx,
+    )
+
+
+def require_hyperlink_admin(principal: HyperLinkPrincipal) -> HyperLinkPrincipal:
+    """Pairing and device management are operator actions, not device ones.
+
+    A stolen phone must not be able to enrol another phone, so this
+    refuses device tokens outright rather than checking their scopes.
+    """
+    if principal.is_device:
+        raise T1APIError(
+            T1ErrorCode.AUTH_INSUFFICIENT_SCOPE,
+            "Device tokens cannot manage pairing. Run this from the PC with `waiter`.",
+            http_status=403,
+        )
+    if not principal.is_admin:
+        raise T1APIError(
+            T1ErrorCode.AUTH_ADMIN_REQUIRED,
+            "This HyperLink operation requires an admin T1 key.",
+            http_status=403,
+        )
+    return principal
