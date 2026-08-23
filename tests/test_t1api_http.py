@@ -76,7 +76,7 @@ class TestHealthStatus:
         assert resp.status_code == 200
         body = resp.json()
         assert body["model_count"] == len(registry)
-        assert body["beta"] == "beta4"
+        assert body["beta"] == "t1-1.0"
         # Beta 3 additions: /status reports which protections are on and
         # which secrets are set — never a secret's value.
         assert body["secrets_configured"]["token_secret"] is True

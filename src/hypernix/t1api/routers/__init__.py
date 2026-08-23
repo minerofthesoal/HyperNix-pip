@@ -5,6 +5,11 @@ Beta 1 wired: health, auth, models, usage, config.
 Beta 2 added: servers, modules, jobs, events, billing.
 Beta 3 adds: keys (the spec's 28–30, previously unimplemented), audit,
 and security (network policy + forced limits).
+T1 v1.0.26.8.0.1 adds: bridge (the LM Studio bridge) and hyperlink (the
+phone-facing surface — pairing, sessions, files, Hugging Face
+resolution). Both are documented in ``wiki/T1-API.md``; neither is in
+the original spec's endpoint list because neither existed when it was
+written.
 
 Three routers expose endpoints beyond the spec's literal list, each for
 a stated reason rather than by accident:
@@ -23,9 +28,11 @@ from . import (
     audit,
     auth,
     billing,
+    bridge,
     config,
     events,
     health,
+    hyperlink,
     jobs,
     keys,
     models,
@@ -49,6 +56,9 @@ ALL_ROUTERS = (
     keys.router,
     audit.router,
     security.router,
+    # T1 v1.0.26.8.0.1
+    bridge.router,
+    hyperlink.router,
 )
 
 __all__ = [
@@ -56,9 +66,11 @@ __all__ = [
     "audit",
     "auth",
     "billing",
+    "bridge",
     "config",
     "events",
     "health",
+    "hyperlink",
     "jobs",
     "keys",
     "models",

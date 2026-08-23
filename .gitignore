@@ -56,3 +56,16 @@ dist/
 docs/node_modules/
 src/hypernix/node_modules/
 docs/dist/
+
+# --- iOS (ios/) ---
+# The .xcodeproj is generated from ios/project.yml by XcodeGen, not
+# committed: a pbxproj is a merge-conflict machine, and CI regenerates it
+# from a clean checkout anyway.
+ios/*.xcodeproj/
+ios/HyperLink/Info.plist
+ios/*.xcworkspace/
+ios/build/
+ios/DerivedData/
+*.ipa
+*.xcarchive
+*.xcresult

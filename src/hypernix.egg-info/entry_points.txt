@@ -16,4 +16,5 @@ tvtop-old = hypernix.monitoring.tvtop_plus_plus:cli_main
 tvtop-older = hypernix.monitoring.tv:cli_main
 tvtop-plus-plus = hypernix.monitoring.tvtop_plus_plus:cli_main
 tvtoppp = hypernix.monitoring.tvtop_plus_plus:cli_main
+ups = hypernix.system.ups:cli_main
 waiter = hypernix.waiter.cli:main

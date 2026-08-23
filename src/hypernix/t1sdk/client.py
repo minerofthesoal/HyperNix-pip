@@ -750,4 +750,153 @@ class T1Client:
         return self._get("/security/rate-limits", auth=True)
 
 
+    # ------------------------------------------------------------------
+    # T1 v1.0.26.8.0.1 — LM Studio bridge
+    # ------------------------------------------------------------------
+
+    def lmstudio_status(self, *, discover: bool = False) -> dict[str, Any]:
+        """Is the server's LM Studio reachable, and is anything loaded?"""
+        return self._get(
+            "/bridge/lmstudio/status", query={"discover": discover} if discover else None, auth=True
+        )
+
+    def lmstudio_models(self, *, base_url: str | None = None) -> dict[str, Any]:
+        """Every model LM Studio has, with the loaded ones marked."""
+        return self._get(
+            "/bridge/lmstudio/models",
+            query={"base_url": base_url} if base_url else None,
+            auth=True,
+        )
+
+    def lmstudio_chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
+        """One completion through the bridge, with the reply lifted out."""
+        return self._post(
+            "/bridge/lmstudio/chat",
+            body={
+                "messages": messages,
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "base_url": base_url,
+            },
+            auth=True,
+        )
+
+    # ------------------------------------------------------------------
+    # T1 v1.0.26.8.0.1 — HyperLink
+    # ------------------------------------------------------------------
+
+    def hyperlink_endpoints(self) -> dict[str, Any]:
+        """Addresses this server answers on, ranked best-first."""
+        return self._get("/hyperlink/endpoints", auth=True)
+
+    def hyperlink_pair(
+        self, *, label: str = "", scopes: list[str] | None = None, ttl_seconds: float | None = None
+    ) -> dict[str, Any]:
+        """Mint a pairing code for a phone. Admin only."""
+        return self._post(
+            "/hyperlink/pair",
+            body={"label": label, "scopes": scopes, "ttl_seconds": ttl_seconds},
+            auth=True,
+        )
+
+    def hyperlink_redeem(
+        self, code: str, *, device_name: str, platform: str = "ios", app_version: str = ""
+    ) -> dict[str, Any]:
+        """Redeem a pairing code. Unauthenticated — the code is the credential."""
+        return self._post(
+            "/hyperlink/pair/redeem",
+            body={
+                "code": code,
+                "device_name": device_name,
+                "platform": platform,
+                "app_version": app_version,
+            },
+        )
+
+    def hyperlink_devices(self, *, include_revoked: bool = False) -> dict[str, Any]:
+        return self._get(
+            "/hyperlink/devices", query={"include_revoked": include_revoked}, auth=True
+        )
+
+    def hyperlink_revoke_device(self, device_id: str) -> dict[str, Any]:
+        return self.transport.request(
+            "DELETE", f"/hyperlink/devices/{_q(device_id)}", auth=True
+        ).body
+
+    def hyperlink_sessions(self, *, include_archived: bool = False, limit: int = 50) -> dict[str, Any]:
+        return self._get(
+            "/hyperlink/sessions",
+            query={"include_archived": include_archived, "limit": limit},
+            auth=True,
+        )
+
+    def hyperlink_create_session(
+        self, *, title: str = "", model_id: str = "", system_prompt: str = ""
+    ) -> dict[str, Any]:
+        return self._post(
+            "/hyperlink/sessions",
+            body={"title": title, "model_id": model_id, "system_prompt": system_prompt},
+            auth=True,
+        )
+
+    def hyperlink_messages(self, session_id: str, *, after_seq: int = 0) -> dict[str, Any]:
+        return self._get(
+            f"/hyperlink/sessions/{_q(session_id)}/messages",
+            query={"after_seq": after_seq},
+            auth=True,
+        )
+
+    def hyperlink_chat(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        attachment_ids: list[str] | None = None,
+        model_id: str | None = None,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """One chat turn. Both messages are persisted server-side."""
+        return self._post(
+            f"/hyperlink/sessions/{_q(session_id)}/chat",
+            body={
+                "content": content,
+                "attachment_ids": attachment_ids or [],
+                "model_id": model_id,
+                "max_tokens": max_tokens,
+            },
+            auth=True,
+        )
+
+    def hyperlink_resolve_model(
+        self,
+        *,
+        page_url: str = "",
+        file_url: str = "",
+        prefer: str = "strict",
+        include_vision: bool = True,
+        offline: bool = False,
+    ) -> dict[str, Any]:
+        """Merge a Hugging Face page link and/or file link into a plan."""
+        return self._post(
+            "/hyperlink/models/resolve",
+            body={
+                "page_url": page_url,
+                "file_url": file_url,
+                "prefer": prefer,
+                "include_vision": include_vision,
+                "offline": offline,
+            },
+            auth=True,
+        )
+
+
 __all__ = ["T1Client", "HTTPTransport", "Response", "RetryPolicy", "TLSConfig"]

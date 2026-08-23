@@ -56,6 +56,9 @@ from fastapi.responses import JSONResponse
 from hypernix.security.gatekeeper import Gatekeeper
 from hypernix.security.keymaster import Keymaster
 
+from ..hyperlink.files import AttachmentStore
+from ..hyperlink.pairing import DeviceRegistry
+from ..hyperlink.sessions import ChatSessionStore
 from . import __t1api_version__
 from .audit import AuditCategory, AuditLog, AuditOutcome
 from .auth import T1AuthService
@@ -182,6 +185,12 @@ def create_app(
     rate_limiter: RateLimiter | None = None,
     key_directory: KeyDirectory | None = None,
     transport: ModuleTransport | None = None,
+    # T1 v1.0.26.8.0.1 — injectable for the same reason as everything
+    # above: a test wants an AttachmentStore in a tmpdir, not in
+    # ~/.hypernix.
+    device_registry: DeviceRegistry | None = None,
+    session_store: ChatSessionStore | None = None,
+    attachment_store: AttachmentStore | None = None,
     mount_prefix: str | None = None,
     validate_production: bool | None = None,
 ) -> FastAPI:
@@ -255,6 +264,17 @@ def create_app(
     jobs.register_handler("module_sync", deployment.module_sync_handler)
     jobs.register_handler("module_fetch", deployment.module_fetch_handler)
 
+    # T1 v1.0.26.8.0.1 subsystems. All three share the same backend as
+    # everything else, so a HyperLink deployment is still one database
+    # file (or one PostgreSQL URL) and nothing extra to back up.
+    devices = device_registry or DeviceRegistry(db)
+    sessions = session_store or ChatSessionStore(db)
+    attachments = attachment_store or AttachmentStore(
+        cfg.hyperlink_files_dir,
+        backend=db,
+        max_bytes=cfg.hyperlink_max_upload_bytes,
+    )
+
     tls = cfg.tls_settings()
     cert_verifier = ClientCertVerifier(tls)
 
@@ -296,6 +316,10 @@ def create_app(
     app.state.t1_transport = module_transport
     app.state.t1_deployment = deployment
     app.state.t1_cert_verifier = cert_verifier
+    # T1 v1.0.26.8.0.1
+    app.state.t1_device_registry = devices
+    app.state.t1_session_store = sessions
+    app.state.t1_attachment_store = attachments
 
     if cfg.cors_allow_origins:
         from fastapi.middleware.cors import CORSMiddleware

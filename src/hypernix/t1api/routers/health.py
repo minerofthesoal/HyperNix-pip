@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from .. import __t1api_version__
+from .. import __t1api_version__, __t1api_version_long__
 from ..deps import get_config, get_registry, get_request_id
 from ..schemas import HealthResponse, StatusResponse
+from ..version import T1_VERSION
 
 router = APIRouter(tags=["health"])
 
@@ -41,8 +42,13 @@ def status(
         status="ok",
         environment=config.environment,
         t1_api_version=__t1api_version__,
+        t1_api_version_long=__t1api_version_long__,
+        t1_version=T1_VERSION.to_dict(),
         hypernix_version=getattr(hypernix, "__version__", "unknown"),
-        beta="beta4",
+        # The betas ended here. "t1-1.0" is the generation a client pins
+        # against; the field keeps its name because Beta 3 clients read
+        # it and a renamed field is a breaking change for a cosmetic win.
+        beta="t1-1.0",
         model_count=len(registry),
         storage_backend=config.storage_backend,
         tls_enabled=tls.tls_enabled,
@@ -57,6 +63,9 @@ def status(
         # Reported on every deployment, not only production ones: seeing
         # what *would* block a production start is exactly what you want
         # while still in staging. The list names settings, never values.
+        lmstudio_bridge_enabled=config.lmstudio_enabled,
+        lmstudio_configured=bool(config.lmstudio_url),
+        hyperlink_enabled=config.hyperlink_enabled,
         production_warnings=warnings,
         request_id=request_id,
     )

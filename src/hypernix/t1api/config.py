@@ -89,6 +89,26 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _is_local_or_tailscale(host: str) -> bool:
+    """True for loopback, ``*.ts.net``, and the 100.64/10 tailnet range.
+
+    Used by the production check: these are the addresses where plain
+    HTTP is not a plaintext-over-the-network problem, either because the
+    traffic never leaves the machine or because WireGuard already
+    encrypted it.
+    """
+    import ipaddress
+
+    lowered = host.strip().lower().strip("[]")
+    if lowered in ("localhost", "127.0.0.1", "::1") or lowered.endswith(".ts.net"):
+        return True
+    try:
+        addr = ipaddress.ip_address(lowered)
+    except ValueError:
+        return False
+    return addr.is_loopback or addr in ipaddress.ip_network("100.64.0.0/10")
+
+
 @dataclass
 class T1APIConfig:
     """Runtime configuration, resolved once at ``create_app()`` time."""
@@ -182,6 +202,49 @@ class T1APIConfig:
     )
     module_storage_dir: str | None = field(default_factory=lambda: os.environ.get("T1_MODULE_STORAGE_DIR"))
 
+    # --- LM Studio bridge (T1 v1.0.26.8.0.1) ----------------------------------
+    # The bridge is *off* unless an address is configured or discovery is
+    # explicitly enabled. A server that probes the LAN for open ports on
+    # every start is a surprise nobody asked for; a server that talks to
+    # localhost:1234 because someone typed a URL is not.
+    lmstudio_enabled: bool = field(default_factory=lambda: _bool_env("T1_LMSTUDIO_ENABLED", True))
+    lmstudio_url: str = field(default_factory=lambda: os.environ.get("T1_LMSTUDIO_URL", ""))
+    lmstudio_api_key: str = field(default_factory=lambda: os.environ.get("T1_LMSTUDIO_API_KEY", ""))
+    lmstudio_discovery: bool = field(
+        default_factory=lambda: _bool_env("T1_LMSTUDIO_DISCOVERY", False)
+    )
+    lmstudio_timeout_seconds: float = field(
+        default_factory=lambda: _float_env("T1_LMSTUDIO_TIMEOUT", 300.0)
+    )
+
+    # --- HyperLink (T1 v1.0.26.8.0.1) -----------------------------------------
+    # The phone-facing surface: pairing, chat sessions, attachments,
+    # Hugging Face resolution. On by default because the T1 API is
+    # already authenticated and HyperLink adds no *unauthenticated*
+    # surface beyond the pairing redemption endpoint, which needs a code
+    # an operator minted by hand.
+    hyperlink_enabled: bool = field(default_factory=lambda: _bool_env("T1_HYPERLINK_ENABLED", True))
+    hyperlink_public_url: str = field(
+        default_factory=lambda: os.environ.get("T1_HYPERLINK_PUBLIC_URL", "")
+    )
+    hyperlink_files_dir: str | None = field(
+        default_factory=lambda: os.environ.get("T1_HYPERLINK_FILES_DIR")
+    )
+    hyperlink_max_upload_bytes: int = field(
+        default_factory=lambda: _int_env("T1_HYPERLINK_MAX_UPLOAD_BYTES", 64 * 1024 * 1024)
+    )
+    hyperlink_advertised_port: int = field(
+        default_factory=lambda: _int_env("T1_HYPERLINK_PORT", 8000)
+    )
+    hyperlink_pairing_ttl_seconds: float = field(
+        default_factory=lambda: _float_env("T1_HYPERLINK_PAIRING_TTL", 600.0)
+    )
+    # Hugging Face token used for gated-repo resolution. Never returned
+    # by any endpoint — only its set/unset state, via describe_secrets().
+    hf_token: str = field(
+        default_factory=lambda: os.environ.get("T1_HF_TOKEN") or os.environ.get("HF_TOKEN", "")
+    )
+
     # --- Misc -----------------------------------------------------------------
     # Destructive operations (DELETE /servers/{id}, DELETE /modules/{id})
     # require ?confirm=true when this is on. "Require explicit
@@ -255,6 +318,8 @@ class T1APIConfig:
             "tls_keyfile": bool(self.tls_keyfile),
             "tls_ca_certs": bool(self.tls_ca_certs),
             "database_url": bool(self.database_url),
+            "lmstudio_api_key": bool(self.lmstudio_api_key),
+            "hf_token": bool(self.hf_token),
         }
 
     def public_dict(self) -> dict[str, object]:
@@ -277,6 +342,16 @@ class T1APIConfig:
             "require_destructive_confirmation": self.require_destructive_confirmation,
             "remote_deployment_enabled": bool(self.deploy_secret),
             "max_transfer_bytes": self.max_transfer_bytes,
+            # T1 v1.0.26.8.0.1. The LM Studio *address* is not a secret
+            # (it is a LAN or tailnet host an operator wants to see in
+            # /config when debugging "why can't it find my GPU"); the
+            # API key for it is, and lives in describe_secrets() only.
+            "lmstudio_enabled": self.lmstudio_enabled,
+            "lmstudio_url": self.lmstudio_url,
+            "lmstudio_discovery": self.lmstudio_discovery,
+            "hyperlink_enabled": self.hyperlink_enabled,
+            "hyperlink_public_url": self.hyperlink_public_url,
+            "hyperlink_max_upload_bytes": self.hyperlink_max_upload_bytes,
             **self.tls_settings().public_dict(),
         }
 
@@ -340,6 +415,20 @@ class T1APIConfig:
                 "the network in plaintext."
             )
         problems.extend(tls.validation_errors())
+
+        # T1 v1.0.26.8.0.1. An LM Studio bridge pointed at a plaintext
+        # address that is not loopback sends prompts — and whatever the
+        # user pasted into them — across the network in the clear.
+        # Tailscale is the exception: it is encrypted at the transport,
+        # so http:// over 100.64/10 is not the same mistake.
+        if self.lmstudio_enabled and self.lmstudio_url.startswith("http://"):
+            host = self.lmstudio_url.split("//", 1)[1].split(":")[0].split("/")[0]
+            if not _is_local_or_tailscale(host):
+                problems.append(
+                    f"T1_LMSTUDIO_URL points at {host} over plain HTTP. Prompts and completions "
+                    "would cross the network unencrypted. Use loopback, a Tailscale address, "
+                    "or put TLS in front of LM Studio."
+                )
 
         if self.deploy_secret and len(self.deploy_secret) < 32:
             problems.append(

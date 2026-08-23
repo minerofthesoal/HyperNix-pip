@@ -1,0 +1,132 @@
+# XcodeGen project definition for the HyperLink iOS app.
+#
+# The .xcodeproj is generated rather than committed, on purpose: a
+# pbxproj is a merge-conflict machine, and the CI workflow
+# (.github/workflows/ios.yml) has to be able to build this from a clean
+# checkout without anyone having opened Xcode. `xcodegen generate` in
+# this directory produces HyperLink.xcodeproj; that is the only step
+# between a fresh clone and `xcodebuild`.
+name: HyperLink
+options:
+  bundleIdPrefix: com.hypernix
+  deploymentTarget:
+    # iOS 18 rather than 26/27. The app is developed and tested against
+    # the iOS 27 SDK (Xcode 27 beta 5 and newer) — see ios/README.md —
+    # but nothing in it needs an API newer than iOS 18, and a lower
+    # floor means the same IPA installs on a phone that has not taken
+    # the beta. "Works on iOS 27 and newer" is satisfied by a target
+    # that also works on 18; the reverse is not true.
+    iOS: "18.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: false
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # `targeted` rather than `complete`: the app is @MainActor state plus
+    # one actor for the network, which `targeted` already checks. `complete`
+    # adds warnings about Apple's own not-yet-annotated SDK surface, and a
+    # wall of those is how a real warning gets missed.
+    SWIFT_STRICT_CONCURRENCY: targeted
+    DEAD_CODE_STRIPPING: YES
+    CLANG_ENABLE_MODULES: YES
+    # No signing settings here on purpose. CI passes what it needs on the
+    # xcodebuild command line, and pinning a style or a team would mean
+    # anyone opening this in Xcode hits a signing error before they can
+    # run it — with a team id that is not theirs.
+  configs:
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+      VALIDATE_PRODUCT: YES
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+
+targets:
+  HyperLink:
+    type: application
+    platform: iOS
+    sources:
+      - path: HyperLink/Sources
+      - path: HyperLink/Resources
+        buildPhase: resources
+    info:
+      # Generated here by XcodeGen on every `xcodegen generate` — this
+      # block is the source of truth, and HyperLink/Info.plist is a build
+      # product (see .gitignore).
+      path: HyperLink/Info.plist
+      properties:
+        CFBundleDisplayName: HyperLink
+        CFBundleShortVersionString: "1.0.26"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ITSAppUsesNonExemptEncryption: false
+        # The whole point of this app is talking to a PC on a home LAN
+        # or a tailnet, which means plain HTTP to a private address.
+        # ATS is relaxed for exactly that and nothing else: arbitrary
+        # loads stay off, so a public http:// endpoint is still refused.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: >-
+          HyperLink connects to the HyperNix server running on your own computer
+          over your local network.
+        NSPhotoLibraryUsageDescription: >-
+          Attach photos from your library to a conversation so the model can look at them.
+        NSCameraUsageDescription: >-
+          Take a photo to send straight into a conversation.
+        NSBonjourServices:
+          - _hypernix._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hypernix.hyperlink
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.26"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  HyperLinkTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/HyperLinkTests
+    dependencies:
+      - target: HyperLink
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hypernix.hyperlink.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  HyperLink:
+    build:
+      targets:
+        HyperLink: all
+        HyperLinkTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - HyperLinkTests
+    archive:
+      config: Release
