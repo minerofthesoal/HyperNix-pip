@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -52,6 +53,7 @@ from ..deps import (
     get_config,
     get_device_registry,
     get_hyperlink_principal,
+    get_job_queue,
     get_request_id,
     get_session_store,
     require_hyperlink_admin,
@@ -64,7 +66,10 @@ from ..schemas import (
     DeviceListResponse,
     DeviceResponse,
     DeviceSummary,
+    DownloadedModelsResponse,
     GenericOkResponse,
+    HFDownloadRequest,
+    HFDownloadResponse,
     HFFile,
     HFResolveRequest,
     HFResolveResponse,
@@ -996,6 +1001,120 @@ def resolve_model_link(
         **{k: v for k, v in data.items() if k != "files"},
         files=[HFFile(**f) for f in data["files"]],
         request_id=request_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Hugging Face downloads
+# ---------------------------------------------------------------------------
+
+
+@router.post("/models/download", response_model=HFDownloadResponse)
+def download_model(
+    payload: HFDownloadRequest,
+    principal: HyperLinkPrincipal = Depends(get_hyperlink_principal),
+    config: T1APIConfig = Depends(get_config),
+    request_id: str = Depends(get_request_id),
+    jobs=Depends(get_job_queue),
+) -> HFDownloadResponse:
+    """Start downloading a model onto the **server**, not the phone.
+
+    Queued as a job rather than run inline for the obvious reason: a
+    70B download is not going to finish inside an HTTP request, and a
+    phone that backgrounds mid-transfer must not cancel it. The response
+    carries a job id; progress arrives over the live-stream channel and
+    through ``GET /jobs/{id}``.
+
+    The model lands on the machine with the GPU because that is the
+    machine that will run it. Pulling gigabytes onto a phone to send them
+    back would be the wrong direction on every axis.
+    """
+    _require_enabled(config)
+    if not config.hf_downloads_enabled:
+        raise T1APIError(
+            T1ErrorCode.NOT_SUPPORTED,
+            "Model downloads are disabled on this server (T1_HF_DOWNLOADS_ENABLED=0).",
+            http_status=501,
+        )
+    if "write" not in principal.scopes:
+        raise T1APIError(
+            T1ErrorCode.AUTH_INSUFFICIENT_SCOPE,
+            "Downloading a model writes to this server's disk and needs a write scope.",
+            http_status=403,
+        )
+    if not payload.repo_id and not (payload.page_url or payload.file_url):
+        raise T1APIError(
+            T1ErrorCode.VALIDATION_ERROR,
+            "Give a repo_id, or a page_url/file_url to resolve first.",
+        )
+
+    # Resolve links to a concrete file list, so the job records exactly
+    # what it is going to fetch rather than deciding later.
+    repo_id, revision, filenames = payload.repo_id, payload.revision, list(payload.filenames)
+    if not repo_id:
+        try:
+            resolved = hf_resolve(
+                payload.page_url, payload.file_url,
+                prefer=payload.prefer, token=config.hf_token,
+            )
+        except HFResolveError as exc:
+            raise T1APIError(
+                T1ErrorCode.VALIDATION_ERROR, str(exc), details=exc.to_dict(), http_status=400
+            ) from exc
+        repo_id, revision = resolved.repo_id, resolved.revision
+        filenames = [f.filename for f in resolved.files]
+
+    queued = jobs.submit(
+        "hf_download",
+        payload={
+            "repo_id": repo_id,
+            "revision": revision or "main",
+            "filenames": filenames,
+            "kind": payload.kind,
+            "directory": str(config.hf_download_dir or ""),
+        },
+        created_by=principal.owner,
+    )
+    return HFDownloadResponse(
+        job_id=queued.job_id,
+        repo_id=repo_id,
+        revision=revision or "main",
+        filenames=filenames,
+        kind=payload.kind,
+        request_id=request_id,
+    )
+
+
+@router.get("/models/downloaded", response_model=DownloadedModelsResponse)
+def list_downloaded(
+    principal: HyperLinkPrincipal = Depends(get_hyperlink_principal),
+    config: T1APIConfig = Depends(get_config),
+    request_id: str = Depends(get_request_id),
+) -> DownloadedModelsResponse:
+    """What is already on this server's disk."""
+    _require_enabled(config)
+    root = Path(config.hf_download_dir or (Path.home() / ".hypernix" / "models"))
+    models: list[dict[str, Any]] = []
+    if root.exists():
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir():
+                continue
+            files = [f for f in entry.rglob("*") if f.is_file() and not f.name.endswith(".part")]
+            partial = [f for f in entry.rglob("*.part")]
+            models.append(
+                {
+                    "name": entry.name,
+                    "path": str(entry),
+                    "file_count": len(files),
+                    "total_bytes": sum(f.stat().st_size for f in files),
+                    "has_gguf": any(f.suffix.lower() == ".gguf" for f in files),
+                    # An in-flight or abandoned download is worth showing:
+                    # "why is this model not loading" is usually this.
+                    "incomplete_files": [f.name for f in partial],
+                }
+            )
+    return DownloadedModelsResponse(
+        models=models, count=len(models), directory=str(root), request_id=request_id
     )
 
 

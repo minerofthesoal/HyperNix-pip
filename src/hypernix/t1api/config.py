@@ -245,6 +245,18 @@ class T1APIConfig:
         default_factory=lambda: os.environ.get("T1_HF_TOKEN") or os.environ.get("HF_TOKEN", "")
     )
 
+    # --- Hugging Face downloads (0.72.1) --------------------------------------
+    # HyperLink can ask the server to fetch a model. The server does it
+    # because the server is the machine that will run it; pulling
+    # gigabytes onto a phone to send them back is the wrong direction on
+    # every axis.
+    hf_downloads_enabled: bool = field(
+        default_factory=lambda: _bool_env("T1_HF_DOWNLOADS_ENABLED", True)
+    )
+    hf_download_dir: str | None = field(
+        default_factory=lambda: os.environ.get("T1_HF_DOWNLOAD_DIR")
+    )
+
     # --- Backups (T1 v1.0.26.8.1.0) -------------------------------------------
     # Where /backup/list and /backup/restore keep snapshots. Never
     # contains key material — see hypernix.t1api.backup.EXCLUDED.

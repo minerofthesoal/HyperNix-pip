@@ -1319,3 +1319,36 @@ class BackupRestoreResponse(BaseModel):
     excluded: dict[str, str] = Field(default_factory=dict)
     note: str = ""
     request_id: str
+
+
+# ---------------------------------------------------------------------------
+# 0.72.1 — HyperLink model downloads
+# ---------------------------------------------------------------------------
+
+
+class HFDownloadRequest(BaseModel):
+    """Either a ``repo_id``, or links to resolve into one."""
+
+    repo_id: str = ""
+    revision: str = "main"
+    filenames: list[str] = Field(default_factory=list)
+    kind: str = "auto"                  # auto | gguf | pytorch
+    page_url: str = ""
+    file_url: str = ""
+    prefer: str = "strict"
+
+
+class HFDownloadResponse(BaseModel):
+    job_id: str
+    repo_id: str
+    revision: str
+    filenames: list[str] = Field(default_factory=list)
+    kind: str = "auto"
+    request_id: str
+
+
+class DownloadedModelsResponse(BaseModel):
+    models: list[dict[str, Any]] = Field(default_factory=list)
+    count: int = 0
+    directory: str = ""
+    request_id: str

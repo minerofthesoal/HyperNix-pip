@@ -271,6 +271,7 @@ def create_app(
     deployment = DeploymentCoordinator(modules, servers, module_transport, audit=audit)
     jobs.register_handler("module_sync", deployment.module_sync_handler)
     jobs.register_handler("module_fetch", deployment.module_fetch_handler)
+    jobs.register_handler("hf_download", _make_hf_download_handler(cfg))
 
     # T1 v1.0.26.8.1.0 subsystems. The auth history holds key material
     # for reversible rotations, so it gets Keymaster's Fernet when the
@@ -498,6 +499,49 @@ def create_app(
         )
 
     return app
+
+
+def _make_hf_download_handler(cfg: T1APIConfig):
+    """Job handler for ``POST /hyperlink/models/download``.
+
+    Built as a closure over the config rather than reaching into
+    ``app.state`` at run time: a job outlives the request that queued it,
+    and a handler that resolves its settings later is a handler that can
+    observe a different configuration than the one the caller was told
+    about.
+    """
+    from pathlib import Path as _Path
+
+    def handler(payload: dict, cancel_event: object = None) -> dict:
+        from ..hyperlink.hfdownload import HFDownloader
+
+        repo_id = str(payload.get("repo_id") or "")
+        if not repo_id:
+            raise ValueError("hf_download job has no repo_id")
+        root = _Path(
+            payload.get("directory")
+            or cfg.hf_download_dir
+            or (_Path.home() / ".hypernix" / "models")
+        )
+        target = root / repo_id.replace("/", "__")
+        # A multi-gigabyte download must be interruptible. The queue
+        # signals cancellation through this event; the progress callback
+        # is the only place that runs often enough to notice.
+        def _check_cancelled(_progress) -> None:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Download cancelled")
+
+        downloader = HFDownloader(token=cfg.hf_token, progress=_check_cancelled)
+        result = downloader.download(
+            repo_id,
+            target,
+            revision=str(payload.get("revision") or "main"),
+            filenames=list(payload.get("filenames") or []) or None,
+            kind=str(payload.get("kind") or "auto"),
+        )
+        return result.to_dict()
+
+    return handler
 
 
 def _unprefixed(path: str, prefix: str) -> str:
