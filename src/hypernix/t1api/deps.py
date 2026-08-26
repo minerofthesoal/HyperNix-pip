@@ -289,15 +289,27 @@ def get_hyperlink_principal(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> HyperLinkPrincipal:
-    """Accept a HyperLink device token *or* any normal T1 credential.
+    """Accept a device token, a **T2S key**, or any normal T1 credential.
 
-    Device tokens are distinguishable by their ``HLNK_`` prefix, so the
-    branch is on the credential's own shape rather than on a second
-    header — one ``Authorization: Bearer …`` works for every client, and
-    a client does not have to know which kind of credential it is
+    Every branch is chosen by the credential's own shape rather than by a
+    second header, so one ``Authorization: Bearer …`` works for every
+    client and a client never has to know which kind of credential it is
     holding.
+
+    The T2S branch (added in 0.72.1) is the fix for HyperLink refusing to
+    connect. Pairing produces an ``HLNK_`` token, and a device that never
+    completed pairing — or whose pairing code expired mid-setup — had no
+    way in at all: the T1 keys it could have used are 48 characters of
+    mixed symbols, which is not a thing anyone types into a phone twice.
+    A T2S key is 26 body characters, deliberately limited to read and
+    non-admin write outside HyperLink, and is now accepted here as a
+    first-class way to reach a server.
     """
     credential = _extract_credential(authorization)
+
+    if credential[:3] in ("T2_", "T2S"):
+        return _principal_from_t2(request, credential)
+
     if credential.startswith("HLNK_"):
         registry = get_device_registry(request)
         record = registry.authenticate(credential, address=get_client_ip(request))
@@ -313,6 +325,42 @@ def get_hyperlink_principal(
         owner=ctx.key_id,
         scopes=tuple(scope.value for scope in ctx.scopes),
         is_admin=ctx.is_admin,
+        auth_context=ctx,
+    )
+
+
+def _principal_from_t2(request: Request, credential: str) -> HyperLinkPrincipal:
+    """Resolve a T2 (or T2S) key into a HyperLink principal.
+
+    The key authenticates through the ordinary T1 path — a T2 key is a
+    T1 key with extra fields, and :meth:`T1AuthService.validate_key`
+    already knows how to do the conversion — so a T2S key gets exactly
+    the permissions its underlying T1 key has, narrowed by the T2S rule.
+
+    Inside HyperLink a T2S key is a full client credential: this *is*
+    HyperLink, which is the context the restriction carves out. It still
+    never becomes an admin, because ``is_admin`` is carried by the
+    password component and a T2S key cannot have one.
+    """
+    from ..security.t2keys import T2KeyGenerator, T2Type
+
+    try:
+        parsed = T2KeyGenerator.parse(credential)
+    except ValueError as exc:
+        raise T1APIError(T1ErrorCode.AUTH_INVALID_KEY, str(exc), http_status=401) from exc
+
+    svc: T1AuthService = get_auth_service(request)
+    ctx = svc.validate_key(credential)
+
+    scopes = tuple(scope.value for scope in ctx.scopes)
+    if parsed.family is T2Type.T2S:
+        scopes = tuple(s for s in scopes if s in ("read", "write"))
+
+    return HyperLinkPrincipal(
+        owner=ctx.key_id,
+        scopes=scopes,
+        # A T2S key is never an admin — see t2keys.T2KeyGenerator.generate.
+        is_admin=ctx.is_admin and parsed.family is not T2Type.T2S,
         auth_context=ctx,
     )
 

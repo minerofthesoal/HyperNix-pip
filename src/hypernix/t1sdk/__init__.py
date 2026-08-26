@@ -72,7 +72,7 @@ from .transport import HTTPTransport, Response, RetryPolicy, TLSConfig
 # Tracks the T1 API's own version (t1api/version.py), not the hypernix
 # package's: the SDK implements an API contract, and its version should
 # say which one.
-__sdk_version__ = "1.0.26.8.0.1"
+__sdk_version__ = "1.0.26.8.1.0"
 
 __all__ = [
     "__sdk_version__",

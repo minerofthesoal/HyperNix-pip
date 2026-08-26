@@ -1682,6 +1682,129 @@ def _human_bytes(size: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 0.72.1 — `waiter -F` (find)
+# ---------------------------------------------------------------------------
+
+_FIND_HELP = """\
+waiter -F <target> — find a HyperNix server.
+
+    waiter -F "workshop-box"          by server name
+    waiter -F <54-char host id>       by Host ID
+    waiter -F home/api.jsonl          a direct endpoint descriptor
+    waiter -F 192.168.1.50:8000       an address
+    waiter -F -l "workshop-box"       this machine and this LAN only
+
+Without -l the tailnet is searched too. With it, never — a tailnet sweep
+touches every peer on a private network, and "find my server" should not
+do that by surprise when the server is on the desk.
+
+After a match, --open launches hyped-pro against it. A server may ask
+clients to run something else; waiter reports what it asked for and does
+not run it. See `waiter -F --help` for why.
+"""
+
+
+def _cmd_find(rest: list[str]) -> int:
+    from .discovery import classify_target, connect, discover
+
+    p = argparse.ArgumentParser(
+        prog="waiter -F",
+        description="Find a HyperNix server by name, Host ID, api.jsonl endpoint, or address.",
+        epilog=(
+            "Security note: api.jsonl may name a client application the host would like "
+            "opened. waiter reports it and never executes it — running a command chosen by "
+            "the machine you are connecting to is remote code execution with extra steps. "
+            "--open always launches HyperNix's own hyped-pro, never the host's command."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("target", help="Server name, Host ID, api.jsonl endpoint, or address")
+    p.add_argument("-l", "--local", action="store_true",
+                   help="Search only this machine and this LAN; never the tailnet")
+    p.add_argument("--open", action="store_true",
+                   help="Open hyped-pro against the first match")
+    p.add_argument("--timeout", type=float, default=2.0)
+    # Not --port: the shared connection flags already own -P/--port for
+    # "the port of the server I am talking to", and this is "another
+    # port to look on". Two flags with one name is how a CLI teaches
+    # people to distrust it.
+    p.add_argument("--probe-port", type=int, action="append", dest="ports",
+                   help="Extra port to probe (repeatable)")
+    _add_common_connection_args(p)
+    args = p.parse_args(rest)
+
+    target = classify_target(args.target)
+    if not args.as_json:
+        scope = "this machine and LAN" if args.local else "this machine, LAN and tailnet"
+        _info(f"Looking for {target.kind.replace('_', ' ')} {args.target!r} across {scope}…")
+
+    from .discovery import DEFAULT_PORTS
+
+    ports = tuple(args.ports) + DEFAULT_PORTS if args.ports else DEFAULT_PORTS
+    found = discover(target, local_only=args.local, ports=ports, timeout=args.timeout)
+    reachable = [f for f in found if f.reachable]
+
+    if args.as_json:
+        _print_json([f.to_dict() for f in found])
+        return 0 if reachable else 1
+
+    if not reachable:
+        _err(f"No HyperNix server found for {args.target!r}.")
+        if args.local:
+            _info("  Searched this machine and LAN only (-l). Drop -l to include the tailnet.")
+        else:
+            _info("  Searched this machine, the LAN, and the tailnet.")
+        _info("  If you know the address, pass it directly: waiter -F 192.168.1.50:8000")
+        return 1
+
+    _print_table(
+        ["address", "name", "t1", "where", "latency"],
+        [
+            [f.url, f.server_name or "-", f.t1_version or "-", f.source, f"{f.latency_ms:.0f} ms"]
+            for f in reachable
+        ],
+        title=f"Found {len(reachable)} server(s)",
+    )
+
+    first = reachable[0]
+    connection = connect(first, credential=_resolve_config(args).key or "")
+    for note in connection.notes:
+        _warn(note) if "NOT been run" in note else _info(f"  {note}")
+    if connection.authenticated:
+        _ok(f"Authenticated as {connection.key_id or 'a valid key'}")
+
+    if args.open:
+        return _open_hyped_pro(connection)
+    if connection.application and connection.application.is_builtin:
+        _info(f"\n  Open it with: waiter -F {args.target!r} --open")
+    return 0
+
+
+def _open_hyped_pro(connection: Any) -> int:
+    """Launch hyped-pro against a discovered server.
+
+    Always HyperNix's own binary with HyperNix's own flags — never a
+    command the remote host supplied. That is the whole distinction this
+    function exists to keep: discovery hands over an address, and the
+    thing that runs is ours.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    argv = connection.hyped_pro_argv()
+    if _shutil.which(argv[0]) is None:
+        _err(f"{argv[0]} is not on PATH. Install it with: pip install 'hypernix[t1api]'")
+        return 1
+    _ok(f"Opening {argv[0]} against {connection.server.url}")
+    try:
+        completed = _subprocess.run(argv, check=False)  # noqa: S603 - our own argv list
+    except OSError as exc:
+        _err(f"Could not start {argv[0]}: {exc}")
+        return 1
+    return completed.returncode
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -1712,13 +1835,16 @@ Usage:
   waiter tui      Open the full curses dashboard (same as `waiter serv -G`)
   waiter config   Show the locally saved config
 
+  waiter -F       Find a server by name / Host ID / api.jsonl (-l for local only)
+
 T1 v1.0.26.8.0.1:
   waiter lmstudio  Bridge to a model loaded in LM Studio (status/models/chat/local)
   waiter hyperlink Pair phones, manage devices and server-side chat sessions
   waiter fetch     Resolve a Hugging Face page + file link into a GGUF download plan
 
 Every subcommand accepts -I/-K/-F/-P/-H to override the saved config for
-just that call, and --json for raw JSON output.
+just that call, and --json for raw JSON output. (As the *first* argument,
+-F means find; inside a subcommand it is the config-file override.)
 
 Run `waiter <subcommand> --help` for detailed options.
 """
@@ -1737,6 +1863,12 @@ def main(argv: list[str] | None = None) -> int:
 
         print(f"waiter {__waiter_version__}")
         return 0
+
+    # -F/--find is a flag rather than a subcommand, because that is how
+    # the release specifies it. `waiter find ...` is accepted too and
+    # runs the same function; there is one implementation.
+    if raw[0] in ("-F", "--find"):
+        return _cmd_find(raw[1:])
 
     cmd, rest = raw[0], raw[1:]
     dispatch = {
@@ -1764,6 +1896,7 @@ def main(argv: list[str] | None = None) -> int:
         "smoke": _cmd_smoke,
         # T1 v1.0.26.8.0.1
         "lmstudio": _cmd_lmstudio,
+        "find": _cmd_find,
         "hyperlink": _cmd_hyperlink,
         "fetch": _cmd_fetch,
     }

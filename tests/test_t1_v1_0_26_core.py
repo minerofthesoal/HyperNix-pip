@@ -60,21 +60,22 @@ def backend(tmp_path: Path) -> SQLiteBackend:
 
 class TestT1Version:
     def test_this_build_is_the_documented_version(self):
-        assert T1_VERSION.short == "1.0.26.8.0.1"
-        assert T1_VERSION.long == "1.0.2026.8.0.1"
-        assert T1_VERSION.display == "t1 v1.0.26.8.0.1"
+        # 0.72.1 shipped feature 1 (T2 recognition, undo/redo, backups).
+        assert T1_VERSION.short == "1.0.26.8.1.0"
+        assert T1_VERSION.long == "1.0.2026.8.1.0"
+        assert T1_VERSION.display == "t1 v1.0.26.8.1.0"
         assert T1_VERSION.generation == "1.0"
         assert T1_VERSION.release == "2026-08"
 
     @pytest.mark.parametrize(
         "text",
         [
-            "1.0.26.8.0.1",
-            "1.0.2026.8.0.1",
-            "v1.0.26.8.0.1",
-            "t1 v1.0.2026.8.0.1",
-            "T1 V1.0.26.8.0.1",
-            "  1.0.26.8.0.1  ",
+            "1.0.26.8.1.0",
+            "1.0.2026.8.1.0",
+            "v1.0.26.8.1.0",
+            "t1 v1.0.2026.8.1.0",
+            "T1 V1.0.26.8.1.0",
+            "  1.0.26.8.1.0  ",
         ],
     )
     def test_both_spellings_and_every_prefix_parse_to_one_value(self, text):
@@ -129,13 +130,13 @@ class TestT1Version:
         # Deliberately does *not* zero lower components: year and month
         # are dates, not counters.
         bumped = T1_VERSION.bump(fix=2)
-        assert bumped.short == "1.0.26.8.0.2"
-        assert T1_VERSION.bump(month=9, feature=1).short == "1.0.26.9.1.1"
+        assert bumped.short == "1.0.26.8.1.2"
+        assert T1_VERSION.bump(month=9, feature=2).short == "1.0.26.9.2.0"
 
     def test_to_dict_carries_both_spellings(self):
         data = T1_VERSION.to_dict()
-        assert data["short"] == "1.0.26.8.0.1"
-        assert data["long"] == "1.0.2026.8.0.1"
+        assert data["short"] == "1.0.26.8.1.0"
+        assert data["long"] == "1.0.2026.8.1.0"
         assert data["year"] == 2026 and data["month"] == 8
 
     def test_every_shipped_component_agrees(self):

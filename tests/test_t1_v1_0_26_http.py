@@ -138,8 +138,8 @@ def device(client, admin_key) -> tuple[str, str]:
 class TestStatus:
     def test_status_reports_both_version_spellings(self, client):
         body = client.get("/status").json()
-        assert body["t1_api_version"] == T1_VERSION.short == "1.0.26.8.0.1"
-        assert body["t1_api_version_long"] == "1.0.2026.8.0.1"
+        assert body["t1_api_version"] == T1_VERSION.short == "1.0.26.8.1.0"
+        assert body["t1_api_version_long"] == "1.0.2026.8.1.0"
         assert body["t1_version"]["year"] == 2026
         assert body["t1_version"]["generation"] == "1.0"
 

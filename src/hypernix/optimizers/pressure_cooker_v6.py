@@ -191,6 +191,7 @@ class PressureCookerV6(OptimizerBase):
         grad_scaler: Any = None,
         grad_accum_steps: int = 1,
         skip_on_nonfinite: bool = False,
+        six_bit_mode: str = "off",
         **kwargs: Any,
     ) -> None:
         if grad_accum_steps < 1:
@@ -204,6 +205,16 @@ class PressureCookerV6(OptimizerBase):
             grad_clip=grad_clip,
             **kwargs,
         )
+        # 0.72.1: 6-bit momentum. "off" keeps the int8 buffer this
+        # optimiser has always used; the three packing modes trade
+        # pack/unpack work for optimiser memory. Validated here rather
+        # than at first use — a typo should fail at construction, not
+        # two hours into a run.
+        from .sixbit import resolve_mode as _resolve_six_bit
+
+        self.six_bit_mode = (six_bit_mode or "off").strip().lower()
+        if self.six_bit_mode != "off":
+            _resolve_six_bit(self.six_bit_mode)      # raises on an unknown mode
         self.lr = lr
         self.momentum_beta = momentum_beta
         self.weight_decay = weight_decay

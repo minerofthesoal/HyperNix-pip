@@ -20,6 +20,182 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.1 — T1 v1.0.26.8.1.0
+
+The T1 API moves to `1.0.2026.8.1.0` — a feature bump inside the same 1.0
+generation, so every existing client keeps working. Three new modules,
+the T2 key system, four new endpoints, and a GUI.
+
+### T2 keys
+
+✨ **The T2 key family.** T2 keeps T1's structure and adds the three
+things T1 has no room for: an access level (1–9) in the suffix, an
+optional 7–13 character admin password in the prefix, and an SSPKID. A
+T2 key converts to a valid T1 key and authenticates against the store
+that already holds it, so there is no migration — an operator wraps an
+existing T1 key at a stated level and both spellings work.
+
+𖢥 **The conversion had a real bug, caught by round-tripping 3000 keys.**
+The T2 special-character alphabet excluded `-` on the theory that it is
+the suffix separator. It is, but the suffix is anchored at the end and
+the special block is five characters at a fixed offset, so a `-` inside
+it was never ambiguous — and excluding it meant any T1 key whose
+specials contained one converted to a *different* T1 key, which then
+failed to authenticate. The alphabets are now identical and
+`to_t1(from_t1(k)) == k` exactly, which is the property the whole
+compatibility story rests on.
+
+✨ **T2S**, the HyperLink key: exactly 26 body characters, never an admin
+(admin is carried by the password component and a T2S key cannot have
+one), and outside HyperLink narrowed to read and non-admin write. That
+narrowing is what makes a typeable credential acceptable rather than a
+liability.
+
+✂️ **T2C is reserved and `generate()` refuses it.** The specified key
+derivation — the holder's public IP, shuffled — is not a secret: it is
+observable by every server the client contacts, changes without notice,
+and is shared across a NAT. It gets a real key-agreement step in the 1.x
+line or it does not ship. The type is kept so the wire format has a
+place for it.
+
+✨ **SSPKIDs.** A V1 Server ID identifies a server; an SSPKID identifies
+one key on it. Many keys per server, one key per SSPKID, enforced by
+`ServerKeyRegistry`. The index codec is a greedy decomposition over the
+specified symbol table (5=`!`, 10=`?`, 15=`•`, 25=`*`, 40=`^`, 75=`€`,
+100=`$`) with a trailing 1–4 digit: it round-trips and is injective over
+every index, and non-canonical spellings like `!!` are refused rather
+than silently resolving to the same key as `?`.
+
+🐛 **`generate_admin_password` could emit passwords its own validator
+rejected.** Uniform choice over 61 characters produces a
+three-character run (`abc`, `789`) about 0.6% of the time, so roughly
+one caller in two hundred saw a confusing failure. It now uses bounded
+rejection sampling.
+
+❗ The **T2 API** itself does not ship until 1.x. What ships here is the
+key system and T1's ability to recognise it; `t2_api_available()` is the
+single gate.
+
+### T1 API v1.0.26.8.1.0
+
+✨ **`/t1/auth/undo` and `/t1/auth/redo`**, aliased under `/auth/t1/` so a
+client that learned `/auth/t1/rotate` does not have to learn a
+differently shaped path for the operation that reverses it. The history
+stores an *inverse* rather than a snapshot and refuses to record an
+operation it could not actually reverse — an undo stack that lies about
+what it can restore is worse than none. Payloads carry key material for
+rotations, so they are Fernet-encrypted when the `security` extra is
+present, bounded by both age and count, and never returned by any
+endpoint that lists them.
+
+✨ **`/backup/list` and `/backup/restore`**. A snapshot captures
+registries and metadata and deliberately excludes four things: key
+material (a backup that restores working credentials is a credential
+distribution mechanism), usage counters (restoring them either
+resurrects spent quota or refunds it), the audit log (one you can roll
+back is not an audit trail), and attachment blobs (hashes only, so a
+restore can report what is missing). Restore is a dry run unless
+confirmed, and section checksums are verified first — restoring half a
+corrupt snapshot is worse than restoring none.
+
+🛡️ `GET /status` now reports `server_name`, `host_id` and `server_id`.
+Without a name to match on, `waiter -F "workshop-box"` was silently
+unsatisfiable.
+
+### HyperLink
+
+𖢥 **HyperLink refusing to connect** had one cause: pairing was the only
+way in. A device whose code expired mid-setup had no fallback, because
+a T1 key is 48 characters of mixed symbols. The principal resolver now
+accepts a T2 or T2S key alongside the `HLNK_` device token, branching on
+the credential's own shape.
+
+✨ **Hugging Face downloads**, PyTorch or GGUF, gated or public, with a
+token. Built entirely around resumption: files land at `.part` and are
+renamed only when complete, partials resume with a `Range` request, and
+a server that ignores the range header is detected by its 200 and the
+file restarted rather than appended to — appending would have produced a
+corrupt model that downloaded "successfully". Selecting PyTorch files
+prefers safetensors and drops the `.bin` duplicates, so a 70B model is
+not 260 GB of transfer for 130 GB of weights. Tokens are redacted from
+every log line. The download runs on the server, queued as a job.
+
+### waiter
+
+✨ **`waiter -F <target>`** finds a server by name, 54-character Host ID,
+`api.jsonl` endpoint, or address — told apart by shape, which works
+because the identifier formats are mutually exclusive by construction.
+`-l` restricts the sweep to this machine and this LAN; without it the
+tailnet is included. That distinction is not cosmetic: a tailnet sweep
+touches every peer on a private network. The LAN sweep deliberately does
+not walk a /24 either — that is a port scan of a home network.
+
+🛡️ **A host may name a client application in `api.jsonl`; waiter reports
+it and does not run it.** `--open` always launches HyperNix's own
+`hyped-pro` with HyperNix's own flags. Running a command the remote
+machine chose, because it asked, is remote code execution with extra
+steps, and a discovery protocol that does it only has to be lied to once.
+
+### New modules
+
+✨ **noodle** (`hypernix.interfaces.noodle`) — agents and swarms across
+nine providers (OpenAI, Anthropic, Kimi, Gemini, Qwen, Grok, HyperNix
+T1, Ollama, vLLM) in three wire formats. Ten sandboxed tools: create,
+edit, read and execute files; web search; memory read and write; context
+compaction; todo create and update. Every path resolves *before* the
+containment check so a planted symlink cannot escape; execution is
+opt-in, argv-only and runs with a minimal environment; memory is off
+unless the server enabled it. Self-correction is bounded and evidenced.
+The swarm does not fail a task over to another provider on its own —
+silent escalation produces a surprising invoice and silent demotion
+produces surprising output.
+
+✨ **steamroller** (`hypernix.quant.steamroller`) — the descending
+quantiser. Every descent below Q3_K_L stages through it, because a
+single pass has to choose every group scale from the full-precision
+distribution at once and at one bit there are not enough levels left.
+Targets: Q8_0, Q3_K_L, IQ1_M, and the HyperNix extension types IQ0.9_L,
+IQ0.75_M and IQ0.5_XXXL. ❗ Those three are **not upstream llama.cpp
+quant types** — stock llama.cpp will refuse the resulting GGUF — and
+every plan reaching them warns that below ~1.5 bits a model stops being
+a worse version of itself.
+
+✨ **scriptgen** (`hnx scriptgen`) — a dense Tk GUI over 43 parameters,
+with a headless CLI fallback because the machine with the GPU usually
+has no display. Dark slate, charcoal, obsidian and HyperNix red; the
+"no purple" rule and WCAG contrast are enforced by `audit_palette()`
+rather than by taste, and it caught the first draft of the palette
+drifting cool. Generated scripts are readable training loops, not
+wrappers.
+
+✨ **livestream** (`hypernix.monitoring.livestream`) — a hand-written
+WebSocket server streaming logs, subagent thoughts, GPU/CPU/RAM metrics
+and progress to a browser. Each viewer has a bounded queue and one that
+falls behind is dropped rather than waited for: a dropped viewer
+reconnects, a stalled trainer is an hour of GPU time.
+
+### Quantisation and hardware
+
+✨ **The format registry** (`hypernix.quant.formats`) covers NF4, INT8,
+FP8, FP4, the GGUF tiers, EXL2, AWQ and GPTQ, each carrying a minimum
+compute capability — so the tuner can filter to what a card can actually
+execute. FP8 on Pascal is a missing instruction, not a slow path.
+
+✨ **Pascal auto-tuning** (`hypernix.system.pascal`) for GTX 1080/1080 Ti,
+P40, P4 and P100. The load-bearing fact is that FP16 arithmetic is 1:64
+on GP104/GP102 and 2:1 only on GP100, so the right answer on a 1080 is
+FP16 storage with FP32 compute and on a P100 it is not — the tuner
+distinguishes them. `FP16Guard` is the NaN mitigation Pascal needs
+because it has no BF16: dynamic loss scaling, skip-on-overflow, and a
+hard FP32 fallback once loss scaling is demonstrably not rescuing the
+run.
+
+✨ **6-bit momentum** for Pressure Cooker v5, v5+, v5s and v6, in three
+packing modes. `aligned` is the right default on Pascal and the wrong
+one on a modern card, which is what the tuner decides.
+
+📚 Version and package: T1 API `1.0.26.8.1.0`, package `0.72.1`.
+
 ## 0.72.0 — T1 v1.0.26.8.0.1
 
 The T1 API stops tracking the package version. The two ship together but
