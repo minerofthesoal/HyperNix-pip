@@ -10,6 +10,9 @@ phone-facing surface — pairing, sessions, files, Hugging Face
 resolution). Both are documented in ``wiki/T1-API.md``; neither is in
 the original spec's endpoint list because neither existed when it was
 written.
+T1 v1.0.26.8.1.0 adds: authundo (``/t1/auth/undo`` and ``/t1/auth/redo``,
+aliased under ``/auth/t1/``) and backup (``/backup/list``,
+``/backup/restore``).
 
 Three routers expose endpoints beyond the spec's literal list, each for
 a stated reason rather than by accident:
@@ -27,6 +30,8 @@ from __future__ import annotations
 from . import (
     audit,
     auth,
+    authundo,
+    backup,
     billing,
     bridge,
     config,
@@ -59,12 +64,18 @@ ALL_ROUTERS = (
     # T1 v1.0.26.8.0.1
     bridge.router,
     hyperlink.router,
+    # T1 v1.0.26.8.1.0
+    authundo.router,
+    authundo.alias_router,
+    backup.router,
 )
 
 __all__ = [
     "ALL_ROUTERS",
     "audit",
     "auth",
+    "authundo",
+    "backup",
     "billing",
     "bridge",
     "config",

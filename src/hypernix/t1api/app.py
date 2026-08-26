@@ -59,9 +59,12 @@ from hypernix.security.keymaster import Keymaster
 from ..hyperlink.files import AttachmentStore
 from ..hyperlink.pairing import DeviceRegistry
 from ..hyperlink.sessions import ChatSessionStore
+from ..security.t2keys import ServerKeyRegistry
 from . import __t1api_version__
 from .audit import AuditCategory, AuditLog, AuditOutcome
 from .auth import T1AuthService
+from .authhistory import AuthHistory
+from .backup import BackupStore
 from .billing import BillingLedger
 from .config import T1APIConfig
 from .cost import CostCalculator
@@ -191,6 +194,10 @@ def create_app(
     device_registry: DeviceRegistry | None = None,
     session_store: ChatSessionStore | None = None,
     attachment_store: AttachmentStore | None = None,
+    # T1 v1.0.26.8.1.0
+    auth_history: AuthHistory | None = None,
+    backup_store: BackupStore | None = None,
+    server_key_registry: ServerKeyRegistry | None = None,
     mount_prefix: str | None = None,
     validate_production: bool | None = None,
 ) -> FastAPI:
@@ -235,6 +242,7 @@ def create_app(
         gk,
         token_secret=cfg.token_secret,
         default_ttl_seconds=cfg.scoped_token_default_ttl_seconds,
+        accept_t2_keys=cfg.accept_t2_keys,
     )
 
     table = routing_table or RoutingTable.load(cfg.routing_policy_path)
@@ -263,6 +271,13 @@ def create_app(
     deployment = DeploymentCoordinator(modules, servers, module_transport, audit=audit)
     jobs.register_handler("module_sync", deployment.module_sync_handler)
     jobs.register_handler("module_fetch", deployment.module_fetch_handler)
+
+    # T1 v1.0.26.8.1.0 subsystems. The auth history holds key material
+    # for reversible rotations, so it gets Keymaster's Fernet when the
+    # security extra is installed rather than sitting in plain JSON.
+    history = auth_history or AuthHistory(db, fernet=getattr(km, "_fernet", None))
+    backups = backup_store or BackupStore(cfg.backup_dir)
+    server_keys = server_key_registry or ServerKeyRegistry()
 
     # T1 v1.0.26.8.0.1 subsystems. All three share the same backend as
     # everything else, so a HyperLink deployment is still one database
@@ -320,6 +335,10 @@ def create_app(
     app.state.t1_device_registry = devices
     app.state.t1_session_store = sessions
     app.state.t1_attachment_store = attachments
+    # T1 v1.0.26.8.1.0
+    app.state.t1_auth_history = history
+    app.state.t1_backup_store = backups
+    app.state.t1_server_key_registry = server_keys
 
     if cfg.cors_allow_origins:
         from fastapi.middleware.cors import CORSMiddleware

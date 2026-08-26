@@ -25,6 +25,6 @@ new surfaces: ``waiter lmstudio`` (the LM Studio bridge),
 """
 from __future__ import annotations
 
-__waiter_version__ = "1.0.26.8.0.1"
+__waiter_version__ = "1.0.26.8.1.0"
 
 __all__ = ["__waiter_version__"]

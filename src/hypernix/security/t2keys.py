@@ -184,7 +184,19 @@ _SIX_LETTER_WORDS = (
     "welder", "yonder", "zenith",
 )
 
-_T2_SPECIAL_CHARS = r"!@#$%^&*()_=+[]{};:',.<>?|~`"
+#: **The same special-character set as T1**, ``-`` included.
+#:
+#: Excluding ``-`` looked safer — it is the suffix separator — and was
+#: wrong. The suffix is anchored at the end of the string and the special
+#: block is a fixed five characters at a fixed offset, so a ``-`` inside
+#: the block is never ambiguous. What excluding it actually bought was a
+#: conversion that was not a round trip: any T1 key whose specials
+#: contained ``-`` came back as a *different* T1 key, which then failed
+#: authentication. Sharing the alphabet makes T1 -> T2 -> T1 exact, which
+#: is the property the whole compatibility story rests on.
+from .keymaster import _SPECIAL_CHARS as _T1_SPECIAL_CHARS  # noqa: E402
+
+_T2_SPECIAL_CHARS = _T1_SPECIAL_CHARS
 _T2_SPECIAL_RE = re.escape(_T2_SPECIAL_CHARS)
 
 # T2_<pw?>_<body><ll><sp5><slash><digit>-<level>
@@ -823,11 +835,11 @@ class T2KeyGenerator:
           and preserving it is what makes the conversion meaningful
           rather than a re-roll.
         * The **T1 suffix** (two lowercase, five specials, slash, digit)
-          is carried across unchanged where T1's alphabet allows it. T2
-          permits a slightly different special-character set, so any
-          character T1 does not accept is remapped deterministically —
-          the same T2 key always converts to the same T1 key, which is
-          what lets a converted key be recognised across restarts.
+          is carried across unchanged. T2 shares T1's special-character
+          alphabet exactly, so this is a copy rather than a remap and
+          ``to_t1(from_t1(k)) == k`` holds for every T1 key — which is
+          what lets an existing key be presented as T2 and still
+          authenticate against the store that already holds it.
         * The **access level** and the **admin password** are dropped.
           T1 has nowhere to put them, and inventing a place would produce
           a "T1" key that only a T2-aware server could read.
@@ -839,8 +851,6 @@ class T2KeyGenerator:
         servers, not for storage.
         """
         parsed = key if isinstance(key, T2Key) else T2KeyGenerator.parse(key)
-        from .keymaster import _SPECIAL_CHARS as T1_SPECIALS  # local: avoids a cycle
-
         body = parsed.body
         if len(body) < _MIN_BODY_LEN:
             # T2S bodies are 26, T2 bodies are >= 16, so this cannot fire
@@ -850,8 +860,12 @@ class T2KeyGenerator:
                 f"Cannot convert: T1 requires a body of at least {_MIN_BODY_LEN} characters, "
                 f"this key has {len(body)}"
             )
-        specials = "".join(_remap_special(c, T1_SPECIALS) for c in parsed.special_chars)
-        return f"T1_{body}{parsed.lowercase_pair}{specials}{parsed.slash}{parsed.digit}"
+        # The alphabets are identical, so this is an exact carry-over
+        # rather than a remap: T1 -> T2 -> T1 returns the original key.
+        return (
+            f"T1_{body}{parsed.lowercase_pair}{parsed.special_chars}"
+            f"{parsed.slash}{parsed.digit}"
+        )
 
     @staticmethod
     def from_t1(
@@ -883,23 +897,8 @@ class T2KeyGenerator:
                 f"Cannot present this T1 key as T2S: a T2S body is exactly "
                 f"{T2S_BODY_LENGTH} characters and this key's is {len(body)}"
             )
-        specials = "".join(_remap_special(c, _T2_SPECIAL_CHARS) for c in parts["special_chars"])
         raw = (
-            f"{family.value}_{body}{parts['lowercase_pair']}{specials}"
+            f"{family.value}_{body}{parts['lowercase_pair']}{parts['special_chars']}"
             f"{parts['slash']}{parts['digit']}-{access_level}"
         )
         return T2KeyGenerator.parse(raw, sspkid=sspkid)
-
-
-def _remap_special(char: str, allowed: str) -> str:
-    """Map a special character into *allowed*, deterministically.
-
-    Identity when the character is already allowed, so the common case is
-    a true round trip. Otherwise the character's codepoint indexes into
-    the allowed set — stable across processes and platforms, which is the
-    only property that matters: the same T2 key must always convert to
-    the same T1 key.
-    """
-    if char in allowed:
-        return char
-    return allowed[ord(char) % len(allowed)]

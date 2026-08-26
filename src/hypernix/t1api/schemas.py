@@ -1250,3 +1250,72 @@ class HFResolveResponse(BaseModel):
     sources: list[str] = Field(default_factory=list)
     metadata_from_api: bool = False
     request_id: str
+
+
+# ---------------------------------------------------------------------------
+# T1 v1.0.26.8.1.0 — auth undo/redo and backups
+# ---------------------------------------------------------------------------
+
+
+class AuthUndoResponse(BaseModel):
+    direction: str
+    entry: dict[str, Any]
+    can_undo: bool
+    can_redo: bool
+    request_id: str
+
+
+class AuthHistoryResponse(BaseModel):
+    entries: list[dict[str, Any]] = Field(default_factory=list)
+    count: int = 0
+    can_undo: bool = False
+    can_redo: bool = False
+    next_undo: dict[str, Any] | None = None
+    next_redo: dict[str, Any] | None = None
+    request_id: str
+
+
+class BackupSummary(BaseModel):
+    backup_id: str
+    created_at: float
+    format_version: int
+    t1_version: str = ""
+    hypernix_version: str = ""
+    sections: dict[str, int] = Field(default_factory=dict)
+    checksums: dict[str, str] = Field(default_factory=dict)
+    attachment_count: int = 0
+    label: str = ""
+    created_by: str = ""
+    excluded: dict[str, str] = Field(default_factory=dict)
+    size_bytes: int = 0
+    filename: str = ""
+
+
+class BackupListResponse(BaseModel):
+    backups: list[BackupSummary]
+    count: int
+    sections_captured: list[str] = Field(default_factory=list)
+    request_id: str
+
+
+class BackupCreateRequest(BaseModel):
+    label: str = ""
+
+
+class BackupRestoreRequest(BaseModel):
+    backup_id: str
+    #: ``None`` means "decide from ?confirm" — a restore without an
+    #: explicit confirmation is a dry run.
+    dry_run: bool | None = None
+    sections: list[str] = Field(default_factory=list)
+
+
+class BackupRestoreResponse(BaseModel):
+    backup_id: str
+    dry_run: bool
+    created_at: float
+    label: str = ""
+    sections: list[dict[str, Any]] = Field(default_factory=list)
+    excluded: dict[str, str] = Field(default_factory=dict)
+    note: str = ""
+    request_id: str

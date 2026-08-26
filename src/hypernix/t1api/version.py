@@ -69,6 +69,7 @@ __all__ = [
     "T1_VERSION_SHORT",
     "T1_VERSION_LONG",
     "MIN_CLIENT_VERSION",
+    "T2_AWARE_VERSION",
     "parse_version",
 ]
 
@@ -266,7 +267,7 @@ def parse_version(text: str) -> T1Version:
 
 
 #: The version this build of the T1 API implements.
-T1_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=0, fix=1)
+T1_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=0)
 T1_VERSION_SHORT = T1_VERSION.short   # "1.0.26.8.0.1"
 T1_VERSION_LONG = T1_VERSION.long     # "1.0.2026.8.0.1"
 
@@ -275,3 +276,9 @@ T1_VERSION_LONG = T1_VERSION.long     # "1.0.2026.8.0.1"
 #: 1.0 line is accepted, and a 0.71.x client is told to upgrade rather
 #: than being left to fail on a missing field.
 MIN_CLIENT_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=0, fix=0)
+
+#: The release that added T2 key recognition, /t1/auth/undo, /t1/auth/redo,
+#: /backup/list and /backup/restore. A client that needs any of those can
+#: check for it by comparison rather than by probing an endpoint and
+#: catching the 404.
+T2_AWARE_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=0)

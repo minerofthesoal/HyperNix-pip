@@ -245,6 +245,17 @@ class T1APIConfig:
         default_factory=lambda: os.environ.get("T1_HF_TOKEN") or os.environ.get("HF_TOKEN", "")
     )
 
+    # --- Backups (T1 v1.0.26.8.1.0) -------------------------------------------
+    # Where /backup/list and /backup/restore keep snapshots. Never
+    # contains key material — see hypernix.t1api.backup.EXCLUDED.
+    backup_dir: str | None = field(default_factory=lambda: os.environ.get("T1_BACKUP_DIR"))
+    backup_max_count: int = field(default_factory=lambda: _int_env("T1_BACKUP_MAX_COUNT", 20))
+    # Recognise and accept T2 keys. On by default in this release: T1
+    # v1.0.26.8.1.0's whole point is that a T2 key works against a T1
+    # server. The switch exists for a deployment that wants to stay
+    # strictly T1 during a migration.
+    accept_t2_keys: bool = field(default_factory=lambda: _bool_env("T1_ACCEPT_T2_KEYS", True))
+
     # --- Misc -----------------------------------------------------------------
     # Destructive operations (DELETE /servers/{id}, DELETE /modules/{id})
     # require ?confirm=true when this is on. "Require explicit

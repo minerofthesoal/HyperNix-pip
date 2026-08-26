@@ -33,7 +33,7 @@ from .hfmerge import HFRef, HFResolveError, ResolvedModel, merge, parse_link, re
 from .pairing import DeviceRecord, DeviceRegistry, PairingCode, pairing_payload
 from .sessions import ChatMessage, ChatSession, ChatSessionStore
 
-__hyperlink_version__ = "1.0.26.8.0.1"
+__hyperlink_version__ = "1.0.26.8.1.0"
 
 __all__ = [
     "__hyperlink_version__",

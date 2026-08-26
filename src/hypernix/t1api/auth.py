@@ -63,6 +63,16 @@ class AuthContext:
     scopes: set[KeyScope]
     via_scoped_token: bool = False
 
+    # --- T2 (T1 v1.0.26.8.1.0) ---------------------------------------
+    # Empty/zero for an ordinary T1 key. Present on a context that
+    # authenticated with a T2 key, because T1 has nowhere to put these
+    # and dropping them would make a level-1 key indistinguishable from
+    # a level-9 one at every call site downstream.
+    t2_family: str = ""
+    t2_access_level: int = 0
+    t2_is_admin: bool = False
+    t2_sspkid: str = ""
+
     @property
     def key_id(self) -> str:
         return self.key_meta.key_id
@@ -70,6 +80,21 @@ class AuthContext:
     @property
     def is_admin(self) -> bool:
         return self.key_meta.key_type == KeyType.ADMIN and KeyScope.ADMIN in self.scopes
+
+    @property
+    def via_t2(self) -> bool:
+        return bool(self.t2_family)
+
+    def meets_access_level(self, required: int) -> bool:
+        """Does this context clear access level *required* (1-9)?
+
+        A plain T1 key has no level and clears everything: T1 predates
+        the concept, and retroactively assigning existing keys a level
+        would lock working deployments out of their own endpoints.
+        """
+        if not self.via_t2:
+            return True
+        return self.t2_access_level >= required
 
 
 @dataclass
@@ -90,9 +115,13 @@ class T1AuthService:
         *,
         token_secret: str,
         default_ttl_seconds: int = 3600,
+        accept_t2_keys: bool = True,
     ) -> None:
         self.keymaster = keymaster
         self.gatekeeper = gatekeeper
+        #: Recognise T2 keys (T1 v1.0.26.8.1.0). Configurable so a
+        #: deployment can stay strictly T1 during a migration.
+        self.accept_t2_keys = accept_t2_keys
         self._token_secret = token_secret
         self.default_ttl_seconds = default_ttl_seconds
         if not token_secret:
@@ -146,9 +175,21 @@ class T1AuthService:
         return True
 
     def validate_key(self, key_str: str) -> AuthContext:
-        """Validate a raw T1 key string. Used by POST /auth/t1/validate and
-        as the fallback path when a request presents a raw key instead of
-        a scoped token."""
+        """Validate a raw T1 **or T2** key string.
+
+        Used by ``POST /auth/t1/validate`` and as the fallback path when
+        a request presents a raw key instead of a scoped token.
+
+        T1 v1.0.26.8.1.0 added the T2 branch. A T2 key is converted to
+        its T1 form (:meth:`T2KeyGenerator.to_t1`, which preserves the
+        body and is deterministic) and then authenticated exactly as a
+        T1 key would be — so a T2 key works against the existing key
+        store with no migration, and the access level and SSPKID that T1
+        has nowhere to put are carried on the returned context instead of
+        being silently discarded.
+        """
+        if self.accept_t2_keys and key_str[:3] in ("T2_", "T2S") :
+            return self._validate_t2(key_str)
         try:
             meta = self.gatekeeper.authenticate(key_str)
         except (ValueError, PermissionError):
@@ -164,6 +205,40 @@ class T1AuthService:
                 return AuthContext(key_meta=meta, scopes=set(meta.scopes))
             return self._validate_uncached(key_str)
         return AuthContext(key_meta=meta, scopes=set(meta.scopes))
+
+    def _validate_t2(self, key_str: str) -> AuthContext:
+        """Authenticate a T2 key by way of its T1 equivalent.
+
+        Two things are deliberate here. The conversion is *not* stored —
+        the T1 form is derived on every call, which is safe because
+        :meth:`to_t1` is deterministic, and which avoids keeping a second
+        copy of a credential around. And the T2-only facts (access level,
+        family, SSPKID) ride on the returned :class:`AuthContext` rather
+        than being dropped, because the endpoints added in this release
+        need them and a context that quietly loses them would make a
+        level-1 key indistinguishable from a level-9 one.
+        """
+        from ..security.t2keys import T2KeyGenerator, T2Type
+
+        try:
+            parsed = T2KeyGenerator.parse(key_str)
+        except ValueError as exc:
+            raise T1APIError(T1ErrorCode.AUTH_INVALID_KEY, str(exc), http_status=401) from exc
+
+        equivalent = T2KeyGenerator.to_t1(parsed)
+        context = self._validate_uncached(equivalent)
+        context.t2_family = parsed.family.value
+        context.t2_access_level = parsed.access_level
+        context.t2_is_admin = parsed.is_admin
+        context.t2_sspkid = str(parsed.sspkid) if parsed.sspkid else ""
+        if parsed.family is T2Type.T2S:
+            # A T2S key is 26 typeable characters. Outside HyperLink it
+            # gets read and non-admin write and nothing else, whatever
+            # the underlying T1 key is scoped for — see t2keys.T2Key.permits.
+            context.scopes = {
+                scope for scope in context.scopes if scope.value in ("read", "write")
+            }
+        return context
 
     def _validate_uncached(self, key_str: str) -> AuthContext:
         """The original validation path, raising the stable error codes."""
