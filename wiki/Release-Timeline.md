@@ -372,3 +372,36 @@ timeline
         : f6cfe32 - Fix link to changelog in README
 ```
 
+## Release v0.72.0 (2026-08-23)
+
+```mermaid
+timeline
+    title Release v0.72.0 Commits
+    0.72.0
+        : 7433970 - Regenerate egg-info for 0.72.0
+        : fed3509 - iOS- a send race, a command that did not exist, and project hygiene
+        : 797be9d - HyperLink for iOS, the waiter commands, and the release plumbing
+        : c7eabfd - T1 v1.0.26.8.0.1- the LM Studio bridge and HyperLink
+        : fa8ac81 - chore- update JSON stats (scheduled)
+```
+
+## Release v0.72.1 (2026-08-26)
+
+```mermaid
+timeline
+    title Release v0.72.1 Commits
+    0.72.1
+        : 6e05bcf - docs- 0.72.1 changelog
+        : 7f34566 - scriptgen, livestream, 6-bit momentum, and the 0.72.1 test suite
+        : 4a74abc - noodle- multi-agent execution across nine providers
+        : d91c43e - waiter -F- find a server, and never run what it tells you to
+        : 4366727 - HyperLink- accept T2S keys, and download models from Hugging Face
+        : 370119d - T1 v1.0.26.8.1.0- T2 recognition, auth undo/redo, and backups
+        : c58beaa - T2 keys, the quantisation registry, steamroller, and Pascal tuning
+        : ef51dc4 - chore- update JSON stats (scheduled)
+        : 475dd51 - chore- update JSON stats (scheduled)
+        : 7cb5daf - chore- update JSON stats (scheduled)
+        : 3484723 - Remove next milestone details from Roadmap
+        : 3fe8dbd - chore- update JSON stats (manual run)
+```
+
