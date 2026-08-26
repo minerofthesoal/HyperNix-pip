@@ -405,3 +405,13 @@ timeline
         : 3fe8dbd - chore- update JSON stats (manual run)
 ```
 
+## Release v0.72.2 (2026-08-26)
+
+```mermaid
+timeline
+    title Release v0.72.2 Commits
+    0.72.2
+        : bb9332e - install-t1.sh- make --yes do what its help text promises
+        : 56a9e0b - install-t1.sh- an interactive installer, and two bugs it exposed
+```
+
