@@ -316,6 +316,14 @@ pip install "hypernix[train]"         # + transformers, accelerate
 pip install hypernix                  # core only
 ```
 
+Setting up the **T1 API** server specifically? `./install-t1.sh` is a
+guided installer — it asks what kind of deployment this is (bind
+address, key policy, allowlist, rate limits, cost accounting, models,
+HyperLink, the `waiter` manager TUI) and writes a matching
+configuration, an admin key, and a start script. `--dry-run` shows what
+it would do without writing anything. See
+[T1-API.md](wiki/T1-API.md#the-installer).
+
 Need a specific torch build? Install torch **first**; pip will reuse
 it rather than replace it:
 

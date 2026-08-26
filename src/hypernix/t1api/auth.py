@@ -116,12 +116,31 @@ class T1AuthService:
         token_secret: str,
         default_ttl_seconds: int = 3600,
         accept_t2_keys: bool = True,
+        accept_t1_keys: bool = True,
     ) -> None:
         self.keymaster = keymaster
         self.gatekeeper = gatekeeper
         #: Recognise T2 keys (T1 v1.0.26.8.1.0). Configurable so a
         #: deployment can stay strictly T1 during a migration.
         self.accept_t2_keys = accept_t2_keys
+        #: Accept keys presented in the bare T1 spelling. Turning this off
+        #: is the other end of the same migration: a deployment that has
+        #: finished moving to T2 stops accepting the older spelling.
+        #:
+        #: It narrows the *spelling*, not the key store. A T2 key still
+        #: authenticates against the T1 key behind it, because
+        #: :meth:`T2KeyGenerator.to_t1` is what does the lookup — so
+        #: turning this off does not orphan any existing key, it only
+        #: requires the holder to present its T2 form.
+        self.accept_t1_keys = accept_t1_keys
+        if not accept_t1_keys and not accept_t2_keys:
+            # Nothing could ever authenticate. Refuse at construction
+            # rather than serving a process that rejects every request
+            # with a message about the key rather than the config.
+            raise ValueError(
+                "accept_t1_keys and accept_t2_keys are both off: no key of any "
+                "family could authenticate. Enable at least one."
+            )
         self._token_secret = token_secret
         self.default_ttl_seconds = default_ttl_seconds
         if not token_secret:
@@ -174,6 +193,14 @@ class T1AuthService:
             return False
         return True
 
+    def _accepted_families(self) -> list[str]:
+        families = []
+        if self.accept_t1_keys:
+            families.append("T1")
+        if self.accept_t2_keys:
+            families.extend(["T2", "T2S"])
+        return families
+
     def validate_key(self, key_str: str) -> AuthContext:
         """Validate a raw T1 **or T2** key string.
 
@@ -188,8 +215,25 @@ class T1AuthService:
         has nowhere to put are carried on the returned context instead of
         being silently discarded.
         """
-        if self.accept_t2_keys and key_str[:3] in ("T2_", "T2S") :
+        if key_str[:2] == "T2" and key_str[:3] in ("T2_", "T2S"):
+            if not self.accept_t2_keys:
+                raise T1APIError(
+                    T1ErrorCode.AUTH_INVALID_KEY,
+                    "This server does not accept T2 keys.",
+                    details={"key_family": "T2", "accepted": self._accepted_families()},
+                    http_status=401,
+                )
             return self._validate_t2(key_str)
+        if not self.accept_t1_keys:
+            # Deliberately says what to present rather than just refusing:
+            # the holder of a T1 key that has been wrapped as T2 has a
+            # working credential and only needs the other spelling.
+            raise T1APIError(
+                T1ErrorCode.AUTH_INVALID_KEY,
+                "This server accepts T2 keys only. Present the T2 form of this key.",
+                details={"key_family": "T1", "accepted": self._accepted_families()},
+                http_status=401,
+            )
         try:
             meta = self.gatekeeper.authenticate(key_str)
         except (ValueError, PermissionError):

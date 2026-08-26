@@ -278,6 +278,29 @@ class T1APIConfig:
     # server. The switch exists for a deployment that wants to stay
     # strictly T1 during a migration.
     accept_t2_keys: bool = field(default_factory=lambda: _bool_env("T1_ACCEPT_T2_KEYS", True))
+    # The other end of the same migration: stop accepting the bare T1
+    # spelling once a deployment has finished moving to T2. On by
+    # default, because turning it off is a breaking change for every
+    # client that has not been reissued.
+    #
+    # This narrows the accepted spelling, not the key store — a T2 key
+    # authenticates against the T1 key behind it either way — so no
+    # existing key is orphaned by turning it off. Both off is refused at
+    # startup rather than serving a process nothing can authenticate to.
+    accept_t1_keys: bool = field(default_factory=lambda: _bool_env("T1_ACCEPT_T1_KEYS", True))
+
+    # Where the key store lives. Unset means Keymaster's own default
+    # (~/.hypernix/keymaster), which is the long-standing behaviour and
+    # stays the default here.
+    #
+    # Setting it makes a deployment self-contained, which matters for two
+    # cases the default cannot serve: an installer that mints a key into
+    # a config directory and needs the server to read that same store,
+    # and two servers on one machine, which would otherwise share one
+    # store and see each other's keys.
+    keymaster_dir: str | None = field(
+        default_factory=lambda: os.environ.get("T1_KEYMASTER_DIR") or None
+    )
 
     # --- Misc -----------------------------------------------------------------
     # Destructive operations (DELETE /servers/{id}, DELETE /modules/{id})

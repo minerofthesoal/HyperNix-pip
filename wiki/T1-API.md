@@ -136,6 +136,45 @@ both.
 
 ## Installation
 
+### The installer
+
+`install-t1.sh` is the guided path: it installs the package, asks what
+kind of deployment this is, and writes a configuration that matches the
+answers.
+
+```bash
+./install-t1.sh                     # interactive
+curl -fsSL <raw-url>/install-t1.sh | bash
+./install-t1.sh --dry-run           # show what it would do, write nothing
+./install-t1.sh --non-interactive   # defaults, no prompts (CI, images)
+```
+
+It asks about identity and bind address, deployment kind, which key
+families may connect, the T2 admin password, the connection allowlist,
+rate limits, cost accounting, the model source, HyperLink, and the
+`waiter` manager TUI — then writes `.env` (mode 0600), a start script,
+optionally a systemd unit and a model-registry template, mints an admin
+key, and seeds the allowlist.
+
+Three properties worth knowing:
+
+- **It is re-runnable.** An existing `.env` is backed up with a timestamp
+  rather than overwritten.
+- **Secrets never reach your shell history or a world-readable file.**
+  The T2 admin password is read with terminal echo off, and generated
+  files are created at their final mode *before* any content is written.
+- **It verifies rather than assumes.** The allowlist is read back from
+  the database after seeding, because being told the whitelist is
+  configured when it is not means locking yourself out of your own
+  server.
+
+`--config-dir` puts everything, including the key store, under one
+directory, so two T1 servers on one machine do not share credentials.
+
+Requires bash 3.2+ (the stock macOS shell), python3 3.10+, and pip.
+
+### By hand
+
 `hypernix.t1api`'s **core** (registry, storage, usage, auth, config,
 errors) is pure Python + stdlib and imports fine with a base `hypernix`
 install — same as `hypernix.keymaster` / `hypernix.gatekeeper`, which it
@@ -311,6 +350,35 @@ Two credential types, both accepted on every authenticated route via
    a subset of the underlying key's scopes (narrowing only, never
    widening). Rotating `T1_TOKEN_SECRET` invalidates every outstanding
    token immediately — that's the revocation story for a stateless token.
+
+### Which key families this server accepts
+
+T1 v1.0.26.8.1.0 accepts T2 keys alongside T1 ones. Two switches control
+which spellings a given deployment will take, and both default to on —
+the release's whole point is that existing clients keep working:
+
+| Setting | Default | Effect when `0` |
+| --- | --- | --- |
+| `T1_ACCEPT_T2_KEYS` | `1` | T2 and T2S keys are refused. For a deployment staying strictly T1 through a migration window. |
+| `T1_ACCEPT_T1_KEYS` | `1` | The bare T1 spelling is refused. For a deployment that has finished moving to T2. |
+
+Setting both to `0` is refused at startup rather than served: nothing
+could authenticate, and every request would then fail with a message
+about the key rather than about the configuration.
+
+`T1_ACCEPT_T1_KEYS=0` narrows the accepted **spelling**, not the key
+store. A T2 key authenticates against the T1 key behind it either way, so
+turning it off orphans no existing key — it requires the holder to present
+the T2 form, and the refusal says exactly that. Wrap an existing key with
+`T2KeyGenerator.from_t1(key, access_level=...)`.
+
+One caveat worth stating plainly: **admin authority comes from the key
+store** (key type plus scopes), not from the T2 password component. A key
+wrapped from an admin T1 key is still an admin. That is what makes
+`T1_ACCEPT_T1_KEYS=0` survivable — otherwise turning it on with only a T1
+admin key in hand would lock you out with no way to change the setting
+back. `install-t1.sh` handles this by handing you the T2 form of the
+admin key it minted whenever you choose the T2-only policy.
 
 ### Admin rotate / promote
 
