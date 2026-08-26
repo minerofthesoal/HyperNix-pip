@@ -225,7 +225,7 @@ def create_app(
     cfg.validate_for_production(strict=validate_production)
     prefix = mount_prefix if mount_prefix is not None else cfg.mount_prefix
 
-    km = keymaster or Keymaster()
+    km = keymaster or Keymaster(store_dir=cfg.keymaster_dir)
     gk = gatekeeper or Gatekeeper(keymaster=km)
     reg = registry or ModelRegistry.load(
         cfg.registry_path, include_examples=cfg.enable_example_models
@@ -243,6 +243,7 @@ def create_app(
         token_secret=cfg.token_secret,
         default_ttl_seconds=cfg.scoped_token_default_ttl_seconds,
         accept_t2_keys=cfg.accept_t2_keys,
+        accept_t1_keys=cfg.accept_t1_keys,
     )
 
     table = routing_table or RoutingTable.load(cfg.routing_policy_path)

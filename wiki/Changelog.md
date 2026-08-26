@@ -20,6 +20,77 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.2 — the installer
+
+✨ **`install-t1.sh`** — an interactive setup and installer for the T1
+API. It installs the package, asks what kind of deployment this is, and
+writes a configuration that matches: identity and bind address,
+deployment kind, key policy, T2 admin password, connection allowlist,
+rate limits, cost accounting, model source, HyperLink, and the `waiter`
+manager TUI. Then `.env` at 0600, a start script, optionally a systemd
+unit and a registry template, an admin key, and a seeded allowlist.
+
+`--dry-run` writes nothing, `--non-interactive` takes every default, and
+a re-run backs up an existing `.env` with a timestamp rather than
+overwriting it. bash 3.2 throughout, so it runs on a stock macOS without
+installing a shell first.
+
+𖢥 **The admin key it minted was invisible to the server it configured.**
+The installer minted into `$CONFIG_DIR/keymaster`; `Keymaster()` reads
+`~/.hypernix/keymaster` and had no way to be told otherwise. So every
+install ended by printing an admin key, under "shown once, copy this
+now", that the server had never heard of. `T1_KEYMASTER_DIR` makes the
+store configurable — unset it still means the long-standing default —
+and the installer now points the server at the store it minted into.
+This also makes two T1 servers on one machine stop sharing one key
+store.
+
+𖢥 **"T2 only" was a label, not a policy.** The installer offered three
+key policies and the server had switches for two: `accept_t2_keys` can
+refuse T2 keys, but nothing could refuse the T1 spelling, so choosing
+"T2 only" silently behaved as "both" — an operator would believe a
+migration was enforced when it was not. `T1_ACCEPT_T1_KEYS` is the
+missing half. Both switches off is refused at startup rather than
+serving a process nothing can authenticate to.
+
+🛡️ **The T2-only lockout that fix would otherwise have created.** Under
+T2-only the minted key is in the T1 spelling — the one the server has
+just been told to refuse — and there is no second admin key to undo the
+setting with. The installer now hands over the T2 form of that key, and
+the refusal message names the family it wants rather than saying the key
+is invalid. Admin authority comes from the key store, not the T2
+password component, so the wrapped key is a real admin credential.
+
+🛡️ **The allowlist is read back from the database after seeding.**
+Reporting a configured whitelist that is not configured is the worst
+thing this script could do — the operator is locked out of their own
+server with no way in short of editing the database. Seeding failures
+now name the problem, and the verified CIDR list shown on success is
+tagged and extracted rather than scraped from a capture that also
+carries the interpreter's stderr.
+
+🛡️ **CIDRs are validated at the prompt.** A typo used to abort seeding
+partway through, leaving the whitelist on and half-populated. The prompt
+now re-asks, using the same `ipaddress.ip_network(strict=False)` the
+server's `parse_cidr` uses, so a value accepted at the prompt is accepted
+by the server.
+
+🐛 A `tr -dc ... < /dev/urandom | head -c N` in the secret generator died
+of SIGPIPE under `set -o pipefail`, killing the installer partway
+through. Bounded with `head -c` first, trimmed with `cut`.
+
+🐛 `curl | bash` and `answers | ./install-t1.sh` are now distinguished, so
+piped answers are not discarded in favour of a terminal that may not
+exist.
+
+🛡️ A stale `.pth` in a system Python printed a raw traceback under
+"Checking this machine", which reads like the installer crashed. Now one
+warning line naming the file.
+
+📚 [Roadmap](Roadmap.md) — **0.72.3: payment connections on a T2 key**, so
+a key can be issued to someone who pays for their own usage. Roadmap
+only; nothing is implemented.
+
 ## 0.72.1 — T1 v1.0.26.8.1.0
 
 The T1 API moves to `1.0.2026.8.1.0` — a feature bump inside the same 1.0
