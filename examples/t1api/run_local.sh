@@ -15,7 +15,18 @@ export T1_DB_PATH="${T1_DB_PATH:-$HOME/.hypernix/t1api/t1api.sqlite3}"
 export T1_MODULE_STORAGE_DIR="${T1_MODULE_STORAGE_DIR:-$HOME/.hypernix/t1api/modules}"
 
 # A per-run secret is fine locally — scoped tokens simply don't survive a
-# restart, which for development is a feature. Production sets a stable one.
+# restart, which for development is a feature. But if install-t1.sh has
+# already written a stable one, use that instead of throwing it away:
+# there is no reason for tokens to expire on restart when a secret is
+# sitting right there. Environment first, then that file, then generate.
+T1_CONFIG_DIR="${T1_CONFIG_DIR:-$HOME/.hypernix/t1api}"
+if [ -z "${T1_TOKEN_SECRET:-}" ] && [ -r "$T1_CONFIG_DIR/.env" ]; then
+  # Read the one assignment rather than sourcing: sourcing runs whatever
+  # is in the file and would import every other setting with it.
+  T1_TOKEN_SECRET="$(sed -n "s/^T1_TOKEN_SECRET=//p" "$T1_CONFIG_DIR/.env" | tail -1)"
+  T1_TOKEN_SECRET="${T1_TOKEN_SECRET%\'}"; T1_TOKEN_SECRET="${T1_TOKEN_SECRET#\'}"
+  T1_TOKEN_SECRET="${T1_TOKEN_SECRET%\"}"; T1_TOKEN_SECRET="${T1_TOKEN_SECRET#\"}"
+fi
 export T1_TOKEN_SECRET="${T1_TOKEN_SECRET:-$(python3 -c 'import secrets; print(secrets.token_hex(32))')}"
 
 # Show the shipped placeholder models so there is something to look at.

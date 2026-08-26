@@ -20,6 +20,43 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.2.post2 — "0.72.2-2"
+
+𖢥 **`run_tailscale.sh` told you to run a command that does not work.**
+With `T1_TOKEN_SECRET` unset it failed with
+
+```
+run_tailscale.sh: line 36: T1_TOKEN_SECRET: set T1_TOKEN_SECRET (python3 -c import secrets;print(secrets.token_hex(32)))
+```
+
+and that command is a syntax error in both the shell and Python. The
+cause is `${VAR:?message}`: the message goes through quote removal before
+it is printed, so the single quotes around the `-c` argument were stripped
+on the way out. The source looked correct; only the output was wrong. It
+is now an explicit check printing a block that has been paste-tested.
+
+𖢥 **Neither example script read the secret `install-t1.sh` had already
+written.** The installer generates a stable `T1_TOKEN_SECRET` into
+`~/.hypernix/t1api/.env`, and both scripts ignored it — so an operator
+who had just run the installer was told to go and make one. Both now
+resolve in order: the environment, then that file, then generate (local)
+or fail with instructions (tailnet). The file is read one assignment at a
+time rather than sourced, since sourcing runs whatever is in it.
+
+🐛 `run_local.sh` minted a throwaway secret on every run even when a
+stable one existed, so every restart silently invalidated every scoped
+token already issued.
+
+🐛 `run_tailscale.sh` had no `[t1api]` preflight, so a missing extra gave
+a clear message on the local path and a bare `ModuleNotFoundError` on the
+tailnet one. Both check now.
+
+🔧 `tests/test_t1api_example_scripts.py` covers the deployment scripts:
+that no `${VAR:?...}` message contains quotes, that the commands a failure
+suggests actually parse, the three-step secret resolution including
+quoted values in `.env`, and that a stable secret survives a restart.
+Reverting the shipped line fails seven of them.
+
 ## 0.72.2 — the installer
 
 ✨ **`install-t1.sh`** — an interactive setup and installer for the T1
