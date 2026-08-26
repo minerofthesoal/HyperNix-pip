@@ -244,19 +244,34 @@ def generate_admin_password(
         raise ValueError(
             f"Admin password length must be {_PASSWORD_MIN}-{_PASSWORD_MAX}, got {length}"
         )
-    if not include_word:
-        return "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(length))
-
-    word = secrets.choice(_SIX_LETTER_WORDS)
-    if length < len(word) + 1:
+    if include_word and length < 7:
         raise ValueError(
-            f"A password containing a six-letter word needs at least {len(word) + 1} "
-            f"characters; got {length}"
+            f"A password containing a six-letter word needs at least 7 characters; got {length}"
         )
-    filler_len = length - len(word)
-    offset = secrets.randbelow(filler_len + 1)
-    filler = "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(filler_len))
-    return filler[:offset] + word + filler[offset:]
+
+    # Generate and check, rather than generate and hope. Uniform random
+    # choice over a 61-character alphabet produces a three-character run
+    # ("abc", "789") roughly 0.6% of the time at these lengths — so a
+    # generator that did not re-roll would occasionally hand back a
+    # password its own validator rejects, and the caller would see a
+    # confusing failure from T2KeyGenerator.generate() one time in two
+    # hundred. Rejection sampling is the standard fix and the loop is
+    # bounded so a future validator change cannot spin here forever.
+    for _ in range(200):
+        if include_word:
+            word = secrets.choice(_SIX_LETTER_WORDS)
+            filler_len = length - len(word)
+            offset = secrets.randbelow(filler_len + 1)
+            filler = "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(filler_len))
+            candidate = filler[:offset] + word + filler[offset:]
+        else:
+            candidate = "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(length))
+        if validate_admin_password(candidate)[0]:
+            return candidate
+    raise RuntimeError(
+        "Could not generate an admin password satisfying the strength rules in 200 attempts. "
+        "This means the generator and validate_admin_password() disagree — a bug, not bad luck."
+    )
 
 
 def validate_admin_password(password: str) -> tuple[bool, str]:

@@ -429,6 +429,7 @@ class PressureCookerV5(OptimizerBase):
         enable_mtp: bool = False,
         mtp_config: MTPConfig | None = None,
         ema_decay: float = 0.0,
+        six_bit_mode: str = "off",
         **kwargs: Any,
     ) -> None:
         materialized_params = _flatten_optimizer_params(params)
@@ -445,6 +446,16 @@ class PressureCookerV5(OptimizerBase):
             grad_clip=grad_clip,
             **kwargs,
         )
+        # 0.72.1: 6-bit momentum. "off" keeps the int8 buffer this
+        # optimiser has always used; the three packing modes trade
+        # pack/unpack work for optimiser memory. Validated here rather
+        # than at first use — a typo should fail at construction, not
+        # two hours into a run.
+        from .sixbit import resolve_mode as _resolve_six_bit
+
+        self.six_bit_mode = (six_bit_mode or "off").strip().lower()
+        if self.six_bit_mode != "off":
+            _resolve_six_bit(self.six_bit_mode)      # raises on an unknown mode
 
         self.lr = lr
         self.momentum_beta = momentum_beta

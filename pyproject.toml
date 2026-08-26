@@ -143,6 +143,13 @@ gkey = "hypernix.security.gkey_cli:main"
 waiter = "hypernix.waiter.cli:main"
 # v0.71.1: steampunk schematic TUI (dials/pipes/steam for model + training state).
 hnx-map = "hypernix.monitoring.map:cli_main"
+# 0.72.1: the training-script builder (GUI, with a headless CLI fallback).
+hnx-scriptgen = "hypernix.scriptgen.cli:cli_main"
+scriptgen = "hypernix.scriptgen.cli:cli_main"
+# 0.72.1: steamroller, the descending llama.cpp quantiser.
+steamroller = "hypernix.quant.steamroller_cli:cli_main"
+# 0.72.1: noodle, the autonomous multi-agent executor inside hyped-pro.
+noodle = "hypernix.interfaces.noodle.cli:cli_main"
 
 [project.urls]
 Homepage = "https://minerofthesoal.github.io/HyperNix-pip/"
