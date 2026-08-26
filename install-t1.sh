@@ -84,8 +84,10 @@ install-t1.sh — interactive installer and setup for the HyperNix T1 API.
   --install venv|user|system|skip
                         How to install the package. "skip" configures an
                         existing installation.
-  --yes                 Answer yes to confirmations (still asks open questions
-                        unless --non-interactive is also given).
+  --yes, -y             Answer yes to confirmation prompts; open questions
+                        (port, allowlist, prices) are still asked, unless
+                        --non-interactive is also given. Does not start the
+                        server at the end — that stays an explicit choice.
   --help                This.
 
 Environment:
@@ -183,6 +185,13 @@ ask_yes_no() {
   local prompt="$1" default="${2:-n}"
   if [ "$INTERACTIVE" = "0" ]; then
     [ "$default" = "y" ] && return 0 || return 1
+  fi
+  # --yes answers the confirmations and leaves the open questions alone,
+  # which is the difference between it and --non-interactive: you still
+  # get asked for your port and your allowlist, just not "are you sure".
+  if [ "$ASSUME_YES" = "1" ]; then
+    dim "     $prompt — yes (--yes)"
+    return 0
   fi
   local hint="y/N"; [ "$default" = "y" ] && hint="Y/n"
   while :; do
@@ -765,7 +774,8 @@ write_file() {
   fi
   mkdir -p "$(dirname "$path")"
   if [ -f "$path" ]; then
-    local backup="${path}.$(date +%Y%m%d-%H%M%S).bak"
+    local backup
+    backup="${path}.$(date +%Y%m%d-%H%M%S).bak"
     cp "$path" "$backup"
     warn "$(basename "$path") existed — kept a copy at $(basename "$backup")"
   fi
@@ -1229,6 +1239,15 @@ summary() {
 offer_launch() {
   [ "$DRY_RUN" = "0" ] || return 0
   [ "$INTERACTIVE" = "1" ] || return 0
+  # --yes answers confirmations; it does not decide to run a server. Both
+  # branches below end in exec, so treating this as a confirmation would
+  # hand a foreground process to someone who asked not to be interrupted.
+  # Setting up and starting are separate decisions, and this is the second.
+  if [ "$ASSUME_YES" = "1" ]; then
+    dim "     Not starting the server (--yes answers confirmations, not this)."
+    dim "     Start it with: $CONFIG_DIR/start-t1.sh"
+    return 0
+  fi
   if [ "$WANT_TUI" = "1" ] && [ -n "$ADMIN_KEY" ]; then
     if ask_yes_no "Start the server and open the waiter manager TUI now?" "y"; then
       say ""

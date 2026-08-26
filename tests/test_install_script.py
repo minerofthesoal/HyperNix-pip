@@ -443,6 +443,88 @@ class TestAllowlistSeeding:
         guard_at = body.index('if [ "$seed_status" -ne 0 ]')
         assert guard_at < success_at, "success is announced before the status is checked"
 
+
+class TestTheYesFlag:
+    """``--yes`` was parsed, documented, and never read.
+
+    shellcheck's SC2034 ("appears unused") caught it, which is the whole
+    reason the shellcheck check is in this file: a flag that sets a
+    variable nothing looks at is invisible to every other kind of test —
+    the script runs, exits 0, and quietly ignores what you asked for.
+    """
+
+    def test_it_is_read_and_not_only_assigned(self, code):
+        assignments = len(re.findall(r"\bASSUME_YES=", code))
+        reads = len(re.findall(r'"\$ASSUME_YES"', code))
+        assert reads > 0, "--yes sets a variable nothing reads"
+        assert assignments >= 1
+
+    def test_confirmations_are_answered(self, source):
+        body = _function_body(source, "ask_yes_no")
+        assert '"$ASSUME_YES" = "1"' in body
+
+    def test_open_questions_are_still_asked(self, source):
+        """The difference between --yes and --non-interactive.
+
+        If ``ask`` honoured it too, --yes would silently become
+        --non-interactive and the port, allowlist and prices would be
+        defaulted without the operator seeing them.
+        """
+        for func in ("ask", "ask_choice", "ask_secret"):
+            assert "ASSUME_YES" not in _function_body(source, func), (
+                f"{func} honours --yes; open questions would stop being asked"
+            )
+
+    def test_it_does_not_start_a_server(self, source):
+        """Both launch branches end in exec.
+
+        Treating "start the server now?" as a confirmation would hand a
+        foreground process to someone who asked not to be interrupted.
+        Setting up and starting are separate decisions.
+        """
+        body = _code_only(_function_body(source, "offer_launch"))
+        assert '"$ASSUME_YES" = "1"' in body, "offer_launch does not check --yes"
+        # `exec "` — the call, not the word, which also appears in the
+        # comment right above the guard explaining why it is there.
+        guard_at = body.index('"$ASSUME_YES" = "1"')
+        assert guard_at < body.index('exec "'), "--yes reaches an exec"
+
+    def test_the_help_text_describes_what_it_does(self):
+        result = subprocess.run(
+            ["bash", str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
+        )
+        assert "--yes" in result.stdout
+        # Collapse the wrapping first: the help text is hard-wrapped, so
+        # the phrase spans a line break in the file.
+        flowed = " ".join(result.stdout.lower().split())
+        # It promises not to start the server; that promise is tested above.
+        assert "does not start the server" in flowed
+
+    def test_a_yes_run_answers_and_finishes(self, tmp_path):
+        """End to end: confirmations answered, open questions asked, exit 0."""
+        answers = "\n".join(
+            ["4", "yes-flag-srv", "1", "8951", "", "1", "3",
+             "127.0.0.1/32,10.0.0.0/8", "2", "1", "free", "3"]
+        ) + "\n"
+        target = tmp_path / "cfg"
+        result = subprocess.run(
+            ["bash", str(SCRIPT), "--yes", "--install", "skip",
+             "--config-dir", str(target)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={**os.environ, "NO_COLOR": "1", "HOME": str(tmp_path / "home")},
+        )
+        assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-2000:]
+        # Confirmations answered without a prompt...
+        assert "(--yes)" in result.stdout
+        # ...open questions still put to the operator...
+        assert "Port" in result.stdout
+        # ...and nothing was launched.
+        assert "Not starting the server" in result.stdout
+        assert not (target / "server.pid").exists()
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -470,3 +552,14 @@ def _function_source(source: str, name: str) -> str:
 
 def _function_body(source: str, name: str) -> str:
     return _function_source(source, name)
+
+
+def _code_only(text: str) -> str:
+    """Drop whole-line comments, preserving offsets well enough to order by.
+
+    Comments are blanked rather than removed so an index into the result
+    still points at roughly the right place in the original.
+    """
+    return "\n".join(
+        "" if line.lstrip().startswith("#") else line for line in text.splitlines()
+    )
