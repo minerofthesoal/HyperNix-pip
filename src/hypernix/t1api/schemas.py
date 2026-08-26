@@ -40,6 +40,12 @@ class HealthResponse(BaseModel):
 class StatusResponse(BaseModel):
     status: str = "ok"
     environment: str
+    #: This deployment's own name. Discovery (``waiter -F <name>``) has
+    #: nothing to match on without it, which made name lookup silently
+    #: never succeed.
+    server_name: str = ""
+    host_id: str = ""
+    server_id: str = ""
     #: The short spelling, ``1.0.26.8.0.1``. Kept as the field clients
     #: already read; the long spelling and the parsed components arrive
     #: alongside it rather than replacing it.

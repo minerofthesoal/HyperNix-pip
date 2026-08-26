@@ -245,6 +245,17 @@ class T1APIConfig:
         default_factory=lambda: os.environ.get("T1_HF_TOKEN") or os.environ.get("HF_TOKEN", "")
     )
 
+    # --- Identity (0.72.1) ----------------------------------------------------
+    # What this deployment calls itself. Reported by GET /status so
+    # `waiter -F <name>` has something to match; falls back to the
+    # hostname, which is what an operator would have typed anyway.
+    server_name: str = field(default_factory=lambda: os.environ.get("T1_SERVER_NAME", ""))
+    # The 54-character Host ID, when this deployment has been issued one.
+    # Distinct from a V1 Server ID and from an SSPKID by construction —
+    # see hypernix.security.t2keys.
+    host_id: str = field(default_factory=lambda: os.environ.get("T1_HOST_ID", ""))
+    server_id: str = field(default_factory=lambda: os.environ.get("T1_SERVER_ID", ""))
+
     # --- Hugging Face downloads (0.72.1) --------------------------------------
     # HyperLink can ask the server to fetch a model. The server does it
     # because the server is the machine that will run it; pulling

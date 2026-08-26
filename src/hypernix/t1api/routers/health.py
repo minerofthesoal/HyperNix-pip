@@ -38,9 +38,14 @@ def status(
 
     tls = config.tls_settings()
     warnings = config.production_problems()
+    import socket
+
     return StatusResponse(
         status="ok",
         environment=config.environment,
+        server_name=config.server_name or socket.gethostname(),
+        host_id=config.host_id,
+        server_id=config.server_id,
         t1_api_version=__t1api_version__,
         t1_api_version_long=__t1api_version_long__,
         t1_version=T1_VERSION.to_dict(),
