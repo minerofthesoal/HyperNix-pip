@@ -199,6 +199,11 @@ from .keymaster import _SPECIAL_CHARS as _T1_SPECIAL_CHARS  # noqa: E402
 _T2_SPECIAL_CHARS = _T1_SPECIAL_CHARS
 _T2_SPECIAL_RE = re.escape(_T2_SPECIAL_CHARS)
 
+#: Host IDs must not contain ``#`` or ``-`` in their suffix, because those
+#: characters appear in SSPKIDs and V1 Server IDs respectively. This is
+#: the full T1/T2 special set minus those two.
+_HOST_ID_SPECIAL_CHARS = _T2_SPECIAL_CHARS.replace("#", "").replace("-", "")
+
 # T2_<pw?>_<body><ll><sp5><slash><digit>-<level>
 #
 # The prefix is three components exactly as specified: the family tag
@@ -217,8 +222,10 @@ _T2_PATTERN: re.Pattern[str] = re.compile(
     r"-(?P<level>[1-9])$"
 )
 
+_HOST_ID_SPECIAL_RE = re.escape(_HOST_ID_SPECIAL_CHARS)
+
 _HOST_ID_PATTERN = re.compile(
-    r"^(?P<body>[A-Za-z0-9]{53})(?P<special>[" + _T2_SPECIAL_RE + r"])$"
+    r"^(?P<body>[A-Za-z0-9]{53})(?P<special>[" + _HOST_ID_SPECIAL_RE + r"])$"
 )
 
 
@@ -611,7 +618,7 @@ def generate_host_id() -> str:
     given without being told.
     """
     body = "".join(secrets.choice(_BODY_CHARS) for _ in range(HOST_ID_LENGTH - 1))
-    return body + secrets.choice(_T2_SPECIAL_CHARS)
+    return body + secrets.choice(_HOST_ID_SPECIAL_CHARS)
 
 
 def validate_host_id(host_id: str) -> bool:
