@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from typing import Any
@@ -62,6 +63,43 @@ def _warn(text: str) -> None:
         Console(stderr=True).print(f"[yellow]![/yellow] {text}")
     else:
         print(f"WARNING: {text}", file=sys.stderr)
+
+
+def _err_connection(exc: Exception) -> None:
+    """Print an error, expanded into a diagnosis when it is a reachability one.
+
+    "Could not reach http://127.0.0.1:1234/hyperlink/pair: [Errno 111]
+    Connection refused" is accurate and answers none of the questions the
+    reader has. Only unreachability gets the extra work — every other
+    error already says what is wrong.
+    """
+    text = str(exc)
+    url = _failed_url(text)
+    if url is None:
+        _err(text)
+        return
+
+    from .diagnose import diagnose, format_diagnosis
+
+    reason = text.split(": ", 1)[1] if ": " in text else ""
+    try:
+        result = diagnose(url, reason, source=_ADDRESS_SOURCE)
+    except Exception:  # noqa: BLE001
+        # A diagnostic that fails must not replace the real error.
+        _err(text)
+        return
+    _err(format_diagnosis(result).split("\n")[0])
+    for line in format_diagnosis(result).split("\n")[1:]:
+        print(line, file=sys.stderr)
+
+
+_UNREACHABLE = re.compile(r"Could not reach (https?://\S+?)(?::\s|$)")
+
+
+def _failed_url(text: str) -> str | None:
+    """The URL out of a transport error, or None if this is not one."""
+    match = _UNREACHABLE.search(text)
+    return match.group(1) if match else None
 
 
 def _err(text: str) -> None:
@@ -133,15 +171,26 @@ def _load_store(args: argparse.Namespace, *, encrypt: bool | None = None) -> Wai
     return WaiterConfigStore(args.config_file, encrypt=enc)
 
 
+#: Where the server address in the last resolved config came from. Set by
+#: :func:`_resolve_config` and read only when a connection fails — "the
+#: address you are using is the one saved three weeks ago" is frequently
+#: the entire answer, and nothing else in the failure says it.
+_ADDRESS_SOURCE = ""
+
+
 def _resolve_config(args: argparse.Namespace) -> WaiterLocalConfig:
+    global _ADDRESS_SOURCE
     store = _load_store(args)
     saved = store.load() or WaiterLocalConfig()
+    _ADDRESS_SOURCE = f"the saved config ({store.path})" if saved.server else ""
     if args.server:
         saved.server = args.server
+        _ADDRESS_SOURCE = "-I on the command line"
     if args.key:
         saved.key = args.key
     if getattr(args, "port", None) is not None:
         saved.port = args.port
+        _ADDRESS_SOURCE += " with -P" if _ADDRESS_SOURCE else "-P on the command line"
     if getattr(args, "home_url", None):
         saved.home_url = args.home_url
     return saved
@@ -1808,6 +1857,82 @@ def _open_hyped_pro(connection: Any) -> int:
 # Dispatch
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# `waiter version` and `waiter help`
+# ---------------------------------------------------------------------------
+
+#: Longer help, by topic. Separate from the one-line usage table because
+#: the questions people actually get stuck on ("which address?", "which
+#: key?") need paragraphs, and putting paragraphs in the usage table makes
+#: the table useless for the people who just want the subcommand name.
+_HELP_TOPICS: dict[str, str] = {
+    "connect": """\
+waiter help connect — pointing waiter at a server
+
+    waiter serv -A -I http://127.0.0.1:8000 -K <key>     validate and save
+    waiter serv -A -I http://100.x.y.z:8000 -K <key> -L  a tailnet server
+    waiter config                                        what is saved now
+    waiter health                                        is it up?
+
+The T1 API listens on 8000 by default. Two ports people reach for by
+mistake are LM Studio's 1234 and Ollama's 11434 — those are model
+backends, which the *server* talks to; waiter talks to the server. If you
+point waiter at one directly you get a connection refused, or a puzzling
+404 from something that is not a T1 API.
+
+-I is remembered. A command failing against an address you do not
+recognise usually means an -I from a while ago is still saved; `waiter
+config` shows it and the failure message names the file.
+""",
+    "keys": """\
+waiter help keys — which credential to use
+
+    gkey create --type admin --scopes admin,read,write   mint one
+    gkey create -v v2 --level 5                          a v2 spelling
+    gkey version                                         formats this build mints
+    waiter whoami                                        what is my key allowed to do?
+
+-K takes either a raw key (T1_…, T2_…, T2S_…) or a scoped token (T1S.…).
+A v2 key is a spelling of a v1 key rather than a separate credential, so
+either form of the same key works against the same server.
+
+Admin-only subcommands — `security`, `audit`, parts of `keys` and
+`servers` — need a key whose *store record* is an admin. A key's access
+level is not the same thing: a level-9 key with no admin record is a very
+privileged user key.
+""",
+    "hyperlink": """\
+waiter help hyperlink — the phone app
+
+    waiter hyperlink pair --label "my iPhone"    mint a pairing code
+    waiter hyperlink pair --qr                   print it as a QR payload
+    waiter hyperlink devices                     what is paired
+    waiter hyperlink unpair <device_id>          revoke one
+    waiter hyperlink endpoints                   addresses the server answers on
+
+Pairing runs against the T1 server, not against the phone: waiter asks
+the server for a code and the phone redeems it. So the server has to be
+running and reachable from here first — `waiter health` is the quick
+check — and HyperLink has to be enabled on it (T1_HYPERLINK_ENABLED=1).
+
+For a phone that is not on the LAN, pair over the tailnet and give the
+app the 100.x address from `waiter hyperlink endpoints`.
+""",
+    "find": """\
+waiter help find — locating a server you did not configure
+
+    waiter -F my-server            search the tailnet and the LAN
+    waiter -F my-server -l         local only; never touches Tailscale
+    waiter -F <54-char-host-id>    by Host ID
+    waiter -F http://host/api.jsonl  a descriptor endpoint directly
+
+Discovery and connection are separate from running anything. A server's
+api.jsonl may advertise commands; waiter shows them and never executes
+them for you.
+""",
+}
+
+
 _USAGE = """\
 waiter — the official T1 API TUI/CLI
 
@@ -1836,8 +1961,10 @@ Usage:
   waiter config   Show the locally saved config
 
   waiter -F       Find a server by name / Host ID / api.jsonl (-l for local only)
+  waiter version  Package, T1 API and key format versions
+  waiter help     Longer help on one topic: `waiter help connect`
 
-T1 v1.0.26.8.0.1:
+T1 v{t1_version}:
   waiter lmstudio  Bridge to a model loaded in LM Studio (status/models/chat/local)
   waiter hyperlink Pair phones, manage devices and server-side chat sessions
   waiter fetch     Resolve a Hugging Face page + file link into a GGUF download plan
@@ -1850,12 +1977,143 @@ Run `waiter <subcommand> --help` for detailed options.
 """
 
 
+def _usage() -> str:
+    """The usage text, with the T1 version filled in at call time.
+
+    It used to be typed into the string and said 1.0.26.8.0.1 long after
+    the API had moved to 1.0.26.8.1.0. A version that has to be updated
+    by hand in a second place is a version that will be wrong.
+    """
+    from ..t1api.version import T1_VERSION_SHORT
+
+    return _USAGE.format(t1_version=T1_VERSION_SHORT)
+
+
+def _cmd_version(rest: list[str]) -> int:
+    """Package, T1 API, waiter protocol, and key formats.
+
+    Four numbers that move independently, which is exactly why they are
+    printed together: "my key is refused" and "my client is too old" are
+    diagnosed by comparing them, and hunting for each one separately is
+    how people end up guessing.
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(prog="waiter version")
+    p.add_argument("--json", dest="as_json", action="store_true")
+    args = p.parse_args(rest)
+
+    from hypernix import __version__ as package_version
+    from hypernix.security.keyversions import (
+        KEY_VERSIONS,
+        LATEST_KEY_VERSION,
+        RESERVED_KEY_VERSIONS,
+    )
+    from hypernix.t1api.version import (
+        MIN_CLIENT_VERSION,
+        T1_VERSION_LONG,
+        T1_VERSION_SHORT,
+    )
+
+    from . import __waiter_version__
+
+    if args.as_json:
+        print(json.dumps({
+            "hypernix": package_version,
+            "waiter": __waiter_version__,
+            "t1_api": {
+                "short": T1_VERSION_SHORT,
+                "long": T1_VERSION_LONG,
+                "min_client": MIN_CLIENT_VERSION.short,
+            },
+            "key_versions": {
+                "latest": LATEST_KEY_VERSION.name,
+                "available": [v.name for v in KEY_VERSIONS],
+                "reserved": [v.name for v in RESERVED_KEY_VERSIONS],
+            },
+        }, indent=2))
+        return 0
+
+    print(f"HyperNix:    {package_version}")
+    print(f"waiter:      {__waiter_version__}")
+    print(f"T1 API:      t1 v{T1_VERSION_SHORT}  ({T1_VERSION_LONG})")
+    print(f"  speaks to: t1 v{MIN_CLIENT_VERSION.short} and newer")
+    print(f"Key formats: {', '.join(v.name for v in KEY_VERSIONS)}"
+          f"  (latest {LATEST_KEY_VERSION.name})")
+    reserved = ", ".join(v.name for v in RESERVED_KEY_VERSIONS)
+    if reserved:
+        print(f"  not yet:   {reserved}")
+
+    # The server's version, when one is configured and reachable.
+    #
+    # Fetched unauthenticated: /status is public, and requiring a key here
+    # would mean `waiter version` — the command you run precisely when
+    # something is wrong — failing for want of the credential you are
+    # trying to diagnose. Left out entirely rather than guessed at when it
+    # cannot be fetched: a version report that invents a server version is
+    # worse than one that admits it did not look.
+    status = _peek_server_status()
+    if status:
+        # `t1_api_version` is the flat string; `t1_version` is an object
+        # with the parts broken out. Reading the wrong one prints a dict.
+        remote = status.get("t1_api_version")
+        if not remote:
+            nested = status.get("t1_version")
+            remote = nested.get("short") if isinstance(nested, dict) else nested
+        name = status.get("server_name")
+        if remote:
+            print(f"Server:      t1 v{remote}" + (f"  ({name})" if name else ""))
+    return 0
+
+
+def _peek_server_status() -> dict | None:
+    """GET /status from the configured server, or None. Never raises."""
+    from .diagnose import get_json
+
+    try:
+        base = _base_url(_resolve_config(_bare_connection_args()))
+    except Exception:  # noqa: BLE001
+        return None
+    return get_json(base.rstrip("/") + "/status", timeout=2.0)
+
+
+def _bare_connection_args() -> argparse.Namespace:
+    """A Namespace with every connection option unset.
+
+    Built from the parser rather than by hand so it cannot drift from the
+    real option names — spelling one wrong here produces an
+    AttributeError swallowed by a broad `except`, which looks exactly like
+    the server being unreachable.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    _add_common_connection_args(parser)
+    return parser.parse_args([])
+
+
+def _cmd_help(rest: list[str]) -> int:
+    """Longer help on one topic."""
+    if not rest or rest[0] in ("-h", "--help"):
+        print("waiter help <topic>\n")
+        print("Topics:")
+        for name, body in _HELP_TOPICS.items():
+            summary = body.splitlines()[0].split("—", 1)[-1].strip()
+            print(f"  {name:<11} {summary}")
+        print("\nRun `waiter --help` for the full subcommand list.")
+        return 0
+    topic = rest[0].lower()
+    if topic not in _HELP_TOPICS:
+        _err(f"No help topic {topic!r}. Try: {', '.join(_HELP_TOPICS)}")
+        return 1
+    print(_HELP_TOPICS[topic])
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the `waiter` console script."""
     raw = list(sys.argv[1:] if argv is None else argv)
 
     if not raw or raw[0] in ("-h", "--help"):
-        print(_USAGE)
+        print(_usage())
         return 0
 
     if raw[0] in ("-V", "--version"):
@@ -1899,11 +2157,13 @@ def main(argv: list[str] | None = None) -> int:
         "find": _cmd_find,
         "hyperlink": _cmd_hyperlink,
         "fetch": _cmd_fetch,
+        "version": _cmd_version,
+        "help": _cmd_help,
     }
 
     if cmd not in dispatch:
         print(f"Unknown subcommand: {cmd!r}\n", file=sys.stderr)
-        print(_USAGE, file=sys.stderr)
+        print(_usage(), file=sys.stderr)
         return 1
 
     try:
@@ -1911,7 +2171,7 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 1
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
     except Exception as exc:  # noqa: BLE001
         print(f"[waiter {cmd}] Error: {exc}", file=sys.stderr)
