@@ -25,6 +25,12 @@ new surfaces: ``waiter lmstudio`` (the LM Studio bridge),
 """
 from __future__ import annotations
 
-__waiter_version__ = "1.0.26.8.1.0"
+# Derived, never typed. waiter's protocol version *is* the T1 API's, so a
+# literal here is a second copy that drifts — which is exactly what
+# happened to the T1 version in `waiter --help`, left advertising
+# 1.0.26.8.0.1 two releases after the API had moved on.
+from ..t1api.version import T1_VERSION_SHORT as _T1_VERSION_SHORT
+
+__waiter_version__ = _T1_VERSION_SHORT
 
 __all__ = ["__waiter_version__"]

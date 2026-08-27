@@ -20,6 +20,70 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.2.post5 — T1 v1.0.2026.8.1.1
+
+A fix bump inside the same feature line, so no client needs to change.
+Two shipped features did nothing, both for the same reason: state was
+written and never read back, or read and never written.
+
+𖢥 **Every key `gkey` ever minted carried server ID `00001-A1`.** The
+counter advances on each `create` and lived only in memory — and each
+`gkey` invocation is its own process, so it restarted at the beginning
+every time. The field was there, documented, and constant.
+
+It now resumes from the store. Archived keys are scanned too: `_load_all`
+reads only the active store, and revoking moves a record into
+`archive/`, so resuming from active keys alone would hand a revoked key's
+server ID to a new key the moment the highest-numbered one was revoked. A
+server ID that comes back around is worse than one that never moves,
+because an audit trail then cannot tell the two keys apart.
+
+𖢥 **`POST /t1/auth/undo` could never undo anything.** Two independent
+reasons, either of which alone was fatal:
+
+* Nothing ever called `AuthHistory.record()`. The history was read by the
+  undo, redo and history endpoints and written by nobody, so it was
+  permanently empty and every undo answered "nothing to undo".
+* The four Keymaster methods the inverse needs — `restore_key`,
+  `set_key_type`, `set_scopes`, `set_revoked` — did not exist. They
+  appeared only as `hasattr` guards in the undo handler, so even a
+  recorded entry would have answered 501 "this server's Keymaster
+  cannot…" on every deployment.
+
+Rotations (own and admin) are now recorded, and the four primitives
+exist. A rotation can be undone and redone, verified end to end: rotate,
+the old key stops authenticating, undo, it authenticates again, redo, the
+new key works.
+
+Recording is best-effort. The rotation has already happened and its new
+key is in the response; failing the request afterwards would report a
+failure that did not occur and lose the key with it.
+
+🛡️ **Undoing onto a key that no longer exists returned a bare
+`500 Internal Server Error`** — no code, no JSON, nothing to act on. The
+history outlives the keys it refers to, so undoing a rotation whose key
+has since been revoked is an ordinary thing to try. It is now a `409`
+naming the key, the operation and the direction, and the history entry is
+left in place.
+
+🔧 **Four packages carried the T1 version as a literal** —
+`hypernix.waiter`, `hypernix.t1sdk`, `hypernix.hyperlink`, and two more
+copies inside `waiter.discovery`. They derive it from `T1_VERSION` now.
+`hypernix.t1api.version` is pure stdlib, so a client that deliberately
+does without the `[t1api]` extra pays nothing for the import. This is the
+same drift that had `waiter --help` advertising a version two releases
+stale.
+
+🔧 The version tests split by intent: the one asserting *which* version
+ships stays a literal, as the tripwire that makes a bump a decision rather
+than a side effect; the ones about the parser build their input from the
+constant, so a bump does not require editing them — editing them each
+time is how a spelling quietly stops being covered.
+
+❗ Known, unchanged: `ServerKeyRegistry` is still in-memory only, so
+SSPKID assignments do not survive a restart. Nothing assigns one outside
+the undo path yet, and the T2 API does not release until 1.xx.0.
+
 ## 0.72.2.post4 — T2S keys that were refused for no good reason
 
 𖢥 **A T2 or T2S key minted against a *running* server was refused until

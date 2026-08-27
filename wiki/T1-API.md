@@ -467,6 +467,39 @@ consistent with how `Keymaster.rotate()` already treats rotation as
 "replace, don't mutate") and, if `promote_to_admin: true`, reissues it as
 `KeyType.ADMIN`.
 
+### Undoing an authentication change
+
+```
+POST /t1/auth/undo      reverse the last reversible change
+POST /t1/auth/redo      re-apply the one just undone
+GET  /t1/auth/history   what is on record, and whether undo/redo is possible
+```
+
+(Also reachable as `/auth/t1/undo`, `/auth/t1/redo`, `/auth/t1/history`.)
+
+A rotation is recorded with the previous key material, so undoing it puts
+the old key back — **without changing the key ID**, so anything holding a
+reference to the key keeps working. Redo re-applies the rotation. A new
+operation clears the redo stack: once history diverges, replaying the old
+future produces a state nobody asked for.
+
+The history stores key material for rotations, and encrypts it with
+Keymaster's own Fernet when the `security` extra is installed. `GET
+/t1/auth/history` never returns it — `describe()` withholds the secret
+fields.
+
+Two refusals worth knowing:
+
+- **Nothing to undo** (`404`) — no reversible change on record.
+- **The key is gone** (`409`) — the history outlives the keys it refers
+  to, so a rotation whose key has since been revoked cannot be reversed.
+  The entry is left in place rather than silently discarded.
+
+Recording is best-effort: a rotation that succeeds is not failed
+afterwards because the history could not be written. The new key is
+already in the response, and reporting a failure that did not happen
+would lose it.
+
 ## Quota & usage
 
 Beta 1 ships **basic per-key/per-model usage tracking**, not the full

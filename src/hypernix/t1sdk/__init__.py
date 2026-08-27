@@ -44,6 +44,14 @@ written against.
 """
 from __future__ import annotations
 
+# Tracks the T1 API's own version (t1api/version.py), not the hypernix
+# package's: the SDK implements an API contract, and its version should
+# say which one.
+# Derived from the API's own version rather than repeated. Importing it
+# costs nothing the SDK was not already paying: hypernix.t1api.version is
+# pure stdlib, so this does not drag the [t1api] server extra into a
+# client that deliberately does without it.
+from ..t1api.version import T1_VERSION_SHORT as _T1_VERSION_SHORT
 from .client import T1Client
 from .errors import (
     T1AuthError,
@@ -69,10 +77,7 @@ from .models import (
 )
 from .transport import HTTPTransport, Response, RetryPolicy, TLSConfig
 
-# Tracks the T1 API's own version (t1api/version.py), not the hypernix
-# package's: the SDK implements an API contract, and its version should
-# say which one.
-__sdk_version__ = "1.0.26.8.1.0"
+__sdk_version__ = _T1_VERSION_SHORT
 
 __all__ = [
     "__sdk_version__",

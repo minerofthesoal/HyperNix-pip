@@ -73,8 +73,8 @@ def auth(key):
 class TestVersion:
     def test_the_api_reports_the_new_version(self, client):
         body = client.get("/status").json()
-        assert body["t1_api_version"] == "1.0.26.8.1.0" == T1_VERSION.short
-        assert body["t1_api_version_long"] == "1.0.2026.8.1.0"
+        assert body["t1_api_version"] == T1_VERSION.short
+        assert body["t1_api_version_long"] == T1_VERSION.long
 
     def test_it_is_the_same_generation_as_the_previous_release(self):
 
