@@ -425,3 +425,14 @@ timeline
         : ba52f68 - 0.72.2-2- run_tailscale.sh suggested a command that does not work
 ```
 
+## Release v0.72.2-3 (2026-08-27)
+
+```mermaid
+timeline
+    title Release v0.72.2-3 Commits
+    0.72.2-3
+        : ed11d4b - Fix Host ID generation to exclude special characters that conflict with SSPKIDs and V1 Server IDs
+        : 1f6c095 - 0.72.2-3- waiter explains a connection failure instead of restating it
+        : 2218c14 - gkey- mint v2 and v2short keys, and report what this install can mint
+```
+
