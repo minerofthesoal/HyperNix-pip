@@ -20,6 +20,131 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.2.post3 — "0.72.2-3": waiter explains itself
+
+𖢥 **A connection failure now says what to do about it.** The report was
+
+```
+✗ Could not reach http://127.0.0.1:1234/hyperlink/pair: [Errno 111] Connection refused
+```
+
+which is accurate and answers none of the reader's three questions: is
+anything listening, is this the address I meant, and what do I type next.
+Port 1234 is the giveaway — it is LM Studio's default. LM Studio is a
+*bridge target* the T1 server talks to, never an address waiter should
+point at, and nothing in that message said so.
+
+`hypernix.waiter.diagnose` now probes on failure: does the TCP port
+accept a connection, and if it does, does whatever answers look like a T1
+API, an OpenAI-compatible backend, or just some web server. The message
+names the address, **where the address came from** (the saved config and
+its path, or `-I`), and the command that fixes it. The same failure now
+reads:
+
+```
+✗ Could not reach http://127.0.0.1:1234/hyperlink/pair ([Errno 111] Connection refused)
+  Address from: the saved config (~/.hypernix/waiter/waiter.config.jsonl)
+
+Port 1234 is LM Studio's default, not the T1 API's (8000).
+  `waiter lmstudio` reaches it through the T1 server, not directly.
+  If you meant the T1 API:  waiter serv -A -I http://127.0.0.1:8000 -K <key>
+```
+
+Only unreachability gets the extra work; every other error already says
+what is wrong. If the diagnostic itself fails it is discarded and the
+original error printed — it must never replace a real error with a worse
+one.
+
+𖢥 **`waiter --help` claimed T1 v1.0.26.8.0.1.** The API has been on
+1.0.26.8.1.0 since 0.72.1; the string was typed into the usage text and
+had drifted. It is interpolated from `T1_VERSION_SHORT` now, and a test
+pins the two together.
+
+✨ **`waiter version`** — package, waiter protocol, T1 API (with the
+oldest client it speaks to), key formats, and the connected server's
+version when one is reachable. Four numbers that move independently,
+which is why they are printed together: "my key is refused" and "my
+client is too old" are diagnosed by comparing them. The server line is
+fetched unauthenticated, because requiring a key for the command you run
+when something is wrong is backwards; it is omitted rather than guessed
+when the server cannot be reached. `--json` for scripts.
+
+✨ **`waiter help <topic>`** — longer help on `connect`, `keys`,
+`hyperlink` and `find`. The questions people get stuck on need
+paragraphs, and paragraphs in the one-line subcommand table would ruin
+the table. `connect` names the two ports people reach for by mistake.
+
+🐛 **Local probes ignore the proxy environment.** A diagnostic asks "is
+*this* host up"; a proxy in between answers a different question. With
+`HTTP_PROXY` set and no `no_proxy` for localhost — containers do this
+routinely — every local probe would have failed through the proxy and
+been reported as the server being down. Ordinary API traffic is
+unaffected.
+
+🐛 `waiter version` read `t1_version` from `/status`, which is an object
+with the parts broken out; the flat string is `t1_api_version`. It
+printed a dict.
+
+🐛 Identification stopped at the first HTTP error, so a 404 on `/status`
+reported "an HTTP server" and never reached `/v1/models` — the route that
+tells LM Studio from an anonymous web server.
+
+🐛 `diagnose()` could raise on a malformed URL (`SplitResult.port` throws
+for a port outside 0-65535), which is the one thing a diagnostic must
+never do. Found by its own test.
+
+### gkey mints v2 keys
+
+✨ **`gkey create -v v1|v2|v2short`.** The CLI could only ever mint the T1
+spelling; T2 and T2S keys had to be built in Python. `-v` picks the
+format, `--level 1-9` sets the access level, and `--password` supplies an
+admin password (validated, not trusted) instead of the generated one.
+Aliases are accepted, so `v2s`, `t2s` and `2short` all mean `v2short`.
+
+The mechanism is what shapes the feature: **a v2 key is a spelling of a
+v1 key, not a separate credential.** Authentication converts it back and
+looks *that* up in the key store, so a T2 key generated on its own
+authenticates as nothing at all. `gkey` therefore mints into the store
+and presents the result — which is why both spellings of a key work and
+`gkey revoke <key-id>` kills both.
+
+🛡️ **Every impossible combination is refused before the key is minted.**
+A key created and then found unpresentable would still be in the store —
+valid, usable, and known to nobody, because the operator saw only an
+error. Refused: an admin `v2short` (the format cannot carry admin), a
+`--level` on `v1` (no such field), a `--body-len` that contradicts
+`v2short`'s fixed 26, a `--password` without `--type admin`, and a level
+outside 1-9. A test asserts the store is empty after all of them.
+
+✨ **`gkey version`** reports the three versions that move independently:
+the package, the T1 API's own six-part version, and the key formats — plus
+what each format is and which is latest. `--json` for scripts. An operator
+debugging "my key is refused" needs to know which of the three is out of
+step.
+
+✨ **`T2KeyGenerator.from_t1_admin`.** `from_t1` never produces an admin
+key, because converting an arbitrary T1 key must not grant authority.
+This is the deliberate exception, given a separate name rather than a
+flag so every use can be found by grepping one word. It grants nothing by
+itself: `gkey` calls it only after checking the store's own record says
+administrator.
+
+✂️ **`v2.1` is named but not issuable.** Asking for it explains that the
+T2C derivation is not a secret yet, rather than reporting an unknown
+version — "unknown" and "not released" are different facts, and someone
+planning a migration needs to know which one they hit.
+
+🔧 The issued format is recorded on the key (`key_version`,
+`access_level` tags), so `gkey list` can still say which spelling was
+handed out after the key itself has scrolled off the screen.
+
+🐛 The new tests redirect `keymaster._DEFAULT_STORE` and
+`gatekeeper._DEFAULT_DATA` rather than `$HOME`. Both are module-level
+constants evaluated at import, so patching `$HOME` inside a test is too
+late — the first version of these tests wrote real credentials into
+`~/.hypernix/keymaster`.
+
+
 ## 0.72.2.post2 — "0.72.2-2"
 
 𖢥 **`run_tailscale.sh` told you to run a command that does not work.**

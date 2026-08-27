@@ -14,6 +14,63 @@ As of Beta 3 the client sits on [`hypernix.t1sdk`](T1-API.md#the-sdk)
 rather than being a second implementation of the same HTTP calls; the
 subcommand surface is unchanged.
 
+
+## Versions, help, and connection failures
+
+```bash
+waiter version            # package, waiter, T1 API, key formats, the server
+waiter version --json
+waiter help               # list the longer help topics
+waiter help connect       # pointing waiter at a server
+waiter help keys          # which credential to use
+waiter help hyperlink     # pairing a phone
+waiter help find          # locating a server you did not configure
+```
+
+`waiter version` prints four numbers that move independently — the
+package, waiter's protocol version, the T1 API (with the oldest client it
+speaks to), and the key formats — plus the connected server's version
+when one is reachable. Comparing them is how "my key is refused" and "my
+client is too old" get diagnosed. The server line is fetched
+unauthenticated, and omitted rather than guessed at when the server
+cannot be reached.
+
+### When a connection fails
+
+waiter explains an unreachable server instead of restating the errno. It
+names the address, **where that address came from**, and the command that
+fixes it:
+
+```
+✗ Could not reach http://127.0.0.1:1234/hyperlink/pair ([Errno 111] Connection refused)
+  Address from: the saved config (~/.hypernix/waiter/waiter.config.jsonl)
+
+Port 1234 is LM Studio's default, not the T1 API's (8000).
+  `waiter lmstudio` reaches it through the T1 server, not directly.
+  If you meant the T1 API:  waiter serv -A -I http://127.0.0.1:8000 -K <key>
+```
+
+The distinction that matters: **LM Studio (1234) and Ollama (11434) are
+model backends the T1 server talks to, not addresses waiter should point
+at.** `waiter lmstudio` reaches LM Studio *through* the server. Pointing
+waiter straight at one gives a connection refused, or a puzzling 404 from
+something that is not a T1 API.
+
+On failure waiter probes whether the port accepts a connection at all,
+and if it does, what answers there — a T1 API, an OpenAI-compatible
+backend, or some other web server — so the three cases get three
+different answers:
+
+| What it found | What it says |
+| --- | --- |
+| Nothing listening | Nothing is listening on `host:port`, and how to start the server |
+| A known bridge port | That port belongs to LM Studio / Ollama, and the T1 address to use instead |
+| Something that is not a T1 API | What answered, and how to re-point waiter |
+
+These probes deliberately bypass the proxy environment: a diagnostic asks
+whether *this* host is up, and a proxy in between answers a different
+question. Ordinary API traffic still honours `HTTP_PROXY` as before.
+
 ## Quickstart
 
 ```bash
@@ -59,6 +116,8 @@ override with `-F <path>`.
 | `waiter audit` | Read the server's audit trail (admin) |
 | `waiter doctor` | Check a server's configuration; exits non-zero on production warnings |
 | `waiter smoke` | Run smoke tests against a server (`--write` for a self-cleaning write test) |
+| `waiter version` | Package, waiter, T1 API and key format versions; `--json` |
+| `waiter help <topic>` | Longer help — `connect`, `keys`, `hyperlink`, `find` |
 
 Every subcommand accepts `-I`/`-K`/`-F`/`-P`/`-H` to override the saved
 config for just that call, and `--json` for raw JSON instead of a table.
