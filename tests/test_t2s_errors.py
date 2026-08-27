@@ -259,3 +259,34 @@ class TestKeysMintedWhileTheServerIsRunning:
                 "/hyperlink/endpoints", headers={"Authorization": "Bearer " + stranger}
             )
         assert response.status_code == 401
+
+
+class TestVersionsAgree:
+    """Three files carry the package version; they must not drift.
+
+    ``__init__.__version__`` is what ``gkey version`` and ``waiter
+    version`` report, ``pyproject.toml`` is what pip installs, and
+    ``setup.cfg`` is the legacy declaration. A release that bumps two of
+    the three ships a package whose self-reported version is a lie —
+    which is exactly how ``waiter --help`` came to advertise a T1 version
+    the API had left behind two releases earlier.
+    """
+
+    @staticmethod
+    def _read(pattern: str, filename: str) -> str:
+        import pathlib
+        import re
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        match = re.search(pattern, (root / filename).read_text(), re.M)
+        assert match, f"no version found in {filename}"
+        return match.group(1)
+
+    def test_all_three_match(self):
+        import hypernix
+
+        assert (
+            hypernix.__version__
+            == self._read(r'^version = "(\S+)"', "pyproject.toml")
+            == self._read(r"^version = (\S+)", "setup.cfg")
+        )
