@@ -426,6 +426,36 @@ Every impossible combination is refused *before* the key is minted. A key
 created and then found unpresentable would still be in the store — valid,
 usable, and known to nobody, since the operator saw only an error.
 
+### Using a T2S key
+
+A T2S key is 26 typeable characters, meant for a phone. Two things about
+it surprise people, and both are by design:
+
+**It must be minted on the server.** A T2 key is a spelling of a T1 key,
+not a separate credential — it is converted back to its T1 form and
+looked up in the key store. A key produced by `T2KeyGenerator.generate()`
+belongs to no key store and authenticates as nothing, however well-formed
+it is. Mint one with:
+
+```bash
+gkey create -v v2short --scopes read,write
+```
+
+**It can never be an administrator.** Admin authority rides on the
+password component of a T2 prefix, and the T2S format has no room for
+one. Widening the underlying key's scopes does not change this. So a T2S
+key cannot mint pairing codes (`POST /hyperlink/pair` is admin-only);
+pair from the PC with an admin key, and use the T2S key afterwards.
+
+Outside HyperLink a T2S key is further narrowed to read and non-admin
+write, whatever the underlying key allows. That narrowing is what makes a
+typeable credential acceptable rather than a liability.
+
+Both failures name themselves. An unregistered key gets `AUTH_INVALID_KEY`
+with `details.reason = "not_in_key_store"` and the command that mints a
+real one; the admin refusal gets `AUTH_ADMIN_REQUIRED` with
+`details.reason = "t2s_is_never_admin"` and the route that works.
+
 ### Admin rotate / promote
 
 `POST /auth/t1/admin/rotate` is admin-only (`AUTH_ADMIN_REQUIRED`

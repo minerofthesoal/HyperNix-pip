@@ -1,14 +1,30 @@
 //  PairingView.swift
-//  Two fields: where the PC is, and the six characters it showed you.
+//  Where the PC is, and how to prove you are allowed to talk to it —
+//  either the six characters it showed you, or a T2S key.
 
 import SwiftUI
 import UIKit
+
+/// How this phone proves who it is.
+///
+/// Pairing is the normal route, but it needs someone at the PC: minting a
+/// code is an admin operation. A T2S key is the route for when the PC is
+/// not to hand — 26 typeable characters, deliberately limited to reading
+/// and non-admin writing, which is why it is safe to type into a phone.
+private enum ConnectMethod: String, CaseIterable, Identifiable {
+    case code = "Pairing code"
+    case key = "T2S key"
+
+    var id: String { rawValue }
+}
 
 struct PairingView: View {
     @Environment(AppState.self) private var state
 
     @State private var address = ""
     @State private var code = ""
+    @State private var key = ""
+    @State private var method: ConnectMethod = .code
     @State private var deviceName = UIDevice.current.name
     @State private var isPairing = false
 
@@ -16,11 +32,29 @@ struct PairingView: View {
         code.filter { $0.isLetter || $0.isNumber }.count == 6
     }
 
-    private var canPair: Bool {
+    private var keyIsPlausible: Bool {
+        HyperLinkClient.looksLikeKey(key)
+    }
+
+    private var credentialIsPlausible: Bool {
+        switch method {
+        case .code: return codeIsPlausible
+        case .key: return keyIsPlausible
+        }
+    }
+
+    private var canConnect: Bool {
         !address.trimmingCharacters(in: .whitespaces).isEmpty
-            && codeIsPlausible
+            && credentialIsPlausible
             && !deviceName.trimmingCharacters(in: .whitespaces).isEmpty
             && !isPairing
+    }
+
+    private var actionTitle: String {
+        switch method {
+        case .code: return isPairing ? "Pairing…" : "Pair"
+        case .key: return isPairing ? "Connecting…" : "Connect"
+        }
     }
 
     var body: some View {
@@ -30,12 +64,9 @@ struct PairingView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Connect to your PC")
                             .font(.title2.weight(.semibold))
-                        Text(
-                            "On the computer running HyperNix, run `waiter hyperlink pair`. "
-                            + "It prints an address and a six-character code."
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        Text(explanation)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                 }
@@ -51,24 +82,56 @@ struct PairingView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Pairing code") {
-                    TextField("ABC 123", text: $code)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        // The alphabet excludes 0/O/1/I/L, so the code is
-                        // unambiguous when read off a screen.
-                        .font(.system(.title3, design: .monospaced))
-                        .submitLabel(.done)
-                    if !code.isEmpty && !codeIsPlausible {
-                        Text("A pairing code is six characters.")
+                Section("How to sign in") {
+                    Picker("Method", selection: $method) {
+                        ForEach(ConnectMethod.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                switch method {
+                case .code:
+                    Section("Pairing code") {
+                        TextField("ABC 123", text: $code)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            // The alphabet excludes 0/O/1/I/L, so the code is
+                            // unambiguous when read off a screen.
+                            .font(.system(.title3, design: .monospaced))
+                            .submitLabel(.done)
+                        if !code.isEmpty && !codeIsPlausible {
+                            Text("A pairing code is six characters.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                case .key:
+                    Section("T2S key") {
+                        // Never autocapitalised and never autocorrected: a
+                        // T2S key is case-sensitive and full of
+                        // punctuation, and "helpfully" changing either
+                        // turns a correct key into a wrong one.
+                        TextField("T2S_…", text: $key)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.body, design: .monospaced))
+                            .submitLabel(.done)
+                        if !key.isEmpty && !keyIsPlausible {
+                            Text("A key starts with T2S_ (or T2_ / T1_). Check the paste kept every character.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        Text("On the PC: `gkey create -v v2short --scopes read,write`")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
                 Section("This device") {
                     TextField("iPhone", text: $deviceName)
-                    Text("Shown on the PC in `waiter hyperlink devices`, so you can tell your devices apart later.")
+                    Text(deviceNameHelp)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -85,20 +148,50 @@ struct PairingView: View {
                     Button {
                         Task {
                             isPairing = true
-                            _ = await state.pair(address: address, code: code, deviceName: deviceName)
+                            switch method {
+                            case .code:
+                                _ = await state.pair(
+                                    address: address, code: code, deviceName: deviceName
+                                )
+                            case .key:
+                                _ = await state.connect(
+                                    address: address, key: key, deviceName: deviceName
+                                )
+                            }
                             isPairing = false
                         }
                     } label: {
                         HStack {
                             if isPairing { ProgressView().padding(.trailing, 6) }
-                            Text(isPairing ? "Pairing…" : "Pair")
+                            Text(actionTitle)
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .disabled(!canPair)
+                    .disabled(!canConnect)
                 }
             }
             .navigationTitle("HyperLink")
+        }
+    }
+
+    private var explanation: String {
+        switch method {
+        case .code:
+            return "On the computer running HyperNix, run `waiter hyperlink pair`. "
+                + "It prints an address and a six-character code."
+        case .key:
+            return "Paste a T2S key from the PC. It is 26 characters plus a prefix, "
+                + "limited to reading and non-admin writing, and needs nobody at the "
+                + "computer when you use it."
+        }
+    }
+
+    private var deviceNameHelp: String {
+        switch method {
+        case .code:
+            return "Shown on the PC in `waiter hyperlink devices`, so you can tell your devices apart later."
+        case .key:
+            return "Used to label this phone in the app. A key is not a paired device, so it will not appear in `waiter hyperlink devices`."
         }
     }
 }

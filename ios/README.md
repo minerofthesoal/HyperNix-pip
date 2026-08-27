@@ -56,6 +56,31 @@ Install the IPA (below), open it, and type in the address and the code.
 That is the whole setup — the app asks the server for its other
 addresses during pairing, so you never type a Tailscale name.
 
+### Signing in without a pairing code
+
+Pairing needs someone at the PC, because minting a code is an admin
+operation. When the PC is not to hand — or a code expired mid-setup —
+switch the pairing screen to **T2S key** and paste one instead:
+
+```bash
+gkey create -v v2short --scopes read,write
+```
+
+A T2S key is 26 typeable characters plus a prefix, deliberately limited
+to reading and non-admin writing, which is what makes it safe to type
+into a phone. Paste it exactly as printed: it is case-sensitive and
+contains punctuation, and the app does not "clean it up" the way it
+normalises a pairing code.
+
+Two differences from pairing. The key is the credential, so there is no
+device record on the server and the phone will not appear in `waiter
+hyperlink devices`. And signing out just forgets the key — to cut off a
+lost phone, revoke the key on the PC with `gkey revoke <key-id>`, which
+kills it in both its T2S and T1 spellings.
+
+A T2S key can never mint pairing codes for other phones. That is a
+property of the format, not a permission you can grant it.
+
 ### 3. Away from home
 
 Install [Tailscale](https://tailscale.com) on both the PC and the phone

@@ -296,6 +296,45 @@ actor HyperLinkClient {
         return (redeemed, discovered)
     }
 
+    /// Connect with a T2S key instead of redeeming a pairing code.
+    ///
+    /// Pairing needs someone at the PC: it is an admin operation, and a
+    /// T2S key is never an admin. That is a problem when the PC is not
+    /// to hand, or when a pairing code expired mid-setup — which is the
+    /// case this exists for.
+    ///
+    /// A T2S key is 26 body characters precisely so it can be typed on a
+    /// phone, and the server accepts one as a first-class HyperLink
+    /// credential. There is no redeem step: the key *is* the credential,
+    /// so this verifies it works and asks the server for its address
+    /// list, which is the same thing pairing does after redeeming.
+    ///
+    /// Nothing is uppercased or stripped here, unlike a pairing code. A
+    /// T2S key is case-sensitive and contains punctuation; normalising it
+    /// would turn a correct key into a wrong one.
+    static func connect(
+        address: String,
+        key: String
+    ) async throws -> EndpointsResponse {
+        let base = normalize(address)
+        let client = HyperLinkClient(endpoints: [base], token: key.trimmingCharacters(in: .whitespacesAndNewlines))
+        return try await client.endpoints()
+    }
+
+    /// Does this look like a key the server will accept as a credential?
+    ///
+    /// A shape check only, to catch a paste that lost characters before
+    /// it costs a round trip. The server decides whether the key is real.
+    static func looksLikeKey(_ candidate: String) -> Bool {
+        let text = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("T2S_") || text.hasPrefix("T2_") || text.hasPrefix("T1_") else {
+            return false
+        }
+        // Shortest real key: "T2S_" plus a 26-character body, two
+        // lowercase, five specials, a slash, a digit and "-<level>".
+        return text.count >= 20
+    }
+
     /// `desktop:8000` → `http://desktop:8000`, and strip a trailing slash.
     static func normalize(_ address: String) -> String {
         var text = address.trimmingCharacters(in: .whitespacesAndNewlines)

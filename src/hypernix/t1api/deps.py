@@ -378,9 +378,48 @@ def require_hyperlink_admin(principal: HyperLinkPrincipal) -> HyperLinkPrincipal
             http_status=403,
         )
     if not principal.is_admin:
+        # A T2S key is never an administrator, and never can be: admin is
+        # carried by the password component in a T2 prefix, and the T2S
+        # format has no room for one — it is short enough to type, which
+        # is exactly why it must not carry administrative authority.
+        #
+        # Saying only "requires an admin key" sends that holder off to
+        # widen their key's scopes, which cannot work however many times
+        # they try. The property is in the format, not the grant.
+        family = ""
+        ctx = principal.auth_context
+        if ctx is not None:
+            family = ctx.t2_family
+        if family == "T2S":
+            raise T1APIError(
+                T1ErrorCode.AUTH_ADMIN_REQUIRED,
+                "A T2S key can never perform this operation. Pairing is admin-only, "
+                "and a T2S key is never an administrator by design.",
+                details={
+                    "key_family": "T2S",
+                    "reason": "t2s_is_never_admin",
+                    "explanation": (
+                        "Administrative authority rides on the password component of "
+                        "a T2 prefix. A T2S key has no password component — it is "
+                        "short enough to type by hand, which is why it must not carry "
+                        "admin. Widening the underlying key's scopes will not change "
+                        "this."
+                    ),
+                    "remedy": (
+                        "Mint the pairing code on the PC with an admin key "
+                        "(`waiter hyperlink pair`), then redeem the six-character "
+                        "code on the phone. Use the T2S key for everything after "
+                        "pairing."
+                    ),
+                },
+                http_status=403,
+            )
         raise T1APIError(
             T1ErrorCode.AUTH_ADMIN_REQUIRED,
-            "This HyperLink operation requires an admin T1 key.",
+            "This HyperLink operation requires an admin key.",
+            details={
+                "remedy": "gkey create --type admin --scopes admin,read,write",
+            },
             http_status=403,
         )
     return principal

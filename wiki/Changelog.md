@@ -20,6 +20,57 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.2.post4 — T2S keys that were refused for no good reason
+
+𖢥 **A T2 or T2S key minted against a *running* server was refused until
+the server restarted.** This is the "invalid key" in the report, and the
+key was real, registered and correctly typed the whole time.
+
+`validate_key` refreshes the key store once when a key is unknown,
+because a key minted a moment ago is not in the in-memory table yet. That
+retry lived inline in the T1 branch; the T2 branch reached the store by
+another route and never refreshed. So a T1 key minted against a running
+server worked, and **the same key in its T2 or T2S spelling did not** —
+about as confusing as a failure gets. The retry is now one method shared
+by both paths.
+
+🛡️ **"Unknown or unregistered T1 key" is no longer what a T2S holder is
+told.** It reads as "you brought the wrong kind of key" when the truth is
+that the right kind is not in this server's store — a different problem
+with a different fix. The message now names the family the caller
+actually presented, says the key is well-formed, explains that a T2 key
+is a spelling of a T1 key and so authenticates by being looked up in the
+key store (a generated one belongs to no store and authenticates as
+nothing), and names `gkey create -v v2short`.
+
+🛡️ **"Requires an admin T1 key" was a dead end for a T2S key.** That is
+the "forbidden" in the report. It sent the reader off to widen their
+key's scopes, which can never work: admin rides on the password component
+of a T2 prefix, and a T2S key has no room for one — it is short enough to
+type by hand, which is exactly why. The refusal now says the restriction
+is permanent, that scopes will not change it, and gives the route that
+does work: mint the pairing code on the PC, redeem the six-character code
+on the phone, use the T2S key for everything after that.
+
+✨ **HyperLink can finally accept a T2S key.** The server has taken one as
+a first-class credential since 0.72.1, but the app had only a
+six-character pairing-code field — and it uppercased and stripped
+punctuation from whatever was typed there, which destroys a T2S key. The
+pairing screen now has a method picker: a pairing code, or a T2S key
+pasted straight in. The key field is never autocapitalised or
+autocorrected, because a key is case-sensitive and full of punctuation
+and "fixing" either turns a correct key into a wrong one.
+
+A key-based connection has no device record on the server, so signing out
+forgets the credential rather than revoking a device — which is what
+`unpair` already did when there was no device ID.
+
+🔧 An existing test asserted that the unregistered-key message did *not*
+contain "T2", as a proxy for "refused for being unknown, not for being
+T2S". The message now names the family in order to say precisely that, so
+the test asserts the reason code instead. A message that merely avoids a
+substring is not the same as one that assigns the right cause.
+
 ## 0.72.2.post3 — "0.72.2-3": waiter explains itself
 
 𖢥 **A connection failure now says what to do about it.** The report was
