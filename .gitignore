@@ -1,1 +1,30 @@
 (src/hypernix/security/t2keys.py)
+
+# Python bytecode. Generated on every run, specific to the interpreter
+# that wrote it, and never useful to another checkout.
+#
+# Note: 348 .pyc files are already *tracked* in this repo (added by
+# ed11d4b and ec509fe). A gitignore entry does not untrack those — it only
+# stops new ones being added. Removing the tracked ones is a separate,
+# deliberate step: `git rm -r --cached '**/__pycache__'`.
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local virtualenvs
+.venv/
+venv/
