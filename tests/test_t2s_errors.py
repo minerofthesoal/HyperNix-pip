@@ -20,11 +20,24 @@ import io
 import re
 
 import pytest
-from fastapi.testclient import TestClient
 
 from hypernix.security.gkey_cli import main as gkey
 from hypernix.security.t2keys import T2KeyGenerator, T2Type
-from hypernix.t1api.app import create_app
+
+# Everything that drives a server needs the [t1api] extra; the version
+# check does not. See tests/test_t1_v1_0_26_8_1_1.py for the same split.
+try:  # a real import, not find_spec
+    import fastapi  # noqa: F401
+
+    _HAS_FASTAPI = True
+except ImportError:
+    # find_spec would answer "yes" for an installed-but-broken fastapi —
+    # it locates the module without executing it. Importing is what the
+    # tests themselves do, so it is what the guard should do.
+    _HAS_FASTAPI = False
+needs_server = pytest.mark.skipif(
+    not _HAS_FASTAPI, reason="needs the [t1api] extra (fastapi)"
+)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -57,6 +70,10 @@ def mint(*argv: str) -> str:
 
 @pytest.fixture
 def client(store):
+    from fastapi.testclient import TestClient
+
+    from hypernix.t1api.app import create_app
+
     with TestClient(create_app(), client=("127.0.0.1", 5000)) as test_client:
         yield test_client
 
@@ -65,6 +82,7 @@ def error(response) -> dict:
     return response.json()["error"]
 
 
+@needs_server
 class TestUnregisteredKey:
     """"invalid key" — well-formed, but in no key store."""
 
@@ -129,6 +147,7 @@ class TestUnregisteredKey:
         assert "Unknown or unregistered T1 key" in body["message"]
 
 
+@needs_server
 class TestAdminRefusal:
     """"forbidden" — and no amount of scope-widening will help."""
 
@@ -172,6 +191,7 @@ class TestAdminRefusal:
         assert "gkey create --type admin" in body["details"]["remedy"]
 
 
+@needs_server
 class TestWhatAT2SKeyCanDo:
     """The refusals must not have narrowed what actually works."""
 
@@ -205,6 +225,7 @@ class TestWhatAT2SKeyCanDo:
         assert "Authorization" in error(response)["message"]
 
 
+@needs_server
 class TestKeysMintedWhileTheServerIsRunning:
     """The bug behind the report.
 
@@ -219,7 +240,16 @@ class TestKeysMintedWhileTheServerIsRunning:
     "invalid key" — on a key that is real, registered and correctly typed.
     """
 
+    @staticmethod
+    def _server():
+        from fastapi.testclient import TestClient
+
+        from hypernix.t1api.app import create_app
+
+        return TestClient, create_app
+
     def test_a_t2s_key_minted_after_startup_is_accepted(self, store):
+        TestClient, create_app = self._server()
         app = create_app()
         key = mint("create", "-v", "v2short", "--scopes", "read,write")
         with TestClient(app, client=("127.0.0.1", 5000)) as client:
@@ -229,6 +259,7 @@ class TestKeysMintedWhileTheServerIsRunning:
         assert response.status_code == 200, response.text
 
     def test_a_t2_key_minted_after_startup_is_accepted(self, store):
+        TestClient, create_app = self._server()
         app = create_app()
         key = mint("create", "-v", "v2", "--scopes", "read,write")
         with TestClient(app, client=("127.0.0.1", 5000)) as client:
@@ -237,6 +268,7 @@ class TestKeysMintedWhileTheServerIsRunning:
 
     def test_both_spellings_of_one_key_agree(self, store):
         """The sharpest form of the bug: same credential, two answers."""
+        TestClient, create_app = self._server()
         app = create_app()
         t2s = mint("create", "-v", "v2short", "--scopes", "read,write")
         t1 = T2KeyGenerator.to_t1(t2s)
@@ -251,6 +283,7 @@ class TestKeysMintedWhileTheServerIsRunning:
 
     def test_a_genuinely_unknown_key_is_still_refused(self, store):
         """The refresh must not turn into "accept anything"."""
+        TestClient, create_app = self._server()
         app = create_app()
         mint("create", "-v", "v2short")  # something real in the store
         stranger = T2KeyGenerator.generate(family=T2Type.T2S).raw

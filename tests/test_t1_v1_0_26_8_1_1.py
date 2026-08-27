@@ -19,12 +19,28 @@ import io
 import re
 
 import pytest
-from fastapi.testclient import TestClient
 
 from hypernix.security.gkey_cli import main as gkey
 from hypernix.security.keymaster import Keymaster, KeyScope, KeyType
-from hypernix.t1api.app import create_app
 from hypernix.t1api.version import T1_VERSION
+
+# The server needs the [t1api] extra; the key store does not. Skipping the
+# whole module when fastapi is absent would take the server-ID and
+# reversal-primitive tests down with it — and those cover the two bugs
+# this release is about, in code that has no HTTP layer at all. Only the
+# class that actually drives a server is gated.
+try:  # a real import, not find_spec
+    import fastapi  # noqa: F401
+
+    _HAS_FASTAPI = True
+except ImportError:
+    # find_spec would answer "yes" for an installed-but-broken fastapi —
+    # it locates the module without executing it. Importing is what the
+    # tests themselves do, so it is what the guard should do.
+    _HAS_FASTAPI = False
+needs_server = pytest.mark.skipif(
+    not _HAS_FASTAPI, reason="needs the [t1api] extra (fastapi)"
+)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -249,11 +265,16 @@ class TestReversalPrimitives:
                 call()
 
 
+@needs_server
 class TestUndoRedoActuallyWorks:
     """``/t1/auth/undo`` shipped unable to undo anything."""
 
     @pytest.fixture
     def wired(self, store):
+        from fastapi.testclient import TestClient
+
+        from hypernix.t1api.app import create_app
+
         admin_out = run_gkey("create", "--type", "admin", "--scopes", "admin,read,write")
         victim_out = run_gkey("create", "--scopes", "read")
         app = create_app()

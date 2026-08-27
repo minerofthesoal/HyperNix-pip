@@ -212,3 +212,46 @@ def test_ruff_check_passes_on_src_and_tests() -> None:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_no_test_module_imports_fastapi_unguarded() -> None:
+    """A bare ``from fastapi import …`` in a test module breaks collection.
+
+    The base CI job installs the package without the ``[t1api]`` extra, so
+    fastapi is absent there. An unguarded import is not a skip — it is a
+    *collection error*, which aborts the whole run before any test
+    executes, including every test that had nothing to do with the server.
+    One file can take the entire suite down.
+
+    Guarded means either ``pytest.importorskip("fastapi")`` at module
+    level, or importing it inside the fixture or function that needs it
+    behind a availability flag.
+    """
+    tests_dir = Path(__file__).resolve().parent
+    offenders = []
+    for path in sorted(tests_dir.glob("test_*.py")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        skipped_already = False
+        for number, line in enumerate(lines, 1):
+            if 'importorskip("fastapi")' in line:
+                # Everything after this point is unreachable without
+                # fastapi, so a module-level import below it is fine.
+                skipped_already = True
+                continue
+            stripped = line.strip()
+            if not stripped.startswith(("import fastapi", "from fastapi")):
+                continue
+            # An indented import is either deferred into a function or
+            # wrapped in a try/except, so it cannot break collection.
+            # Whether the file mentions a flag elsewhere is irrelevant:
+            # what matters is this line, on this line's indentation.
+            if line[:1] in (" ", "\t"):
+                continue
+            if skipped_already:
+                continue
+            offenders.append(f"{path.name}:{number}")
+    assert not offenders, (
+        "these modules import fastapi at collection time without a guard, "
+        "which aborts the whole run when the [t1api] extra is absent: "
+        + ", ".join(offenders)
+    )
