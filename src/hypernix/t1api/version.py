@@ -267,9 +267,14 @@ def parse_version(text: str) -> T1Version:
 
 
 #: The version this build of the T1 API implements.
-T1_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=0)
-T1_VERSION_SHORT = T1_VERSION.short   # "1.0.26.8.0.1"
-T1_VERSION_LONG = T1_VERSION.long     # "1.0.2026.8.0.1"
+#:
+#: 1.0.2026.8.1.1 is a fix bump inside the 1.0.2026.8.1 feature release:
+#: auth undo/redo now actually functions. It shipped with the history
+#: never being written to and the Keymaster missing every method the
+#: inverse needed, so the endpoints existed and could not work.
+T1_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=1)
+T1_VERSION_SHORT = T1_VERSION.short   # "1.0.26.8.1.1"
+T1_VERSION_LONG = T1_VERSION.long     # "1.0.2026.8.1.1"
 
 #: Oldest client this server still answers without a compatibility
 #: warning. Same generation, first release of it — everything from the

@@ -55,6 +55,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..t1api.version import T1_VERSION_SHORT
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -359,7 +361,11 @@ class DiscoveredServer:
 
 def _get(url: str, timeout: float) -> tuple[int, str]:
     req = urllib.request.Request(
-        url, headers={"Accept": "application/json", "User-Agent": "waiter-find/1.0.26.8.1.0"}
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": f"waiter-find/{T1_VERSION_SHORT}",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
@@ -621,7 +627,7 @@ def connect(
                 "would be executing code chosen by the machine you are connecting to. "
                 "Start it yourself if you trust this host."
             )
-    if server.descriptor and not server.descriptor.supports_t1("1.0.26.8.1.0"):
+    if server.descriptor and not server.descriptor.supports_t1(T1_VERSION_SHORT):
         connection.notes.append(
             "This host advertises a T1 generation this client does not speak "
             f"({', '.join(server.descriptor.t1_versions)}); the connection may not work."

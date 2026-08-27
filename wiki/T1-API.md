@@ -426,6 +426,36 @@ Every impossible combination is refused *before* the key is minted. A key
 created and then found unpresentable would still be in the store — valid,
 usable, and known to nobody, since the operator saw only an error.
 
+### Using a T2S key
+
+A T2S key is 26 typeable characters, meant for a phone. Two things about
+it surprise people, and both are by design:
+
+**It must be minted on the server.** A T2 key is a spelling of a T1 key,
+not a separate credential — it is converted back to its T1 form and
+looked up in the key store. A key produced by `T2KeyGenerator.generate()`
+belongs to no key store and authenticates as nothing, however well-formed
+it is. Mint one with:
+
+```bash
+gkey create -v v2short --scopes read,write
+```
+
+**It can never be an administrator.** Admin authority rides on the
+password component of a T2 prefix, and the T2S format has no room for
+one. Widening the underlying key's scopes does not change this. So a T2S
+key cannot mint pairing codes (`POST /hyperlink/pair` is admin-only);
+pair from the PC with an admin key, and use the T2S key afterwards.
+
+Outside HyperLink a T2S key is further narrowed to read and non-admin
+write, whatever the underlying key allows. That narrowing is what makes a
+typeable credential acceptable rather than a liability.
+
+Both failures name themselves. An unregistered key gets `AUTH_INVALID_KEY`
+with `details.reason = "not_in_key_store"` and the command that mints a
+real one; the admin refusal gets `AUTH_ADMIN_REQUIRED` with
+`details.reason = "t2s_is_never_admin"` and the route that works.
+
 ### Admin rotate / promote
 
 `POST /auth/t1/admin/rotate` is admin-only (`AUTH_ADMIN_REQUIRED`
@@ -436,6 +466,39 @@ rotates the target key (never mutates a live key's scopes in place —
 consistent with how `Keymaster.rotate()` already treats rotation as
 "replace, don't mutate") and, if `promote_to_admin: true`, reissues it as
 `KeyType.ADMIN`.
+
+### Undoing an authentication change
+
+```
+POST /t1/auth/undo      reverse the last reversible change
+POST /t1/auth/redo      re-apply the one just undone
+GET  /t1/auth/history   what is on record, and whether undo/redo is possible
+```
+
+(Also reachable as `/auth/t1/undo`, `/auth/t1/redo`, `/auth/t1/history`.)
+
+A rotation is recorded with the previous key material, so undoing it puts
+the old key back — **without changing the key ID**, so anything holding a
+reference to the key keeps working. Redo re-applies the rotation. A new
+operation clears the redo stack: once history diverges, replaying the old
+future produces a state nobody asked for.
+
+The history stores key material for rotations, and encrypts it with
+Keymaster's own Fernet when the `security` extra is installed. `GET
+/t1/auth/history` never returns it — `describe()` withholds the secret
+fields.
+
+Two refusals worth knowing:
+
+- **Nothing to undo** (`404`) — no reversible change on record.
+- **The key is gone** (`409`) — the history outlives the keys it refers
+  to, so a rotation whose key has since been revoked cannot be reversed.
+  The entry is left in place rather than silently discarded.
+
+Recording is best-effort: a rotation that succeeds is not failed
+afterwards because the history could not be written. The new key is
+already in the response, and reporting a failure that did not happen
+would lose it.
 
 ## Quota & usage
 

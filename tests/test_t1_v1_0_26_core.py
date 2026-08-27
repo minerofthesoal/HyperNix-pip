@@ -60,25 +60,31 @@ def backend(tmp_path: Path) -> SQLiteBackend:
 
 class TestT1Version:
     def test_this_build_is_the_documented_version(self):
-        # 0.72.1 shipped feature 1 (T2 recognition, undo/redo, backups).
-        assert T1_VERSION.short == "1.0.26.8.1.0"
-        assert T1_VERSION.long == "1.0.2026.8.1.0"
-        assert T1_VERSION.display == "t1 v1.0.26.8.1.0"
+        # 0.72.1 shipped feature 1 (T2 recognition, undo/redo, backups);
+        # fix 1 made undo/redo actually function — it shipped with the
+        # history never written and the Keymaster missing every method the
+        # inverse needed.
+        #
+        # Deliberately a literal. This is the tripwire that makes a
+        # version bump a decision rather than a side effect.
+        assert T1_VERSION.short == "1.0.26.8.1.1"
+        assert T1_VERSION.long == "1.0.2026.8.1.1"
+        assert T1_VERSION.display == "t1 v1.0.26.8.1.1"
         assert T1_VERSION.generation == "1.0"
         assert T1_VERSION.release == "2026-08"
 
     @pytest.mark.parametrize(
-        "text",
-        [
-            "1.0.26.8.1.0",
-            "1.0.2026.8.1.0",
-            "v1.0.26.8.1.0",
-            "t1 v1.0.2026.8.1.0",
-            "T1 V1.0.26.8.1.0",
-            "  1.0.26.8.1.0  ",
-        ],
+        "template",
+        ["{short}", "{long}", "v{short}", "t1 v{long}", "T1 V{short}", "  {short}  "],
     )
-    def test_both_spellings_and_every_prefix_parse_to_one_value(self, text):
+    def test_both_spellings_and_every_prefix_parse_to_one_value(self, template):
+        """About the parser, not about which version happens to ship.
+
+        Built from the constant so a version bump does not need this test
+        edited — editing it each time is how a spelling quietly stops
+        being covered.
+        """
+        text = template.format(short=T1_VERSION.short, long=T1_VERSION.long)
         assert T1Version.parse(text) == T1_VERSION
 
     def test_short_and_long_spellings_compare_equal(self):
@@ -129,14 +135,22 @@ class TestT1Version:
     def test_bump_replaces_only_what_it_is_given(self):
         # Deliberately does *not* zero lower components: year and month
         # are dates, not counters.
-        bumped = T1_VERSION.bump(fix=2)
-        assert bumped.short == "1.0.26.8.1.2"
-        assert T1_VERSION.bump(month=9, feature=2).short == "1.0.26.9.2.0"
+        #
+        # It does not zero `fix` on a feature bump either, which is worth
+        # knowing: from 1.0.26.8.1.1, bumping the feature gives
+        # 1.0.26.9.2.1 — a version claiming a fix that never happened to
+        # that feature. Every caller today passes the components it wants
+        # explicitly, so nothing relies on the zeroing; the assertion below
+        # records the behaviour as it is rather than as it might be.
+        assert T1_VERSION.bump(fix=2).short == "1.0.26.8.1.2"
+        assert T1_VERSION.bump(month=9, feature=2, fix=0).short == "1.0.26.9.2.0"
+        assert T1_VERSION.bump(month=9, feature=2).short == "1.0.26.9.2.1"
 
     def test_to_dict_carries_both_spellings(self):
         data = T1_VERSION.to_dict()
-        assert data["short"] == "1.0.26.8.1.0"
-        assert data["long"] == "1.0.2026.8.1.0"
+        assert data["short"] == T1_VERSION.short
+        assert data["long"] == T1_VERSION.long
+        assert data["short"] != data["long"], "the two spellings must differ"
         assert data["year"] == 2026 and data["month"] == 8
 
     def test_every_shipped_component_agrees(self):

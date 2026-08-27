@@ -58,6 +58,31 @@ def _applier(request: Request):
     directory = getattr(request.app.state, "t1_key_directory", None)
 
     def apply(entry: Any, *, direction: str) -> None:
+        """Put a key back the way it was, or forward again.
+
+        Wrapped so that a key which no longer exists produces a refusal
+        rather than a bare 500. It is a reachable state, not a programming
+        error: the history outlives the keys it refers to, so undoing a
+        rotation whose key has since been revoked is an ordinary thing for
+        an operator to try, and "Internal Server Error" with no code and
+        no body is the least useful possible answer to it.
+        """
+        try:
+            _apply_inner(entry, direction=direction)
+        except KeyError as exc:
+            raise T1APIError(
+                T1ErrorCode.NOT_FOUND,
+                f"The key this {entry.op.value} applied to no longer exists, so it "
+                "cannot be reversed. The history entry is left in place.",
+                details={
+                    "target_key_id": entry.target_key_id,
+                    "op": entry.op.value,
+                    "direction": direction,
+                },
+                http_status=409,
+            ) from exc
+
+    def _apply_inner(entry: Any, *, direction: str) -> None:
         payload = entry.payload
         # "undo" restores the previous value; "redo" re-applies the new
         # one. Choosing the field by direction is the whole of it — the

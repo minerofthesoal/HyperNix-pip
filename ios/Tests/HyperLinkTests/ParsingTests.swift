@@ -150,3 +150,45 @@ final class APIDecodingTests: XCTestCase {
         XCTAssertFalse(response.endpoints[1].worksOffLAN)
     }
 }
+
+
+/// `HyperLinkClient.looksLikeKey` — the shape check on the T2S field.
+///
+/// A pairing code is normalised on the way out (uppercased, punctuation
+/// stripped) because it is six unambiguous characters read off a screen.
+/// A key must never get that treatment: it is case-sensitive and full of
+/// punctuation, so "helpfully" cleaning it up turns a correct key into a
+/// wrong one. These pin the two apart.
+final class KeyShapeTests: XCTestCase {
+    func testAcceptsAT2SKey() {
+        XCTAssertTrue(HyperLinkClient.looksLikeKey("T2S_kZsLoOvKacRu0X2nR6JkrIOq87cs$}')|/1-1"))
+    }
+
+    func testAcceptsT2AndT1() {
+        XCTAssertTrue(HyperLinkClient.looksLikeKey("T2_bsCHVzqVrvM5rALT2kX3Wt9IA8qn:_;,?\\9-1"))
+        XCTAssertTrue(HyperLinkClient.looksLikeKey("T1_x1Hauce3p6TE6W1ZH9BFVmojkx_`)>*/5"))
+    }
+
+    func testRejectsAPairingCode() {
+        // The mistake this exists to catch: a six-character code typed
+        // into the key field, or the reverse.
+        XCTAssertFalse(HyperLinkClient.looksLikeKey("ABC123"))
+    }
+
+    func testRejectsEmptyAndJunk() {
+        XCTAssertFalse(HyperLinkClient.looksLikeKey(""))
+        XCTAssertFalse(HyperLinkClient.looksLikeKey("   "))
+        XCTAssertFalse(HyperLinkClient.looksLikeKey("hello world"))
+    }
+
+    func testRejectsATruncatedPaste() {
+        XCTAssertFalse(HyperLinkClient.looksLikeKey("T2S_short"))
+    }
+
+    func testSurroundingWhitespaceIsTolerated() {
+        // Pasting from a terminal frequently brings a newline along.
+        XCTAssertTrue(
+            HyperLinkClient.looksLikeKey("  T2S_kZsLoOvKacRu0X2nR6JkrIOq87cs$}')|/1-1\n")
+        )
+    }
+}

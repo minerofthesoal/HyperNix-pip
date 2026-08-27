@@ -73,8 +73,8 @@ def auth(key):
 class TestVersion:
     def test_the_api_reports_the_new_version(self, client):
         body = client.get("/status").json()
-        assert body["t1_api_version"] == "1.0.26.8.1.0" == T1_VERSION.short
-        assert body["t1_api_version_long"] == "1.0.2026.8.1.0"
+        assert body["t1_api_version"] == T1_VERSION.short
+        assert body["t1_api_version_long"] == T1_VERSION.long
 
     def test_it_is_the_same_generation_as_the_previous_release(self):
 
@@ -120,9 +120,20 @@ class TestT2Authentication:
         # An unregistered key is refused, which is the correct outcome —
         # what matters is that it is refused for being unknown, not for
         # being T2S.
+        #
+        # That used to be checked as "T2" not appearing in the message, on
+        # the theory that mentioning the family meant blaming it. The
+        # message now names the family precisely in order to say the
+        # opposite — "this T2S key is well-formed but is not registered" —
+        # so the reason code is what to assert on. A message that merely
+        # avoids a substring is not the same as one that assigns the right
+        # cause.
         response = client.get("/hyperlink/sessions", headers=auth(t2s.raw))
         assert response.status_code == 401
-        assert "T2" not in response.json()["error"]["message"]
+        error = response.json()["error"]
+        assert error["code"] == "AUTH_INVALID_KEY"
+        assert error["details"]["reason"] == "not_in_key_store"
+        assert "well-formed" in error["message"]
 
 
 class TestNewEndpoints:

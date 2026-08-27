@@ -27,13 +27,15 @@ everything here is testable with no web layer in the way.
 """
 from __future__ import annotations
 
+# Derived rather than repeated — see hypernix.waiter.__init__ for why.
+from ..t1api.version import T1_VERSION_SHORT as _T1_VERSION_SHORT
 from .discovery import Endpoint, advertise, local_endpoints
 from .files import Attachment, AttachmentStore
 from .hfmerge import HFRef, HFResolveError, ResolvedModel, merge, parse_link, resolve
 from .pairing import DeviceRecord, DeviceRegistry, PairingCode, pairing_payload
 from .sessions import ChatMessage, ChatSession, ChatSessionStore
 
-__hyperlink_version__ = "1.0.26.8.1.0"
+__hyperlink_version__ = _T1_VERSION_SHORT
 
 __all__ = [
     "__hyperlink_version__",

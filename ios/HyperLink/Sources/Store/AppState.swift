@@ -66,6 +66,41 @@ final class AppState {
 
     // MARK: - Pairing
 
+    /// Connect with a T2S key rather than a pairing code.
+    ///
+    /// Same end state as `pair`: a credential in the keychain, a ranked
+    /// endpoint list, and `isPaired`. The difference is that there is no
+    /// redeem step and no device record on the server — the key itself is
+    /// the credential, so signing out here simply forgets it rather than
+    /// revoking a device.
+    func connect(address: String, key: String, deviceName: String) async -> Bool {
+        connectionError = nil
+        let credential = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let discovered = try await HyperLinkClient.connect(address: address, key: credential)
+            var endpoints = [HyperLinkClient.normalize(address)]
+            for endpoint in discovered.endpoints where !endpoints.contains(endpoint.url) {
+                endpoints.append(endpoint.url)
+            }
+            connection = ServerConnection(
+                endpoints: endpoints,
+                serverName: discovered.serverName,
+                t1Version: discovered.t1Version,
+                deviceID: "",
+                deviceName: deviceName
+            )
+            TokenStore.save(credential)
+            persist()
+            await client.configure(endpoints: endpoints, token: credential)
+            isPaired = true
+            await refreshAll()
+            return true
+        } catch {
+            connectionError = (error as? HyperLinkError)?.errorDescription ?? error.localizedDescription
+            return false
+        }
+    }
+
     func pair(address: String, code: String, deviceName: String) async -> Bool {
         connectionError = nil
         do {

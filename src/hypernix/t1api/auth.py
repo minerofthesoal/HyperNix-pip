@@ -234,6 +234,23 @@ class T1AuthService:
                 details={"key_family": "T1", "accepted": self._accepted_families()},
                 http_status=401,
             )
+        return self._authenticate_with_reload(key_str)
+
+    def _authenticate_with_reload(self, key_str: str) -> AuthContext:
+        """Authenticate a T1 key, refreshing the store once if it is unknown.
+
+        A key created after this process started is not in the in-memory
+        table yet, so the first lookup misses and a refresh is worth one
+        try before calling it invalid.
+
+        Shared with the T2 path deliberately. It used to live inline in
+        :meth:`validate_key`, which meant :meth:`_validate_t2` — reaching
+        the store through :meth:`_validate_uncached` — never refreshed at
+        all. A T1 key minted against a running server worked; the *same
+        key* presented in its T2 or T2S spelling was refused until the
+        server restarted, which is as confusing a failure as this codebase
+        can produce: the key is real, registered, and correctly typed.
+        """
         try:
             meta = self.gatekeeper.authenticate(key_str)
         except (ValueError, PermissionError):
@@ -270,7 +287,45 @@ class T1AuthService:
             raise T1APIError(T1ErrorCode.AUTH_INVALID_KEY, str(exc), http_status=401) from exc
 
         equivalent = T2KeyGenerator.to_t1(parsed)
-        context = self._validate_uncached(equivalent)
+        try:
+            context = self._authenticate_with_reload(equivalent)
+        except T1APIError as exc:
+            # The underlying path only ever knew about T1 keys, so it says
+            # "Unknown or unregistered T1 key" to someone holding a T2S
+            # key — which reads as though the wrong *kind* of key was
+            # presented, when in fact the right kind simply is not in this
+            # server's key store.
+            #
+            # That distinction is the whole difficulty with a T2 key: it
+            # is a spelling of a T1 key, so it authenticates by being
+            # converted back and looked up. A T2 key generated on its own
+            # belongs to no key store and authenticates as nothing, no
+            # matter how well-formed it is. Saying so, and naming the
+            # command that mints a registered one, is the difference
+            # between a two-minute fix and an afternoon.
+            if exc.code is T1ErrorCode.AUTH_INVALID_KEY:
+                raise T1APIError(
+                    T1ErrorCode.AUTH_INVALID_KEY,
+                    f"This {parsed.family.value} key is well-formed but is not "
+                    f"registered on this server.",
+                    details={
+                        "key_family": parsed.family.value,
+                        "reason": "not_in_key_store",
+                        "explanation": (
+                            f"A {parsed.family.value} key is a spelling of a T1 key "
+                            "rather than a separate credential: it is converted back "
+                            "to its T1 form and looked up in the key store. A key "
+                            "generated on its own is in no key store and authenticates "
+                            "as nothing."
+                        ),
+                        "remedy": (
+                            "Mint one on the server: "
+                            f"gkey create -v {'v2short' if parsed.family is T2Type.T2S else 'v2'}"
+                        ),
+                    },
+                    http_status=401,
+                ) from exc
+            raise
         context.t2_family = parsed.family.value
         context.t2_access_level = parsed.access_level
         context.t2_is_admin = parsed.is_admin

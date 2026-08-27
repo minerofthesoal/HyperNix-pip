@@ -68,6 +68,7 @@ import threading
 import time
 import uuid
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -155,6 +156,18 @@ def _parse_server_id(server_id: str) -> tuple[int, str, int]:
 
 def _format_server_id(seq: int, letter: str, gen: int) -> str:
     return f"{seq:05d}-{letter}{gen}"
+
+
+def _server_id_order(server_id: str) -> tuple[int, int, int]:
+    """Sort key for a server ID, in the order it actually advances.
+
+    ``_next_server_id`` bumps the sequence, rolls it into the letter, and
+    rolls the letter into the generation — so generation is the most
+    significant part and sequence the least. Sorting the raw strings would
+    put ``00002-A1`` after ``00001-B1``, which is backwards.
+    """
+    seq, letter, gen = _parse_server_id(server_id)
+    return (gen, ord(letter), seq)
 
 
 def _next_server_id(current: str) -> str:
@@ -430,6 +443,7 @@ class Keymaster:
             )
 
         self._load_all()
+        self._resume_server_id(server_id)
 
         self._stop_event = threading.Event()
         self._bg_thread: threading.Thread | None = None
@@ -494,6 +508,60 @@ class Keymaster:
                 if meta:
                     self._keys[meta.key_id] = meta
 
+    def _resume_server_id(self, requested_start: str) -> None:
+        """Continue the server-ID sequence from what the store already holds.
+
+        The counter only ever lived in memory, so every process started
+        again at ``00001-A1`` — and since each ``gkey`` invocation is its
+        own process, every key ever minted from the CLI carried the same
+        server ID. The field was there, documented, and constant.
+
+        Archived keys are scanned too. ``_load_all`` reads only the active
+        store, and revoking a key moves it into ``archive/``; resuming
+        from the active keys alone would hand a revoked key's server ID to
+        a new key the moment the highest-numbered one was revoked. A
+        server ID that comes back around is worse than one that never
+        moves, because audit trails stop being able to tell the two keys
+        apart.
+
+        An explicitly requested start still wins when it is ahead of the
+        store, so a caller can move a fresh sequence forward on purpose.
+        """
+        highest: tuple[int, int, int] | None = None
+        highest_id = ""
+        paths = list(self._store.glob("*.json"))
+        paths.extend((self._store / _ARCHIVE_SUBDIR).glob("*.json"))
+        for path in paths:
+            if path.name.startswith("."):
+                continue
+            meta = self._load_file(path)
+            if meta is None or not meta.server_id:
+                continue
+            try:
+                order = _server_id_order(meta.server_id)
+            except ValueError:
+                # A hand-edited or truncated record must not stop the
+                # store from opening; it just does not advance anything.
+                logger.warning(
+                    "keymaster: ignoring unparseable server_id %r on key %s",
+                    meta.server_id,
+                    meta.key_id,
+                )
+                continue
+            if highest is None or order > highest:
+                highest, highest_id = order, meta.server_id
+
+        if highest is None:
+            return
+        resumed = _next_server_id(highest_id)
+        with self._lock:
+            try:
+                requested_order = _server_id_order(requested_start)
+            except ValueError:
+                requested_order = None
+            if requested_order is None or _server_id_order(resumed) > requested_order:
+                self._server_id = resumed
+
     # ------------------------------------------------------------------
     # Core CRUD
     # ------------------------------------------------------------------
@@ -553,6 +621,101 @@ class Keymaster:
                 if meta.key == key_str:
                     return meta
         return None
+
+    # ------------------------------------------------------------------
+    # Reversal primitives
+    # ------------------------------------------------------------------
+    #
+    # The T1 API's auth undo/redo (POST /t1/auth/undo) reverses an
+    # operation by putting a key back the way it was. Each of these is one
+    # such inverse. They existed only as ``hasattr`` checks in the undo
+    # handler, which meant every undo answered 501 "this server's
+    # Keymaster cannot …" — a feature that could not work on any
+    # deployment, because no Keymaster had the methods.
+    #
+    # They are deliberately narrow. None of them creates or destroys a
+    # key, none changes a key's identity, and each writes exactly one
+    # field: an undo must land on a state the system could have reached
+    # forwards.
+
+    def restore_key(self, key_id: str, key_str: str) -> KeyMeta:
+        """Put previous key material back on an existing key.
+
+        Used to reverse a rotation. The key ID does not change — this is
+        the same record with its secret restored — so anything that
+        references the key by ID keeps working.
+        """
+        if not T1KeyGenerator.validate(key_str):
+            raise ValueError("Not a valid T1 key")
+        with self._lock:
+            meta = self._keys.get(key_id)
+            if meta is None:
+                raise KeyError(f"Key not found: {key_id!r}")
+            meta.key = key_str
+        self._save(meta)
+        logger.info("keymaster: restored key material on %s", key_id[:8])
+        return meta
+
+    def set_key_type(self, key_id: str, key_type: KeyType | str) -> KeyMeta:
+        """Change a key's type. Reverses a promotion."""
+        key_type = KeyType(key_type)
+        with self._lock:
+            meta = self._keys.get(key_id)
+            if meta is None:
+                raise KeyError(f"Key not found: {key_id!r}")
+            meta.key_type = key_type
+        self._save(meta)
+        logger.info("keymaster: set type of %s to %s", key_id[:8], key_type.value)
+        return meta
+
+    def set_scopes(self, key_id: str, scopes: Iterable[KeyScope | str]) -> KeyMeta:
+        """Replace a key's scope set. Reverses a scope change."""
+        resolved = {KeyScope(s) for s in scopes}
+        if not resolved:
+            raise ValueError("A key must keep at least one scope")
+        with self._lock:
+            meta = self._keys.get(key_id)
+            if meta is None:
+                raise KeyError(f"Key not found: {key_id!r}")
+            meta.scopes = resolved
+        self._save(meta)
+        logger.info("keymaster: set scopes of %s", key_id[:8])
+        return meta
+
+    def set_revoked(self, key_id: str, revoked: bool) -> KeyMeta:
+        """Revoke or un-revoke a key.
+
+        Un-revoking has to move the record back out of the archive, since
+        :meth:`revoke` archives rather than deletes — which is exactly what
+        makes the operation reversible at all.
+        """
+        if revoked:
+            with self._lock:
+                if key_id in self._keys:
+                    self.revoke(key_id)
+                    return self._load_file(self._archive_path(key_id))  # type: ignore[return-value]
+                archived = self._load_file(self._archive_path(key_id))
+            if archived is None:
+                raise KeyError(f"Key not found: {key_id!r}")
+            return archived
+
+        with self._lock:
+            if key_id in self._keys:
+                return self._keys[key_id]
+        meta = self._load_file(self._archive_path(key_id))
+        if meta is None:
+            raise KeyError(f"Key not found in the archive: {key_id!r}")
+        meta.active = True
+        meta.revoked_at = None
+        with self._lock:
+            self._keys[key_id] = meta
+        self._save(meta)
+        try:
+            self._archive_path(key_id).unlink()
+        except FileNotFoundError:
+            pass
+        logger.info("keymaster: un-revoked key %s", key_id[:8])
+        return meta
 
     def revoke(self, key_id: str, reason: str = "") -> None:
         """Revoke a key. It is archived but not deleted."""
