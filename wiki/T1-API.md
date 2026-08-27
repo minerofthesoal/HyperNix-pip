@@ -380,6 +380,52 @@ admin key in hand would lock you out with no way to change the setting
 back. `install-t1.sh` handles this by handing you the T2 form of the
 admin key it minted whenever you choose the T2-only policy.
 
+### Minting keys in each format
+
+`gkey create -v` chooses which spelling a new key is issued in, and
+`gkey version` reports what this install can mint:
+
+```bash
+gkey create -v v1                       # T1_…            (default)
+gkey create -v v2 --level 5             # T2_…-5
+gkey create -v v2 --type admin          # T2_<password>_…-9
+gkey create -v v2short                  # T2S_…-1         for HyperLink
+gkey version                            # package, T1 API, and key formats
+```
+
+| `-v` | Prefix | What it is |
+| --- | --- | --- |
+| `v1` | `T1_` | The long-standing key. Accepted everywhere. |
+| `v2` | `T2_` | Access level 1–9, optional admin password, SSPKID. |
+| `v2short` | `T2S_` | A 26-character body so it can be typed. Never an admin. |
+
+`v2.1` (T2C) is named but not issuable, and asking for it says so rather
+than reporting an unknown version.
+
+The mechanism is worth stating because it explains the constraints: **a
+v2 key is a spelling of a v1 key, not a separate credential.** `gkey`
+mints the key into the store in its v1 form and then presents it in the
+requested one; the server converts it back on every request. So both
+spellings of a key work, `gkey revoke <key-id>` kills both, and the
+access level and password ride on the presentation rather than on the
+stored record.
+
+Two consequences fall out of that:
+
+- A `v2short` key's body length is fixed at mint time. Presentation
+  cannot shorten a body that is already in the store, so `--body-len`
+  conflicting with `v2short` is refused rather than quietly ignored.
+- `--type admin -v v2` attaches a password component, but the authority
+  it grants comes from the key store, not the password. The two are
+  checked together: `gkey` refuses to present a non-admin key in the
+  admin form, because a key that looks administrative in its prefix and
+  is refused by every admin endpoint is worse than one that never
+  claimed to be.
+
+Every impossible combination is refused *before* the key is minted. A key
+created and then found unpresentable would still be in the store — valid,
+usable, and known to nobody, since the operator saw only an error.
+
 ### Admin rotate / promote
 
 `POST /auth/t1/admin/rotate` is admin-only (`AUTH_ADMIN_REQUIRED`

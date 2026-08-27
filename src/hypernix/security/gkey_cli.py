@@ -33,16 +33,43 @@ Subcommands
 
     gkey import     <FILE>
 
+    gkey version    [--json]
+                    HyperNix, T1 API, and key format versions
+
+Key formats
+-----------
+``gkey create -v`` chooses which format the new key is presented in::
+
+    gkey create -v v1                          # T1_… (default)
+    gkey create -v v2 --level 5                # T2_…-5
+    gkey create -v v2 --type admin             # T2_<password>_…-9
+    gkey create -v v2short                     # T2S_…-1, for HyperLink
+
+A v2 key is a *spelling* of a v1 key rather than a separate credential:
+the key is minted into the store in its v1 form and presented in the
+requested one, and the server converts it back on every request. Both
+spellings therefore work, and ``gkey revoke`` on the key ID kills both.
+
 All output is rich-formatted when the ``rich`` package is available,
 plain text otherwise.
 """
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from hypernix.security.keyversions import (
+    DEFAULT_KEY_VERSION,
+    KEY_VERSIONS,
+    LATEST_KEY_VERSION,
+    RESERVED_KEY_VERSIONS,
+    key_version_names,
+    resolve_key_version,
+)
 
 # ---------------------------------------------------------------------------
 # Rich helpers (graceful degradation)
@@ -67,12 +94,35 @@ def _console():
     return None
 
 
-def _print_rich(text: str, style: str = "") -> None:
+#: The style names this module marks text up with. Deliberately a closed
+#: list rather than a general ``\[[^]]*]`` pattern: ``[`` and ``]`` are
+#: both valid characters inside a key, so a general stripper would
+#: silently corrupt a key it was asked to print — the one string here
+#: that has to survive byte for byte.
+_MARKUP_STYLES = (
+    "bold green", "bold red", "bold", "cyan", "dim", "green", "red", "yellow",
+)
+_MARKUP = re.compile(
+    r"\[/?(?:" + "|".join(re.escape(name) for name in _MARKUP_STYLES) + r")]"
+)
+
+
+def _strip_markup(text: str) -> str:
+    return _MARKUP.sub("", text)
+
+
+def _print_rich(text: str, style: str = "", plain: str | None = None) -> None:
+    """Print *text*, which may carry rich markup.
+
+    Without rich, markup would otherwise reach the terminal literally —
+    ``[yellow]v2.1[/yellow]``. Pass *plain* when the fallback wants
+    different wording; otherwise the known style tags are stripped.
+    """
     if _HAS_RICH:
         from rich.console import Console
         Console().print(text, style=style or "default")
     else:
-        print(text)
+        print(plain if plain is not None else _strip_markup(text))
 
 
 def _print_table(headers: list[str], rows: list[list[str]], title: str = "") -> None:
@@ -175,6 +225,12 @@ def _fmt_ts(ts: float | None) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _generate_password(include_word: bool) -> str:
+    from hypernix.security.t2keys import generate_admin_password
+
+    return generate_admin_password(include_word=include_word)
+
+
 def _cmd_create(args: list[str]) -> int:
     import argparse
     p = argparse.ArgumentParser(prog="gkey create")
@@ -194,7 +250,26 @@ def _cmd_create(args: list[str]) -> int:
     p.add_argument("--note", default="", help="Free-text note attached to the key")
     p.add_argument("--rotation-window", type=int, default=24, metavar="HOURS",
                    help="Hours before expiry to auto-rotate (default 24)")
+    p.add_argument("-v", "--key-version", dest="key_version",
+                   default=DEFAULT_KEY_VERSION.name, metavar="VERSION",
+                   help="Key format: " + ", ".join(key_version_names())
+                        + f" (default {DEFAULT_KEY_VERSION.name})")
+    p.add_argument("--level", type=int, default=None, metavar="1-9",
+                   help="Access level for a v2/v2short key (default 1, "
+                        "or 9 for an admin key)")
+    p.add_argument("--password", default=None, metavar="PASSWORD",
+                   help="Admin password for a v2 admin key. Generated when "
+                        "omitted; a supplied one is validated, not trusted.")
+    p.add_argument("--word", dest="include_word", action="store_true",
+                   help="Embed a six-letter word in a generated admin password "
+                        "(memorability, not entropy)")
     ns = p.parse_args(args)
+
+    try:
+        version = resolve_key_version(ns.key_version)
+    except ValueError as exc:
+        print(f"[gkey create] {exc}", file=sys.stderr)
+        return 2
 
     from hypernix.security.keymaster import KeyType
     type_map = {
@@ -208,10 +283,64 @@ def _cmd_create(args: list[str]) -> int:
     scopes = _parse_scopes(ns.scopes)
     expires = _parse_expires(ns.expires) if ns.expires else None
     tags = _parse_tags(ns.tags)
+    key_type = type_map[ns.key_type]
+    wants_admin = key_type is KeyType.ADMIN
+
+    # Everything that makes the request impossible is checked here, before
+    # a key exists. A key minted and then found unpresentable would still
+    # be in the store, valid, and unknown to the operator who saw only an
+    # error — a real credential nobody is tracking.
+    if wants_admin and not version.supports_admin:
+        print(
+            f"[gkey create] A {version.name} key cannot be an administrator: "
+            f"{version.summary}\n"
+            f"              Use -v v2 for an admin key in the T2 family.",
+            file=sys.stderr,
+        )
+        return 2
+    if ns.level is not None and not version.supports_access_level:
+        print(
+            f"[gkey create] --level does not apply to a {version.name} key; "
+            f"the format has no access-level field.",
+            file=sys.stderr,
+        )
+        return 2
+    if ns.level is not None and not 1 <= ns.level <= 9:
+        print(f"[gkey create] --level must be 1-9, got {ns.level}", file=sys.stderr)
+        return 2
+    if ns.password is not None and not (wants_admin and version.supports_admin):
+        print(
+            "[gkey create] --password marks a key as an administrator; pass "
+            "--type admin as well, or drop it.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # A T2S body is exactly 26 characters, so the underlying T1 key has to
+    # be minted at that length — the presentation cannot change it later.
+    body_length = version.body_length or ns.body_len
+    if version.body_length and ns.body_len != 24 and ns.body_len != version.body_length:
+        print(
+            f"[gkey create] --body-len {ns.body_len} conflicts with {version.name}, "
+            f"whose body is fixed at {version.body_length}.",
+            file=sys.stderr,
+        )
+        return 2
+
+    access_level = ns.level if ns.level is not None else (9 if wants_admin else 1)
+
+    # The key format is recorded on the key so `gkey list` can say which
+    # spelling was issued. The store only ever holds the T1 form, so
+    # without this the issued spelling is lost the moment the key scrolls
+    # off the screen.
+    if version is not DEFAULT_KEY_VERSION:
+        tags = {**tags, "key_version": version.name}
+        if version.supports_access_level:
+            tags["access_level"] = str(access_level)
 
     km = _get_km()
     meta = km.create(
-        key_type=type_map[ns.key_type],
+        key_type=key_type,
         scopes=scopes,
         expires_at=expires,
         usage_cap=ns.cap,
@@ -220,15 +349,53 @@ def _cmd_create(args: list[str]) -> int:
         tags=tags,
         rotation_window=ns.rotation_window,
         note=ns.note,
-        body_length=ns.body_len,
+        body_length=body_length,
     )
     km.stop()
+
+    # Present the minted key in the requested format.
+    #
+    # The T1 key stays in the store and stays valid; a v2 spelling is
+    # converted back to it on every authentication. That is why this is a
+    # presentation step after minting rather than a different generator:
+    # a T2 key generated on its own belongs to no key store and
+    # authenticates as nothing.
+    issued_key = meta.key
+    admin_password = ""
+    if version is not DEFAULT_KEY_VERSION:
+        from hypernix.security.t2keys import T2KeyGenerator, T2Type
+
+        if wants_admin:
+            # Guarded by the store's own record, not by the flag that was
+            # typed: from_t1_admin's precondition is that the key really
+            # is an administrator.
+            if meta.key_type is not KeyType.ADMIN:
+                print(
+                    "[gkey create] Refusing to present a non-admin key as an "
+                    "admin key.",
+                    file=sys.stderr,
+                )
+                return 1
+            t2 = T2KeyGenerator.from_t1_admin(
+                meta.key,
+                password=ns.password or _generate_password(ns.include_word),
+                access_level=access_level,
+            )
+            admin_password = t2.password
+        else:
+            t2 = T2KeyGenerator.from_t1(
+                meta.key,
+                access_level=access_level,
+                family=T2Type(version.family),
+            )
+        issued_key = t2.raw
 
     content_lines = [
         "[bold green]Key created successfully![/bold green]",
         "",
         f"[bold]Key ID:[/bold]     {meta.key_id}",
-        f"[bold]Key:[/bold]        [yellow]{meta.key}[/yellow]",
+        f"[bold]Key:[/bold]        [yellow]{issued_key}[/yellow]",
+        f"[bold]Format:[/bold]     {version.name} ({version.family})",
         f"[bold]Type:[/bold]       {meta.key_type.value}",
         f"[bold]Scopes:[/bold]     {', '.join(s.value for s in sorted(meta.scopes, key=lambda x: x.value))}",
         f"[bold]Expires:[/bold]    {_fmt_ts(meta.expires_at)}",
@@ -236,19 +403,42 @@ def _cmd_create(args: list[str]) -> int:
         f"[bold]Prefix:[/bold]     {meta.prefix or '—'}",
         f"[bold]Note:[/bold]       {meta.note or '—'}",
     ]
+    if version.supports_access_level:
+        content_lines.insert(
+            5, f"[bold]Level:[/bold]      {access_level}"
+        )
+    if admin_password:
+        content_lines.append(
+            f"[bold]Password:[/bold]   [yellow]{admin_password}[/yellow]"
+        )
     if tags:
         content_lines.append(f"[bold]Tags:[/bold]       {json.dumps(tags)}")
+    if version is not DEFAULT_KEY_VERSION:
+        content_lines.append("")
+        content_lines.append(
+            f"[dim]This is the {version.name} spelling of a v1 key that is in the "
+            f"key store.\nThe server converts it back on every request, so the "
+            f"{DEFAULT_KEY_VERSION.name} form below works too:[/dim]"
+        )
+        content_lines.append(f"[dim]  {meta.key}[/dim]")
 
     if _HAS_RICH:
         _print_panel("\n".join(content_lines), title="gkey create")
     else:
         print("Key created successfully!")
         print(f"  Key ID:    {meta.key_id}")
-        print(f"  Key:       {meta.key}")
+        print(f"  Key:       {issued_key}")
+        print(f"  Format:    {version.name} ({version.family})")
+        if version.supports_access_level:
+            print(f"  Level:     {access_level}")
         print(f"  Type:      {meta.key_type.value}")
         print(f"  Scopes:    {', '.join(s.value for s in sorted(meta.scopes, key=lambda x: x.value))}")
         print(f"  Expires:   {_fmt_ts(meta.expires_at)}")
         print(f"  Server ID: {meta.server_id}")
+        if admin_password:
+            print(f"  Password:  {admin_password}")
+        if version is not DEFAULT_KEY_VERSION:
+            print(f"  v1 form:   {meta.key}")
 
     return 0
 
@@ -729,6 +919,101 @@ Run `gkey <subcommand> --help` for detailed options.
 """
 
 
+# ---------------------------------------------------------------------------
+# Subcommand: version
+# ---------------------------------------------------------------------------
+
+
+def _cmd_version(args: list[str]) -> int:
+    """What this install is, what it talks to, and what it can mint.
+
+    Three separate version lines, because they move independently: the
+    package ships on its own schedule, the T1 API carries its own
+    six-part version inside that, and the key formats change more slowly
+    than either. An operator debugging "my key is refused" needs to know
+    which of the three is out of step.
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(prog="gkey version")
+    p.add_argument("--json", dest="as_json", action="store_true")
+    ns = p.parse_args(args)
+
+    from hypernix import __version__ as hypernix_version
+    from hypernix.t1api.version import T1_VERSION_LONG, T1_VERSION_SHORT
+
+    if ns.as_json:
+        print(json.dumps({
+            "hypernix": hypernix_version,
+            "t1_api": {"short": T1_VERSION_SHORT, "long": T1_VERSION_LONG},
+            "key_versions": {
+                "latest": LATEST_KEY_VERSION.name,
+                "default": DEFAULT_KEY_VERSION.name,
+                "available": [
+                    {
+                        "name": v.name,
+                        "family": v.family,
+                        "prefix": v.prefix,
+                        "summary": v.summary,
+                        "supports_admin": v.supports_admin,
+                        "supports_access_level": v.supports_access_level,
+                        "body_length": v.body_length,
+                    }
+                    for v in KEY_VERSIONS
+                ],
+                "reserved": [
+                    {"name": v.name, "reason": v.unavailable_reason}
+                    for v in RESERVED_KEY_VERSIONS
+                ],
+            },
+        }, indent=2))
+        return 0
+
+    lines = [
+        f"[bold]HyperNix:[/bold]    {hypernix_version}",
+        f"[bold]T1 API:[/bold]      t1 v{T1_VERSION_SHORT}  [dim]({T1_VERSION_LONG})[/dim]",
+        f"[bold]Key format:[/bold]  {LATEST_KEY_VERSION.name} is the latest; "
+        f"[dim]gkey create mints {DEFAULT_KEY_VERSION.name} unless told otherwise[/dim]",
+    ]
+    if _HAS_RICH:
+        _print_panel("\n".join(lines), title="gkey version")
+    else:
+        print(f"HyperNix:   {hypernix_version}")
+        print(f"T1 API:     t1 v{T1_VERSION_SHORT} ({T1_VERSION_LONG})")
+        print(f"Key format: {LATEST_KEY_VERSION.name} is the latest; "
+              f"gkey create mints {DEFAULT_KEY_VERSION.name} unless told otherwise")
+        print()
+
+    rows = []
+    for version in KEY_VERSIONS:
+        notes = []
+        if version is LATEST_KEY_VERSION:
+            notes.append("latest")
+        if version is DEFAULT_KEY_VERSION:
+            notes.append("default")
+        if not version.supports_admin:
+            notes.append("never admin")
+        if version.body_length:
+            notes.append(f"{version.body_length}-char body")
+        rows.append([
+            version.name,
+            version.prefix,
+            version.summary,
+            ", ".join(notes) or "—",
+        ])
+    _print_table(
+        ["Version", "Prefix", "What it is", "Notes"], rows, title="Issuable key formats"
+    )
+
+    for version in RESERVED_KEY_VERSIONS:
+        _print_rich(
+            f"\n[yellow]{version.name}[/yellow] is not issuable. "
+            f"{version.unavailable_reason}",
+            style="yellow",
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the `gkey` console script."""
     raw = list(sys.argv[1:] if argv is None else argv)
@@ -755,6 +1040,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("rotate", "Rotate (replace) a key with a fresh one"),
                 ("export", "Export key(s) to a JSON file"),
                 ("import", "Import key(s) from a JSON file"),
+                ("version", "HyperNix, T1 API, and key format versions"),
             ]
             for cmd, desc in cmds:
                 t.add_row(f"[green]{cmd}[/green]", desc)
@@ -768,6 +1054,7 @@ def main(argv: list[str] | None = None) -> int:
     if raw[0] in ("-V", "--version"):
         from hypernix import __version__
         print(f"gkey (hypernix {__version__})")
+        print("Run `gkey version` for the T1 API and key format versions.")
         return 0
 
     cmd, rest = raw[0], raw[1:]
@@ -786,6 +1073,7 @@ def main(argv: list[str] | None = None) -> int:
         "rotate": _cmd_rotate,
         "export": _cmd_export,
         "import": _cmd_import,
+        "version": _cmd_version,
     }
 
     if cmd not in dispatch:

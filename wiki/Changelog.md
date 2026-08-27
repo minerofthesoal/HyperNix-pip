@@ -20,6 +20,60 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## Unreleased — gkey mints v2 keys
+
+Not 0.72.3: that milestone is payment connections on a T2 key (see
+[Roadmap](Roadmap.md)). This ships whenever the next release does.
+
+✨ **`gkey create -v v1|v2|v2short`.** The CLI could only ever mint the T1
+spelling; T2 and T2S keys had to be built in Python. `-v` picks the
+format, `--level 1-9` sets the access level, and `--password` supplies an
+admin password (validated, not trusted) instead of the generated one.
+Aliases are accepted, so `v2s`, `t2s` and `2short` all mean `v2short`.
+
+The mechanism is what shapes the feature: **a v2 key is a spelling of a
+v1 key, not a separate credential.** Authentication converts it back and
+looks *that* up in the key store, so a T2 key generated on its own
+authenticates as nothing at all. `gkey` therefore mints into the store
+and presents the result — which is why both spellings of a key work and
+`gkey revoke <key-id>` kills both.
+
+🛡️ **Every impossible combination is refused before the key is minted.**
+A key created and then found unpresentable would still be in the store —
+valid, usable, and known to nobody, because the operator saw only an
+error. Refused: an admin `v2short` (the format cannot carry admin), a
+`--level` on `v1` (no such field), a `--body-len` that contradicts
+`v2short`'s fixed 26, a `--password` without `--type admin`, and a level
+outside 1-9. A test asserts the store is empty after all of them.
+
+✨ **`gkey version`** reports the three versions that move independently:
+the package, the T1 API's own six-part version, and the key formats — plus
+what each format is and which is latest. `--json` for scripts. An operator
+debugging "my key is refused" needs to know which of the three is out of
+step.
+
+✨ **`T2KeyGenerator.from_t1_admin`.** `from_t1` never produces an admin
+key, because converting an arbitrary T1 key must not grant authority.
+This is the deliberate exception, given a separate name rather than a
+flag so every use can be found by grepping one word. It grants nothing by
+itself: `gkey` calls it only after checking the store's own record says
+administrator.
+
+✂️ **`v2.1` is named but not issuable.** Asking for it explains that the
+T2C derivation is not a secret yet, rather than reporting an unknown
+version — "unknown" and "not released" are different facts, and someone
+planning a migration needs to know which one they hit.
+
+🔧 The issued format is recorded on the key (`key_version`,
+`access_level` tags), so `gkey list` can still say which spelling was
+handed out after the key itself has scrolled off the screen.
+
+🐛 The new tests redirect `keymaster._DEFAULT_STORE` and
+`gatekeeper._DEFAULT_DATA` rather than `$HOME`. Both are module-level
+constants evaluated at import, so patching `$HOME` inside a test is too
+late — the first version of these tests wrote real credentials into
+`~/.hypernix/keymaster`.
+
 ## 0.72.2.post2 — "0.72.2-2"
 
 𖢥 **`run_tailscale.sh` told you to run a command that does not work.**

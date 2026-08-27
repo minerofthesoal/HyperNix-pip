@@ -917,3 +917,45 @@ class T2KeyGenerator:
             f"{parts['slash']}{parts['digit']}-{access_level}"
         )
         return T2KeyGenerator.parse(raw, sspkid=sspkid)
+
+    @staticmethod
+    def from_t1_admin(
+        t1_key: str,
+        *,
+        password: str | None = None,
+        access_level: int = 9,
+        sspkid: SSPKID | None = None,
+    ) -> T2Key:
+        """Present an *already administrative* T1 key as an admin T2 key.
+
+        :meth:`from_t1` never produces an admin key, because converting an
+        arbitrary T1 key must not grant administrative authority. This is
+        the deliberate exception, and it is a separate name rather than a
+        flag so that every place it happens can be found by grepping for
+        one word.
+
+        It does not itself grant anything: T2's ``is_admin`` is the
+        presence of the password component, while the authority a request
+        actually gets comes from the key store — ``KeyType.ADMIN`` plus
+        the ADMIN scope on the record behind this key (see
+        ``AuthContext.is_admin``). Handing this an ordinary user key
+        produces a key that *looks* administrative in its prefix and is
+        refused by every admin endpoint, which is a worse outcome than
+        refusing here. **Callers must verify the key's store record says
+        administrator before calling.** ``gkey create`` does: it minted
+        the key moments earlier and checks the returned metadata.
+
+        Always T2 — a T2S key cannot be an administrator at all.
+        """
+        wrapped = T2KeyGenerator.from_t1(
+            t1_key, access_level=access_level, family=T2Type.T2, sspkid=sspkid
+        )
+        password = password or generate_admin_password()
+        ok, reason = validate_admin_password(password)
+        if not ok:
+            raise ValueError(reason)
+        raw = (
+            f"{T2Type.T2.value}_{password}_{wrapped.body}{wrapped.lowercase_pair}"
+            f"{wrapped.special_chars}{wrapped.slash}{wrapped.digit}-{access_level}"
+        )
+        return T2KeyGenerator.parse(raw, sspkid=sspkid)
