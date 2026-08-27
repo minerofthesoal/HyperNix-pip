@@ -436,3 +436,16 @@ timeline
         : 2218c14 - gkey- mint v2 and v2short keys, and report what this install can mint
 ```
 
+## Release v0.72.2.post5 (2026-08-27)
+
+```mermaid
+timeline
+    title Release v0.72.2.post5 Commits
+    0.72.2.post5
+        : a3fd981 - Ignore Python bytecode and tooling caches
+        : 777797f - Do not import fastapi at collection time in the new test modules
+        : eab3065 - T1 v1.0.2026.8.1.1- server IDs advance, and undo/redo actually works
+        : c522250 - Keep setup.cfg's version in step with the other two
+        : 8af94c4 - T2S keys- fix the refusal, and let the phone actually enter one
+```
+
