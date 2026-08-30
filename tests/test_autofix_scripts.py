@@ -37,12 +37,32 @@ scope = _load("autofix_scope_under_test", "autofix_scope.py")
 autofix_f = _load("autofix_f_under_test", "autofix-F")
 
 
-def _run_script(name: str, *args: str) -> subprocess.CompletedProcess:
+def _subprocess_env() -> dict[str, str]:
+    """Environment for a child pytest or script.
+
+    Inherits the real environment rather than replacing it, and disables
+    pytest plugin autoload. The second part is what was actually broken:
+    with autoload on, anyio's plugin imports asyncio, which on Windows
+    imports ``_overlapped`` and fails on the GitHub runners with ``OSError:
+    [WinError 10106]``, killing the child before it collected anything.
+    autofix-F already sets the same variable for its own inner runs, for
+    the same reason.
+
+    Inheriting rather than hand-building the environment is a separate,
+    smaller point: the hardcoded ``PATH`` this replaced named POSIX
+    directories that do not exist on Windows.
+    """
     import os
 
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC)
     env["HYPERNIX_AUTO_INSTALL"] = "0"
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    return env
+
+
+def _run_script(name: str, *args: str) -> subprocess.CompletedProcess:
+    env = _subprocess_env()
     return subprocess.run(
         [sys.executable, str(SCRIPTS / name), *args],
         cwd=REPO_ROOT, capture_output=True, text=True, timeout=600, env=env,
@@ -117,7 +137,7 @@ class TestDiscovery:
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
              "--collect-only", node_id],
             cwd=REPO_ROOT, capture_output=True, text=True, timeout=300,
-            env={"PYTHONPATH": str(SRC), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+            env=_subprocess_env(),
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
 
@@ -540,3 +560,90 @@ class TestCiWorkflow:
         source = (SCRIPTS / "autofix-F").read_text(encoding="utf-8")
         assert "Autofix-Scope: " in source
         assert "Autofix-Tests: " in source
+
+
+class TestNodeIdResolution:
+    """Matching a reported failure back to the file it lives in.
+
+    pytest does not echo node ids in the spelling it was given. It reports
+    them relative to its own rootdir, and on Windows an out-of-tree
+    ``--tests-dir`` produced ids with an *empty* path part — so autofix-F
+    reported "could not resolve a test file" for files discovery had a
+    ``Path`` to the whole time, and refused to fix anything.
+    """
+
+    @pytest.fixture
+    def refs(self, tmp_path: Path):
+        (tmp_path / "test_flaky.py").write_text(FAILING_TIMER_TEST, encoding="utf-8")
+        (tmp_path / "test_ok.py").write_text(PASSING_TIMER_TESTS, encoding="utf-8")
+        return scope.discover_tests("timing", tmp_path)
+
+    @pytest.fixture
+    def known(self, refs):
+        table = {scope.node_key(r.node_id): r.path for r in refs}
+        for key_fn in (autofix_f._shape_key, autofix_f._func_key):
+            buckets: dict[str, set[Path]] = {}
+            for ref in refs:
+                buckets.setdefault(key_fn(ref.node_id), set()).add(ref.path)
+            table.update(
+                {k: next(iter(v)) for k, v in buckets.items() if len(v) == 1},
+            )
+        return table
+
+    def _a_node_id(self, refs) -> str:
+        return next(r.node_id for r in refs if r.path.name == "test_flaky.py")
+
+    def test_the_id_discovery_produced_resolves(self, refs, known):
+        node_id = self._a_node_id(refs)
+        assert autofix_f._node_path(node_id, known).name == "test_flaky.py"
+
+    def test_an_empty_path_part_still_resolves(self, refs, known):
+        """The Windows shape, verbatim: ``::test_name`` with no file."""
+        func = self._a_node_id(refs).partition("::")[2]
+        assert autofix_f._node_path(f"::{func}", known).name == "test_flaky.py"
+
+    def test_a_bare_basename_resolves(self, refs, known):
+        """What pytest prints when its rootdir is the tests dir itself."""
+        func = self._a_node_id(refs).partition("::")[2]
+        assert autofix_f._node_path(f"test_flaky.py::{func}", known).name == "test_flaky.py"
+
+    def test_a_windows_style_absolute_path_resolves(self, refs, known):
+        func = self._a_node_id(refs).partition("::")[2]
+        node_id = rf"D:\a\_temp\pytest-of-runner\pytest-0\t0\test_flaky.py::{func}"
+        assert autofix_f._node_path(node_id, known).name == "test_flaky.py"
+
+    def test_a_parametrized_id_resolves_to_its_function(self, refs, known):
+        func = self._a_node_id(refs).partition("::")[2]
+        assert autofix_f._node_path(f"::{func}[case-1]", known).name == "test_flaky.py"
+
+    def test_an_unknown_function_is_not_guessed_at(self, known):
+        assert autofix_f._node_path("::test_not_discovered_at_all", known) is None
+
+    def test_an_ambiguous_function_is_not_guessed_at(self, tmp_path: Path):
+        """Two files with the same test name: resolving by function alone
+        would be a coin flip, and editing the wrong file is worse than
+        reporting a skip."""
+        for name in ("test_one.py", "test_two.py"):
+            (tmp_path / name).write_text(FAILING_TIMER_TEST, encoding="utf-8")
+        refs = scope.discover_tests("timing", tmp_path)
+        buckets: dict[str, set[Path]] = {}
+        for ref in refs:
+            buckets.setdefault(autofix_f._func_key(ref.node_id), set()).add(ref.path)
+        known = {k: next(iter(v)) for k, v in buckets.items() if len(v) == 1}
+
+        func = refs[0].node_id.partition("::")[2]
+        assert autofix_f._node_path(f"::{func}", known) is None
+
+    def test_no_index_falls_back_to_the_string(self, refs):
+        """--log has no discovery to match against, so the path in the log
+        is all there is."""
+        node_id = self._a_node_id(refs)
+        assert autofix_f._node_path(node_id, None).name == "test_flaky.py"
+
+    def test_an_unresolvable_id_is_reported_with_its_repr(self, timing_tests: Path):
+        """A skip that only echoes the id hides the thing that explains it."""
+        proc = _run_script(
+            "autofix-F", "--tests-dir", str(timing_tests),
+            "--scale", "100000", "--max-rounds", "1", "--no-commit",
+        )
+        assert "could not resolve a test file" not in proc.stdout, proc.stdout
