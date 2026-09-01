@@ -49,12 +49,77 @@ class Endpoint:
         return {"url": self.url, "kind": self.kind, "priority": self.priority, "note": self.note}
 
 
+#: Where tailscale actually lives, for when PATH does not say.
+#:
+#: A server started by systemd gets a minimal PATH — often just
+#: /usr/bin:/bin — and a tailscale installed under /usr/local/bin or
+#: Homebrew is then invisible to shutil.which. The server came up, found
+#: no tailnet, and advertised only its LAN address, which reads as
+#: "Tailscale is not working" when Tailscale is fine and PATH is not.
+_TAILSCALE_PATHS: tuple[str, ...] = (
+    "/usr/bin/tailscale",
+    "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/opt/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+)
+
+
 def _tailscale_binary() -> str:
     found = shutil.which("tailscale")
     if found:
         return found
-    mac = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-    return mac if os.path.exists(mac) else ""
+    for candidate in _TAILSCALE_PATHS:
+        if os.path.exists(candidate):
+            return candidate
+    return ""
+
+
+def tailscale_diagnosis(*, timeout: float = 4.0) -> str:
+    """Why there is no tailnet address, in a sentence, or "" if there is one.
+
+    :func:`tailscale_self` returns empty for four different reasons and
+    says which of them applies to none of them. That is fine for the
+    server — a tailnet is optional — and useless for the operator staring
+    at a phone that cannot reach anything, which is the case this exists
+    for.
+    """
+    exe = _tailscale_binary()
+    if not exe:
+        return (
+            "tailscale was not found on PATH or in the usual locations. "
+            "If it is installed, a service manager's minimal PATH is the "
+            "usual reason — set PATH in the unit, or install to /usr/bin."
+        )
+    try:
+        proc = subprocess.run(  # noqa: S603
+            [exe, "status", "--json"], capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"could not run `{exe} status`: {exc}"
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        first = detail[0] if detail else f"exit status {proc.returncode}"
+        if "logged out" in first.lower() or "NeedsLogin" in proc.stdout:
+            return "this machine is not logged in to a tailnet — run `tailscale up`."
+        return f"`tailscale status` failed: {first}"
+    try:
+        status = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return "`tailscale status --json` returned something that is not JSON."
+    myself = status.get("Self")
+    if not isinstance(myself, dict):
+        return "`tailscale status` reported no Self node — is the daemon running?"
+    if status.get("BackendState") in ("NeedsLogin", "Stopped"):
+        return (
+            f"tailscale is installed but {status['BackendState']} — run `tailscale up`."
+        )
+    if not [a for a in (myself.get("TailscaleIPs") or []) if ":" not in a]:
+        return (
+            "this node has no IPv4 tailnet address. HyperLink needs one; "
+            "check the tailnet's IPv4 settings."
+        )
+    return ""
 
 
 def tailscale_self(*, timeout: float = 4.0) -> tuple[str, list[str]]:

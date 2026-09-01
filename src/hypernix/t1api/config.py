@@ -236,6 +236,17 @@ class T1APIConfig:
     hyperlink_advertised_port: int = field(
         default_factory=lambda: _int_env("T1_HYPERLINK_PORT", 8000)
     )
+    #: Whether that port was actually configured, or is just the default.
+    #:
+    #: The two cannot be told apart from the value — 8000 is both — and
+    #: they mean opposite things: a configured port must be advertised as
+    #: given (a proxy knows something the request cannot), while a default
+    #: one must give way to the port the request really arrived on.
+    #: Captured here, beside the value, so the answer cannot drift from
+    #: what was read.
+    hyperlink_port_is_explicit: bool = field(
+        default_factory=lambda: bool(os.environ.get("T1_HYPERLINK_PORT"))
+    )
     hyperlink_pairing_ttl_seconds: float = field(
         default_factory=lambda: _float_env("T1_HYPERLINK_PAIRING_TTL", 600.0)
     )

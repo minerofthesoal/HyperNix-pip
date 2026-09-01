@@ -43,6 +43,31 @@ dedupe and one is the WebSocket handshake, where RFC 6455 mandates
 SHA-1 — none is a security digest, and without the flag all three raise
 on a FIPS-enabled host.
 
+𖢥 **HyperLink timed out because the server advertised the wrong port.**
+uvicorn owns the bind address and passes it to nobody, so the config's
+default — 8000 — went out in the endpoint list whatever port the server
+was actually on. The phone connected to 8000, timed out, and the server
+log stayed empty because nothing ever arrived. The advertised port is now
+the one the request came in on, which is by construction an address that
+works; an explicit `T1_HYPERLINK_PORT` still wins, because a proxy
+forwarding to another port knows something the request cannot.
+
+𖢥 **iOS blocked tailnet requests before they left the phone.**
+`NSAllowsLocalNetworking` exempts link-local, `.local` and the RFC 1918
+ranges. Tailscale is 100.64.0.0/10 — shared address space, not RFC 1918 —
+so ATS refused it, which is the same silent timeout with nothing to log.
+`ts.net` is now an exception domain with subdomains included, scoped so
+arbitrary loads stay off and a public `http://` endpoint is still
+refused.
+
+🛡️ **When there is no tailnet address, the server says why.**
+`tailscale_self` returned empty for four different reasons and named
+none of them: not installed, not logged in, daemon down, or IPv6-only.
+That is fine for a server — a tailnet is optional — and useless to
+someone staring at a phone that cannot connect. `tailscale_diagnosis`
+names the actual cause, including the common one where tailscale is
+installed and a service manager's minimal PATH hides it.
+
 ✨ **A new server issues itself a bootstrap key.** An empty key store plus
 admin-only key routes is a closed loop, and it is why `waiter hyperlink
 pair` could not run on a new install. First start now mints a T2 admin

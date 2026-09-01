@@ -83,9 +83,25 @@ targets:
         # or a tailnet, which means plain HTTP to a private address.
         # ATS is relaxed for exactly that and nothing else: arbitrary
         # loads stay off, so a public http:// endpoint is still refused.
+        # NSAllowsLocalNetworking exempts link-local, .local and the
+        # RFC 1918 ranges (10/8, 172.16/12, 192.168/16). It does *not*
+        # cover Tailscale, which lives in 100.64.0.0/10 — shared address
+        # space, not RFC 1918. So a tailnet address was blocked by ATS
+        # before a packet left the phone: the app worked on the home LAN
+        # and timed out over Tailscale, with nothing in the server log
+        # because nothing ever reached the server.
+        #
+        # The exception is scoped to ts.net, which is where MagicDNS
+        # names live and which the server already advertises ahead of the
+        # raw 100.x address. Arbitrary loads stay off, so a public
+        # http:// endpoint is still refused.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         NSLocalNetworkUsageDescription: >-
           HyperLink connects to the HyperNix server running on your own computer
           over your local network.
