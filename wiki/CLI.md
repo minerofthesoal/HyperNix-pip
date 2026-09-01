@@ -83,7 +83,7 @@ authoritative list):
 * `gkey` — Same as `hypernix gkey`, as its own executable.
 * `hnx-map` — Same as `hypernix map`, as its own executable.
 * `waiter` — The official [T1 API client](Waiter-TUI.md) CLI/TUI. Client-side only: stdlib `urllib`, no `[t1api]` extra needed.
-* `hypernix-t1` — Start, stop, configure, test and autostart a local T1 API server (see below).
+* `hypernix-t1` — Start, stop, configure, test and autostart a local T1 API server (see below). A shell program, so it ships via `script-files` rather than `[project.scripts]`.
 
 ## `all` — the classic pipeline
 
@@ -509,7 +509,7 @@ uvicorn invocation or hunting for a pid.
 | `restart` | `stop`, escalating to `kill` if needed, then `start` |
 | `status` | pid, address, version, whether `/health` actually answers |
 | `logs` | tail; `-f` to follow |
-| `create` | hands off to `install-t1.sh`, which already knows how to ask; every flag passes through (`--non-interactive`, `--yes`, …) |
+| `create` | hands off to `install-t1.sh` when it is available — the guided setup, and every flag passes through (`--non-interactive`, `--yes`, …). Installed from a wheel there is no checkout and no installer, so it writes a **minimal** local-only config instead (`--host`, `--port`, `--force`) and says plainly what that does not cover: no allowlist, no rate limits, no pricing, no model registry. |
 | `configure` | open the config in `$EDITOR`; with none set it prints the path rather than picking an editor for you |
 | `test` | not a health ping — `/health`, then `/status`, then (in a checkout) the same end-to-end probe CI runs, reported per stage |
 | `key` | pass straight through to `gkey`, against **this server's** key store — `hypernix-t1 key create -v v2 --level 5` |

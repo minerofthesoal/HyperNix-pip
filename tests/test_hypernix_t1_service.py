@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -224,3 +225,154 @@ class TestAgainstARealServer:
         result = run("key", "create", "-v", "v2", home=home, config=config, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
         assert list((config / "keymaster").glob("*.json")), "minted somewhere else"
+
+
+class TestCreateWithoutACheckout:
+    """`pip install hypernix` gives you the manager and no installer.
+
+    `create` hands off to install-t1.sh, which is a checkout file. From a
+    wheel there is no checkout, and a dead end there would mean the
+    manager cannot create the thing it manages.
+    """
+
+    def _isolated(self, tmp_path):
+        """Run the script from a copy with no install-t1.sh anywhere near it.
+
+        That is what a wheel install looks like: the program sits in a bin
+        directory beside other console scripts, and the repo is not there.
+        """
+        binned = tmp_path / "prefix" / "bin"
+        binned.mkdir(parents=True)
+        copied = binned / "hypernix-t1"
+        copied.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+        copied.chmod(0o755)
+        return copied
+
+    def _run(self, copied: Path, *argv: str, home: Path, config: Path):
+        return subprocess.run(
+            [BASH, str(copied), *argv],
+            capture_output=True, text=True, timeout=120,
+            env={
+                **os.environ,
+                "HOME": str(home),
+                "T1_CONFIG_DIR": str(config),
+                "NO_COLOR": "1",
+                "PYTHONPATH": str(REPO_ROOT / "src"),
+            },
+            cwd=str(tempfile.gettempdir()),
+        )
+
+    def test_it_writes_a_usable_config(self, tmp_path):
+        home, config = tmp_path / "home", tmp_path / "cfg"
+        home.mkdir()
+        copied = self._isolated(tmp_path)
+
+        result = self._run(copied, "create", "--port", "8971",
+                           home=home, config=config)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        env = (config / ".env").read_text()
+        assert "T1_PORT=8971" in env
+        assert "T1_HOST=127.0.0.1" in env
+        assert f"T1_KEYMASTER_DIR={config}/keymaster" in env
+
+    def test_the_secret_is_real_and_the_file_is_not_readable(self, tmp_path):
+        home, config = tmp_path / "home", tmp_path / "cfg"
+        home.mkdir()
+        copied = self._isolated(tmp_path)
+
+        self._run(copied, "create", home=home, config=config)
+
+        env_file = config / ".env"
+        assert oct(env_file.stat().st_mode)[-3:] == "600"
+        secret = next(
+            line.split("=", 1)[1]
+            for line in env_file.read_text().splitlines()
+            if line.startswith("T1_TOKEN_SECRET=")
+        )
+        assert len(secret) == 64
+        assert int(secret, 16)              # hex, and not a placeholder
+        assert len(set(secret)) > 4
+
+    def test_two_creates_produce_different_secrets(self, tmp_path):
+        """A fixed secret would validate every other install's tokens."""
+        secrets = []
+        for i in range(2):
+            home, config = tmp_path / f"home{i}", tmp_path / f"cfg{i}"
+            home.mkdir()
+            copied = self._isolated(tmp_path / f"run{i}")
+            self._run(copied, "create", home=home, config=config)
+            secrets.append((config / ".env").read_text())
+        assert secrets[0] != secrets[1]
+
+    def test_it_refuses_to_overwrite_without_force(self, tmp_path):
+        home, config = tmp_path / "home", tmp_path / "cfg"
+        home.mkdir()
+        copied = self._isolated(tmp_path)
+
+        self._run(copied, "create", home=home, config=config)
+        first = (config / ".env").read_text()
+        again = self._run(copied, "create", home=home, config=config)
+
+        assert again.returncode != 0
+        assert "already exists" in again.stdout + again.stderr
+        assert (config / ".env").read_text() == first
+
+        forced = self._run(copied, "create", "--force", home=home, config=config)
+        assert forced.returncode == 0
+        assert (config / ".env").read_text() != first
+
+    def test_it_says_what_the_minimal_config_does_not_cover(self, tmp_path):
+        """Silence here would read as "configured", which it is not."""
+        home, config = tmp_path / "home", tmp_path / "cfg"
+        home.mkdir()
+        copied = self._isolated(tmp_path)
+
+        result = self._run(copied, "create", home=home, config=config)
+        combined = result.stdout + result.stderr
+
+        assert "install-t1.sh" in combined
+        for missing in ("allowlist", "rate limits", "pricing"):
+            assert missing in combined.lower(), missing
+
+    def test_a_bad_port_is_refused(self, tmp_path):
+        home, config = tmp_path / "home", tmp_path / "cfg"
+        home.mkdir()
+        copied = self._isolated(tmp_path)
+
+        result = self._run(copied, "create", "--port", "eight",
+                           home=home, config=config)
+
+        assert result.returncode != 0
+        assert not (config / ".env").exists()
+
+    def test_the_checkout_still_hands_off_to_the_installer(self, tmp_path):
+        """The guided setup stays the default wherever it is available."""
+        home, config = tmp_path / "home", tmp_path / "cfg"
+        home.mkdir()
+        result = subprocess.run(
+            [BASH, str(SCRIPT), "create", "--help"],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, "HOME": str(home),
+                 "T1_CONFIG_DIR": str(config), "NO_COLOR": "1"},
+        )
+        # install-t1.sh --help, not the minimal path's "Unknown option".
+        assert "install-t1.sh" in result.stdout
+        assert "--non-interactive" in result.stdout
+
+
+class TestItIsActuallyInstalled:
+    def test_pyproject_ships_it_on_path(self):
+        """[project.scripts] cannot carry a shell program; script-files can.
+
+        Without this the docs promise a `hypernix-t1` that `pip install
+        hypernix` does not provide.
+        """
+        text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'script-files = ["bin/hypernix-t1"]' in text
+
+    def test_the_sdist_carries_it_and_the_installer(self):
+        """tests/ ships in the sdist and runs both of these files."""
+        manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+        assert "include install-t1.sh" in manifest
+        assert "recursive-include bin *" in manifest

@@ -20,7 +20,7 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
-## 0.72.3 (in progress)
+## 0.72.3 — T1 v1.0.2026.8.1.1
 
 🛡️ **The AI agent no longer runs code without being asked.** hyped-pro
 parses tool calls out of the model's own reply and dispatched them
@@ -140,6 +140,22 @@ key that works **only from that machine**, expires after **three days**,
 and is minted **once**. Loopback is enforced on every request, on both
 the ordinary and HyperLink auth paths — a restriction applied to one of
 two routes into the same key store is not a restriction.
+
+🐛 **`pip install hypernix` did not give you `hypernix-t1`.** It is a
+shell program, so `[project.scripts]` cannot carry it, and nothing else
+did — the documentation promised an executable the package never
+installed. `script-files` ships it now, and `MANIFEST.in` carries it and
+`install-t1.sh` into the sdist, which matters because the sdist also
+ships `tests/`, and two of those test files run these scripts.
+
+✨ **`hypernix-t1 create` works without a checkout.** It hands off to
+`install-t1.sh` for the guided setup, and that is a checkout file — so
+from a wheel, the manager could not create the thing it manages. It now
+falls back to writing a minimal local-only configuration (a real
+generated secret, 0600, its own key store) and says plainly what the
+minimal path does not cover: no allowlist, no rate limits, no pricing, no
+model registry. `--host`, `--port`, and `--force` to overwrite; it
+refuses to overwrite an existing config without being told to.
 
 𖢥 **`install-t1.sh --install skip` failed on a machine where nothing was
 wrong.** The interpreter search ran `python3.12 python3.13 python3.11
