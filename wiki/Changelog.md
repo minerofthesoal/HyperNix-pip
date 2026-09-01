@@ -43,6 +43,36 @@ dedupe and one is the WebSocket handshake, where RFC 6455 mandates
 SHA-1 — none is a security digest, and without the flag all three raise
 on a FIPS-enabled host.
 
+✨ **CI and the public release now gate on a live server.** After the
+tests pass, two jobs run: one drives the T1 API from outside the process,
+the other drives the iPhone app against a real server on a booted
+simulator. Each mints its own T2 key with `gkey`, authorises it, sends a
+chat all the way through the bridge to a **fake model**, and then deletes
+every key it created — in a `finally`, so the run that failed is cleaned
+up too. The teardown counts what is left in the store and fails the job
+if the probe left anything behind. No publish step runs until both jobs
+are green.
+
+The model is a stub speaking the OpenAI shape over HTTP rather than a
+mock patched into the bridge, so the bridge, the routing engine and the
+serialisation are all real. Its reply carries a distinctive marker *and*
+echoes the prompt back, because a check that passes when the request body
+never arrived is not a check.
+
+One shape note: hosted runners cannot reach each other, so "one job hosts
+the server, the other connects" is not expressible — there is no route
+between two runners. Each job brings up its own server; the split that
+matters (API-from-outside, app-against-a-real-server, release waits on
+both) is preserved.
+
+𖢥 **`gkey` ignored `T1_KEYMASTER_DIR`, which the server reads.** On any
+install using `--config-dir`, the server's key store lived under the
+config directory while `gkey` kept writing to `~/.hypernix/keymaster` —
+so keys the operator minted were invisible to their own server, and the
+key printed at first start was invisible to `gkey`. Two halves of one
+tool disagreeing about where the keys live is a hard failure to reason
+about, because both of them work.
+
 ✨ **T2P keys carry billing, and servers can refuse them.** A T2P key is
 an ordinary T2 key with a billing binding attached — provider references,
 a spend cap, a currency — so a key can be issued to someone who pays for
