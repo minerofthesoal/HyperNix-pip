@@ -13,15 +13,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from shell_support import BASH, NO_BASH_REASON
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples" / "t1api"
 LOCAL = EXAMPLES / "run_local.sh"
 TAILSCALE = EXAMPLES / "run_tailscale.sh"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash is not available"
-)
+pytestmark = pytest.mark.skipif(BASH is None, reason=NO_BASH_REASON)
 
 
 @pytest.fixture
@@ -81,7 +80,7 @@ def run_script(
         if report.exists():
             report.unlink()
     result = subprocess.run(
-        ["bash", "-x", str(script)],
+        [BASH, "-x", str(script)],
         capture_output=True,
         text=True,
         timeout=90,
@@ -108,7 +107,7 @@ class TestShape:
     def test_parses_and_is_executable(self, script):
         assert script.is_file()
         assert os.access(script, os.X_OK), f"{script.name} is not executable"
-        subprocess.run(["bash", "-n", str(script)], check=True)
+        subprocess.run([BASH, "-n", str(script)], check=True)
 
     @pytest.mark.parametrize("script", [LOCAL, TAILSCALE])
     def test_shellcheck_is_clean_if_available(self, script):
@@ -172,7 +171,7 @@ class TestTheErrorMessageIsPasteable:
             f"the generate command lost its quoting:\n{block}"
         )
         check = subprocess.run(
-            ["bash", "-n", "-c", block], capture_output=True, text=True
+            [BASH, "-n", "-c", block], capture_output=True, text=True
         )
         assert check.returncode == 0, (
             f"the suggested commands do not parse:\n{block}\n{check.stderr}"

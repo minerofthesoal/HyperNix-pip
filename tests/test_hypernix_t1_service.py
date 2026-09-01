@@ -14,11 +14,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from shell_support import BASH, NO_BASH_REASON
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "bin" / "hypernix-t1"
 
-pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+pytestmark = pytest.mark.skipif(BASH is None, reason=NO_BASH_REASON)
 
 
 def run(*argv: str, home: Path, config: Path, timeout: int = 60):
@@ -28,7 +29,7 @@ def run(*argv: str, home: Path, config: Path, timeout: int = 60):
     when asserting.
     """
     result = subprocess.run(
-        ["bash", str(SCRIPT), *argv],
+        [BASH, str(SCRIPT), *argv],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -66,13 +67,13 @@ class TestShape:
         assert os.access(SCRIPT, os.X_OK)
 
     def test_it_parses(self):
-        subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
+        subprocess.run([BASH, "-n", str(SCRIPT)], check=True)
 
     def test_shellcheck_is_clean_if_available(self):
         if shutil.which("shellcheck") is None:
             pytest.skip("shellcheck not installed")
         result = subprocess.run(
-            ["shellcheck", "--severity=warning", str(SCRIPT)],
+            ["shellcheck", "--severity=style", str(SCRIPT)],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr

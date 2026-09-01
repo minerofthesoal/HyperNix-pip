@@ -141,6 +141,42 @@ and is minted **once**. Loopback is enforced on every request, on both
 the ordinary and HyperLink auth paths — a restriction applied to one of
 two routes into the same key store is not a restriction.
 
+𖢥 **`install-t1.sh --install skip` failed on a machine where nothing was
+wrong.** The interpreter search ran `python3.12 python3.13 python3.11
+python3 python` — newest-ish first, with the operator's own `python3`
+fourth. On any machine with several interpreters that picks one the
+operator never chose; under `--install skip`, whose entire premise is
+that the package is already installed *somewhere*, it then verified an
+installation that was never meant to be in that interpreter and failed
+while everything was in fact fine. That is exactly what CI hit: the job
+installed into setup-python's 3.11 and the script went looking in the
+system 3.12.
+
+`python3` — the interpreter actually on PATH, which is a venv's or a
+version manager's — now comes first, and a pass ahead of that prefers any
+interpreter that can already import hypernix. `--python PATH` (or
+`HYPERNIX_PYTHON`) settles it outright. A `skip` run that finds no
+installation now says that, and points at `--python`, rather than
+reporting a failed install that never ran.
+
+🐛 **Windows: 31 tests failed on a `bash` that is not one.** Every shell
+test gated on `shutil.which("bash")`, which on a GitHub Windows runner
+finds `C:\Windows\System32\bash.exe` — the WSL launcher stub, present
+on every Windows install, which exits non-zero and answers in UTF-16LE
+that no distribution is installed. So the tests ran and asserted against
+output that was never a shell's. `tests/shell_support.py` asks the only
+question that matters — does running a trivial script through it produce
+the script's output — and the three shell test modules gate on that.
+
+𖢥 **`hypernix path` wrote backslashes into POSIX shell profiles.**
+`snippet_for_shell` and `session_hint` interpolated `str(directory)`, so
+on Windows a bash or fish line came out as `export
+PATH="\opt\bin:$PATH"` — and a POSIX shell reads `\` as an escape, so
+that line is not merely ugly but wrong. These snippets are written on
+Windows, for Git Bash and WSL. They use `as_posix()` now, which is
+identical everywhere else and turns `C:\Scripts` into `C:/Scripts`,
+which is what those shells want. PowerShell keeps the native separator.
+
 ✨ **VRAM optimizations: `hypernix.system.vram`.** [`freezer`](Freezer.md)
 answers "how big a batch fits?"; this answers "how do I make more of it
 fit without changing what the model learns?" Five techniques, each opt-in

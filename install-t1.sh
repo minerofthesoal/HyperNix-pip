@@ -72,6 +72,7 @@ DRY_RUN=0
 CONFIG_DIR="${T1_CONFIG_DIR:-$HOME/.hypernix/t1api}"
 INSTALL_MODE=""          # venv | user | system | skip
 ASSUME_YES=0
+PYTHON_OVERRIDE="${HYPERNIX_PYTHON:-}"
 
 usage() {
   cat <<'USAGE'
@@ -84,6 +85,9 @@ install-t1.sh — interactive installer and setup for the HyperNix T1 API.
   --install venv|user|system|skip
                         How to install the package. "skip" configures an
                         existing installation.
+  --python PATH         Use this interpreter instead of searching. Needed
+                        when several are installed and the one that has
+                        (or should have) hypernix is not the newest.
   --yes, -y             Answer yes to confirmation prompts; open questions
                         (port, allowlist, prices) are still asked, unless
                         --non-interactive is also given. Does not start the
@@ -92,6 +96,7 @@ install-t1.sh — interactive installer and setup for the HyperNix T1 API.
 
 Environment:
   T1_CONFIG_DIR         Same as --config-dir.
+  HYPERNIX_PYTHON       Same as --python.
   NO_COLOR              Disable colour.
 
 Everything the installer writes is listed in the summary at the end, and
@@ -106,6 +111,7 @@ while [ $# -gt 0 ]; do
     --yes|-y)          ASSUME_YES=1 ;;
     --config-dir)      shift; [ $# -gt 0 ] || die "--config-dir needs a path"; CONFIG_DIR="$1" ;;
     --install)         shift; [ $# -gt 0 ] || die "--install needs a mode"; INSTALL_MODE="$1" ;;
+    --python)          shift; [ $# -gt 0 ] || die "--python needs a path"; PYTHON_OVERRIDE="$1" ;;
     --help|-h)         usage; exit 0 ;;
     *)                 die "Unknown option: $1 (try --help)" ;;
   esac
@@ -240,15 +246,50 @@ PYTHON=""
 preflight() {
   head2 "Checking this machine"
 
+  # `python3` comes first because it is the interpreter the operator is
+  # actually using — a venv's, or the one a version manager put on PATH.
+  # The versioned names are the fallback for a machine where `python3` is
+  # too old, newest first.
+  local search="python3 python3.14 python3.13 python3.12 python3.11 python"
   local candidate
-  for candidate in python3.12 python3.13 python3.11 python3 python; do
-    if command -v "$candidate" >/dev/null 2>&1; then
+
+  if [ -n "$PYTHON_OVERRIDE" ]; then
+    command -v "$PYTHON_OVERRIDE" >/dev/null 2>&1 \
+      || die "--python $PYTHON_OVERRIDE: not found."
+    "$PYTHON_OVERRIDE" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null \
+      || die "--python $PYTHON_OVERRIDE: needs python >= 3.10."
+    PYTHON="$(command -v "$PYTHON_OVERRIDE")"
+  fi
+
+  # First pass: an interpreter that already has hypernix. That is the
+  # right answer for --install skip, whose whole premise is that the
+  # package is installed somewhere — picking the newest interpreter
+  # instead would verify an install that was never meant to be there and
+  # fail on a machine where everything is fine. It is also right for the
+  # other modes: installing into the interpreter that already has it
+  # upgrades in place rather than leaving two copies on the machine.
+  if [ -z "$PYTHON" ]; then
+    for candidate in $search; do
+      command -v "$candidate" >/dev/null 2>&1 || continue
+      "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null || continue
+      if "$candidate" -c 'import hypernix' >/dev/null 2>&1; then
+        PYTHON="$(command -v "$candidate")"
+        break
+      fi
+    done
+  fi
+
+  # Second pass: any interpreter new enough.
+  if [ -z "$PYTHON" ]; then
+    for candidate in $search; do
+      command -v "$candidate" >/dev/null 2>&1 || continue
       if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
         PYTHON="$(command -v "$candidate")"
         break
       fi
-    fi
-  done
+    done
+  fi
+
   [ -n "$PYTHON" ] || die "No python3 >= 3.10 found. Install one and re-run."
 
   # Command substitution captures stdout only, so anything the interpreter
@@ -351,8 +392,24 @@ install_package() {
   esac
 
   if [ "$DRY_RUN" = "0" ]; then
-    "$PYTHON" -c 'import hypernix' 2>/dev/null \
-      || die "hypernix is not importable with $PYTHON after installing. Check the pip output above."
+    if ! "$PYTHON" -c 'import hypernix' 2>/dev/null; then
+      # "skip" means the operator says it is already installed. If it is
+      # not importable here, the likely cause is that it lives in a
+      # different interpreter than the one this search picked — which is
+      # a different problem from a failed install, and needs a different
+      # remedy.
+      if [ "$INSTALL_MODE" = "skip" ]; then
+        err "hypernix is not importable with $PYTHON."
+        dim "     --install skip configures an existing installation, and this"
+        dim "     interpreter does not have one. If it is installed elsewhere:"
+        dim ""
+        dim "       ./install-t1.sh --install skip --python /path/to/python"
+        dim ""
+        dim "     Or drop --install skip and let the installer install it."
+        exit 1
+      fi
+      die "hypernix is not importable with $PYTHON after installing. Check the pip output above."
+    fi
     local installed
     installed="$("$PYTHON" -c 'import hypernix; print(hypernix.__version__)' 2>/dev/null || echo unknown)"
     ok "hypernix $installed installed into $PIP_TARGET_DESC"

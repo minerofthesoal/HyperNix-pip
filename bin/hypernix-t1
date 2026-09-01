@@ -229,7 +229,8 @@ cmd_logs() {
 
 cmd_create() {
   # Hand off to the installer, which already knows how to ask.
-  local here; here="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
+  local here=""
+  here="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || here=""
   for candidate in "$here/install-t1.sh" "$(dirname "$0")/install-t1.sh" ./install-t1.sh; do
     if [ -x "$candidate" ]; then exec "$candidate" "$@"; fi
   done
@@ -260,13 +261,21 @@ cmd_test() {
   server_pid >/dev/null 2>&1 || die "Not running. Start it first: hypernix-t1 start"
 
   say "Checking $url …"
-  curl -fsS --noproxy '*' "$url/health" >/dev/null 2>&1 \
-    && ok "health" || { err "health check failed"; return 1; }
-  curl -fsS --noproxy '*' "$url/status" >/dev/null 2>&1 \
-    && ok "status" || { err "status failed"; return 1; }
+  if curl -fsS --noproxy '*' "$url/health" >/dev/null 2>&1; then
+    ok "health"
+  else
+    err "health check failed"; return 1
+  fi
+  if curl -fsS --noproxy '*' "$url/status" >/dev/null 2>&1; then
+    ok "status"
+  else
+    err "status failed"; return 1
+  fi
 
   # The end-to-end probe if this is a checkout that has it.
-  local probe; probe="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)/scripts/ci/integration_probe.py"
+  local root=""
+  root="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || root=""
+  local probe="$root/scripts/ci/integration_probe.py"
   if [ -r "$probe" ]; then
     say ""
     "$py" "$probe" --url "$url"
@@ -391,7 +400,7 @@ USAGE
 
 main() {
   local cmd="${1:-status}"
-  [ $# -gt 0 ] && shift || true
+  if [ $# -gt 0 ]; then shift; fi
   case "$cmd" in
     start)             cmd_start "$@" ;;
     start-foreground)  cmd_start_foreground "$@" ;;
