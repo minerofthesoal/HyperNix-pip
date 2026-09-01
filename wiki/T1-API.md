@@ -426,6 +426,55 @@ Every impossible combination is refused *before* the key is minted. A key
 created and then found unpresentable would still be in the store — valid,
 usable, and known to nobody, since the operator saw only an error.
 
+### The first key a new server has
+
+A fresh server starts with an empty key store, and every route that could
+put something in it is admin-only. That is a closed loop, and it is why
+`waiter hyperlink pair` could not be run on a new install: pairing is
+admin-only and there was no admin.
+
+So a new server issues itself one credential and prints it, once:
+
+```
+  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃  First start — here is a key to set this server up with.     ┃
+  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    T2_Nc2npsJZgGXD_kNg7ZHWo2TZgsT9yggwWAyP3kn@[[*^/2-9
+
+    Works only from this machine, and only for 72 more hours.
+```
+
+Three limits are what make printing an admin key acceptable:
+
+| Limit | What enforces it |
+| --- | --- |
+| **Loopback only** | Checked on every request against the address the network policy already resolved. A key that leaks off the box authenticates nowhere — 403 `bootstrap_key_is_local_only`. |
+| **Three days** | The key store's own expiry. Nothing extra runs to enforce it. |
+| **Once** | Minted only when there is no live bootstrap key, so restarts do not accumulate admin credentials. On day four, an expired one is replaced rather than leaving you locked out. |
+
+It is a T2 admin key because you are going to type it into `waiter`, and
+because admin on a T2 key is carried by the password component — so the
+credential itself says which one is the powerful one.
+
+```bash
+waiter serv -A -I http://127.0.0.1:8000 -K '<the key>' -L
+waiter hyperlink pair --label "my iPhone"       # now works on a new server
+```
+
+Then mint a real key and let this one expire:
+
+```bash
+gkey create --type admin --scopes admin,read,write
+```
+
+`T1_BOOTSTRAP_KEY=0` turns it off for a deployment that provisions
+credentials some other way.
+
+The banner does not print a port unless the deployment was configured
+with one (`T1_HYPERLINK_PUBLIC_URL`): uvicorn owns the bind address, so
+anything else would be a guess printed as an instruction.
+
 ### Using a T2S key
 
 A T2S key is 26 typeable characters, meant for a phone. Two things about

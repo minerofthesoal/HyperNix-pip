@@ -20,6 +20,37 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3 (in progress)
+
+🛡️ **The AI agent no longer runs code without being asked.** hyped-pro
+parses tool calls out of the model's own reply and dispatched them
+immediately — so anything that could influence that reply (a file it
+read, a web result, a fetched page, a T1 server's response) had arbitrary
+code execution on the operator's machine. `ToolRegistry.execute_tool` now
+gates the side-effecting tools behind `HYPERNIX_TOOL_POLICY`
+(ask/deny/allow); "ask" with no terminal degrades to **deny**, so a CI
+job or daemon is not a shell for whoever can reach the model.
+
+The gated set was enumerated from the registry, not from memory. The
+first version gated `run_command` and left `create_skill`/`run_skill`
+open — those write a Python module and execute it, so a model that wanted
+a shell never had to name a gated tool. Also gated: the file writers, the
+keymaster key create/revoke pair, `set_env` and `git_commit`. Reads and
+the web tools stay ungated, and the source records why.
+
+🐛 Three `hashlib.sha1` calls now pass `usedforsecurity=False`. Two are
+dedupe and one is the WebSocket handshake, where RFC 6455 mandates
+SHA-1 — none is a security digest, and without the flag all three raise
+on a FIPS-enabled host.
+
+✨ **A new server issues itself a bootstrap key.** An empty key store plus
+admin-only key routes is a closed loop, and it is why `waiter hyperlink
+pair` could not run on a new install. First start now mints a T2 admin
+key that works **only from that machine**, expires after **three days**,
+and is minted **once**. Loopback is enforced on every request, on both
+the ordinary and HyperLink auth paths — a restriction applied to one of
+two routes into the same key store is not a restriction.
+
 ## 0.72.2.post5 — T1 v1.0.2026.8.1.1
 
 A fix bump inside the same feature line, so no client needs to change.

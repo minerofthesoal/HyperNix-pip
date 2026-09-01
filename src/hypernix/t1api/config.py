@@ -298,6 +298,15 @@ class T1APIConfig:
     # a config directory and needs the server to read that same store,
     # and two servers on one machine, which would otherwise share one
     # store and see each other's keys.
+    # Mint a loopback-only admin key on first start, so a new server is
+    # reachable without running gkey on the box by hand. On by default:
+    # the alternative is a server nobody can configure, which is how
+    # "HyperLink cannot connect" starts. Off for a deployment that
+    # provisions credentials some other way.
+    bootstrap_key_enabled: bool = field(
+        default_factory=lambda: _bool_env("T1_BOOTSTRAP_KEY", True)
+    )
+
     keymaster_dir: str | None = field(
         default_factory=lambda: os.environ.get("T1_KEYMASTER_DIR") or None
     )

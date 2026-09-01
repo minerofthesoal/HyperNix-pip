@@ -193,8 +193,47 @@ def get_auth_context(
     svc: T1AuthService = get_auth_service(request)
     credential = _extract_credential(authorization)
     if credential.startswith("T1S."):
-        return svc.verify_scoped_token(credential)
-    return svc.validate_key(credential)
+        ctx = svc.verify_scoped_token(credential)
+    else:
+        ctx = svc.validate_key(credential)
+    _enforce_local_only(request, ctx)
+    return ctx
+
+
+def _enforce_local_only(request: Request, ctx: AuthContext) -> None:
+    """A bootstrap key works only from the machine that minted it.
+
+    Checked here, on every request, rather than at mint time: minting
+    decides what a key *is*, and only the request knows where it came
+    from. The address is the one the network policy already resolved, so
+    this cannot disagree with the access decision that let the request in.
+
+    The restriction is what makes printing an admin key on a terminal
+    reasonable. Without it the key is an unauthenticated-until-copied
+    admin credential with a three-day life, which is worse than making
+    the operator run `gkey`.
+    """
+    from .bootstrap import is_bootstrap_key, is_loopback
+
+    if not is_bootstrap_key(ctx.key_meta):
+        return
+    address = get_client_ip(request)
+    if is_loopback(address):
+        return
+    raise T1APIError(
+        T1ErrorCode.AUTH_INVALID_KEY,
+        "This is a bootstrap key. It works only from the machine that "
+        "created it, and this request did not come from there.",
+        details={
+            "reason": "bootstrap_key_is_local_only",
+            "client_ip": address,
+            "remedy": (
+                "Run waiter on the server itself, or mint an ordinary key: "
+                "gkey create --type admin --scopes admin,read,write"
+            ),
+        },
+        http_status=403,
+    )
 
 
 def require_admin(ctx: AuthContext) -> AuthContext:
@@ -351,6 +390,11 @@ def _principal_from_t2(request: Request, credential: str) -> HyperLinkPrincipal:
 
     svc: T1AuthService = get_auth_service(request)
     ctx = svc.validate_key(credential)
+    # HyperLink resolves T2 keys here rather than through
+    # get_auth_context, so the loopback binding has to be applied on this
+    # path too. A restriction enforced on one of two routes into the same
+    # key store is not a restriction.
+    _enforce_local_only(request, ctx)
 
     scopes = tuple(scope.value for scope in ctx.scopes)
     if parsed.family is T2Type.T2S:
