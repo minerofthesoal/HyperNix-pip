@@ -466,7 +466,9 @@ class LiveStreamServer:
             return
 
         accept = base64.b64encode(
-            hashlib.sha1((key + WS_GUID).encode("ascii")).digest()  # noqa: S324 - RFC 6455
+            hashlib.sha1(  # noqa: S324 - RFC 6455 mandates SHA-1 here
+                (key + WS_GUID).encode("ascii"), usedforsecurity=False
+            ).digest()
         ).decode("ascii")
         sock.sendall(
             (
