@@ -352,6 +352,10 @@ def create_app(
         app.state.t1_bootstrap_key = None
 
     app.state.t1_billing_bindings = BillingBindingStore(db)
+    # A binding must not outlive the key it belongs to, and must follow a
+    # key that is rotated rather than being dropped. The Keymaster owns
+    # both events; this is where the two halves are introduced.
+    app.state.t1_billing_bindings.attach_to(km)
     app.state.t1_config = cfg
     app.state.t1_keymaster = km
     app.state.t1_gatekeeper = gk

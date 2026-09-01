@@ -930,6 +930,7 @@ Usage:
   gkey rotate       Rotate (replace) a key with a fresh one
   gkey export       Export key(s) to JSON
   gkey import       Import key(s) from JSON
+  gkey version      HyperNix, T1 API, and key format versions
 
 Run `gkey <subcommand> --help` for detailed options.
 """

@@ -84,27 +84,61 @@ rest — see [T1-API.md#known-limitation](T1-API.md#known-limitation).
 - `T1_KEYMASTER_DIR`, so a deployment's key store lives with the rest of
   its configuration instead of always in `~/.hypernix/keymaster`
 
-## 0.72.3 (Next Milestone)
+## 0.72.3 — T1 v1.0.2026.8.1.1 (Shipped)
 
-- **Payment connections on a T2 key.** A T2 key gains an optional
-  billing binding — a payment method, a spend cap, and a metered rate —
-  so a key can be issued to someone who pays for their own usage
-  instead of drawing on the server operator's budget. The key's access
-  level and the billing binding stay separate concerns: a level-9 key
-  with no binding is still free to use, and a level-2 key with one is
-  still a level-2 key.
+- **Payment connections on a T2 key.** A **T2P** key carries a billing
+  binding — a provider's customer and method references, a currency, and
+  a spend cap — so a key can be issued to someone who pays for their own
+  usage instead of drawing on the operator's budget. Access level and
+  billing stay separate concerns: a level-9 key with no binding is still
+  free to use, and a level-2 key with one is still level 2. A T2P key is
+  never an administrator.
 
-  Design notes, to be settled before implementation:
+  How the design notes landed:
 
-  - The binding references a payment provider's customer/method token.
-    Card details never reach the T1 server or its database.
-  - Spend caps are enforced in the same quota cascade that already
-    tracks per-key cost, so an over-cap request is refused before any
-    model work happens rather than being billed and refunded.
-  - Revoking a key must revoke the binding with it, and a failed charge
-    must degrade the key to its unbilled quota rather than silently
-    granting free usage.
-  - Not in 0.72.3: T2C keys, which stay reserved.
+  - The binding references a provider's customer/method token. Card
+    details never reach the server: the store refuses anything shaped
+    like a 13–19 digit card number at the boundary, and the binding is
+    not carried in the credential — keys land in shell history.
+  - Spend caps are checked against the *estimated* cost before any model
+    work happens, so an over-cap request is refused rather than billed
+    and refunded.
+  - Revoking a key releases its binding, and rotating one moves the
+    binding — with its recorded spend — to the key that replaced it. Both
+    run off Keymaster lifecycle hooks, because revocation happens in the
+    security layer, which knows nothing about billing.
+  - T2C keys stay reserved, as planned.
+
+- **A server can refuse them.** `T1_BILLING_KEY_POLICY` is `allow`
+  (default), `deny` — with a `T1_PAYMENT_URL` to point at, for an
+  operator who sells access through their own site — or `separate`,
+  which requires the payment key in `X-Payment-Key` so the credential
+  that identifies a caller and the one that spends money have separate
+  lifetimes. Enforced at authentication.
+
+- **The bootstrap key.** A new server mints itself one admin key on first
+  start: usable only from that machine, expired after three days, minted
+  once. An empty key store plus admin-only key routes was a closed loop,
+  and it is why `waiter hyperlink pair` could not run on a fresh install.
+
+- **`hypernix-t1`** — one dependency-free executable for the whole server
+  lifecycle: start, stop, kill, restart, status, logs, create, configure,
+  test, key, autostart, remove.
+
+- **HyperLink connects.** The advertised port is the one the request
+  arrived on; `ts.net` is an ATS exception domain, since Tailscale's
+  100.64.0.0/10 is shared address space and not one of the RFC 1918
+  ranges `NSAllowsLocalNetworking` exempts; a missing tailnet now names
+  its cause. The app takes a T2S key as well as a pairing code.
+
+- **Consent before the agent runs anything** (`HYPERNIX_TOOL_POLICY`) —
+  tool calls are parsed out of the model's own reply, so anything that
+  can influence that reply could otherwise run shell commands.
+
+- **CI and the public release gate on a live server.** Two jobs each mint
+  their own T2 key, drive a real API and a booted iPhone simulator
+  against a fake model, and delete every key they made. Nothing publishes
+  until both are green.
 
 ## 1.xx.0 — the T2 API
 

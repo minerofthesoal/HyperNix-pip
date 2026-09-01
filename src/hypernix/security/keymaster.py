@@ -73,7 +73,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +428,8 @@ class Keymaster:
         self._keys: dict[str, KeyMeta] = {}
         self._server_id = server_id
         self._cipher: Any = None
+        self._revoke_observers: list[Callable[[str, str], None]] = []
+        self._rotate_observers: list[Callable[[str, str], None]] = []
 
         # Encryption setup
         if _CRYPTO_AVAILABLE:
@@ -717,6 +719,49 @@ class Keymaster:
         logger.info("keymaster: un-revoked key %s", key_id[:8])
         return meta
 
+    def on_revoke(self, callback: Callable[[str, str], None]) -> None:
+        """Register a callback to run when a key is revoked or rotated away.
+
+        For state that hangs off a key and must not outlive it — a billing
+        binding is the motivating case, since a binding left behind is a
+        spend cap and a recorded spend waiting to be inherited by whatever
+        holds that ID next.
+
+        Observers are advisory. Revoking a key is the safety-critical
+        operation and an observer that raises must not be able to prevent
+        it, so exceptions are logged and swallowed. Anything that *must*
+        happen for correctness belongs in :meth:`revoke` itself, not here.
+        """
+        self._revoke_observers.append(callback)
+
+    def on_rotate(self, callback: Callable[[str, str], None]) -> None:
+        """Register a callback for ``(old_key_id, new_key_id)`` on rotation.
+
+        Rotation is not revocation: the credential changed, the
+        relationship did not. State that hangs off a key should **follow**
+        it here rather than being dropped — a rotated key that silently
+        lost its spend cap would be worse than one that kept it.
+        """
+        self._rotate_observers.append(callback)
+
+    def _notify(
+        self,
+        observers: list[Callable[[str, str], None]],
+        what: str,
+        first: str,
+        second: str,
+    ) -> None:
+        for callback in list(observers):
+            try:
+                callback(first, second)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "keymaster: %s observer failed for %s", what, first[:8]
+                )
+
+    def _notify_revoked(self, key_id: str, reason: str) -> None:
+        self._notify(self._revoke_observers, "revocation", key_id, reason)
+
     def revoke(self, key_id: str, reason: str = "") -> None:
         """Revoke a key. It is archived but not deleted."""
         with self._lock:
@@ -736,6 +781,7 @@ class Keymaster:
         except FileNotFoundError:
             pass
         logger.info("keymaster: revoked key %s", key_id[:8])
+        self._notify_revoked(key_id, reason)
 
     def rotate(self, key_id: str) -> KeyMeta:
         """Replace *key_id* with a fresh key, archiving the old one.
@@ -777,6 +823,7 @@ class Keymaster:
             self._keys.pop(key_id, None)
 
         logger.info("keymaster: rotated key %s → %s", key_id[:8], new_meta.key_id[:8])
+        self._notify(self._rotate_observers, "rotation", key_id, new_meta.key_id)
         return new_meta
 
     # ------------------------------------------------------------------

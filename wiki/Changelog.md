@@ -88,6 +88,20 @@ credential that identifies a caller and the one that spends money have
 separate lifetimes. Enforced at authentication — refusing after the work
 is a refund, not a policy.
 
+𖢥 **A binding outlived the key it belonged to.** `release` existed, was
+documented as "called when a key is revoked", and was called by nothing —
+revocation happens in `hypernix.security`, which knows nothing about
+billing. So a revoked key left behind a spend cap and a recorded spend on
+a dead key ID, waiting to be inherited by whatever held that ID next.
+
+`Keymaster.on_revoke` and `Keymaster.on_rotate` are the missing seam, and
+the billing store registers on both. Revoking releases the binding;
+rotating **moves** it, carrying its spend — a rotation that reset `spent`
+to zero would be a way to mint unlimited spend out of a cap, and a
+rotation that dropped the binding would silently make a paid key free.
+Observers are advisory: revoking a key is the safety-critical operation,
+so one that raises is logged and cannot block it.
+
 🐛 **Family detection was a hardcoded list and silently stopped covering
 the family.** Two call sites tested `key[:3] in ("T2_", "T2S")`, so a
 T2P key fell through to the T1 path and was rejected as malformed several
@@ -126,6 +140,27 @@ key that works **only from that machine**, expires after **three days**,
 and is minted **once**. Loopback is enforced on every request, on both
 the ordinary and HyperLink auth paths — a restriction applied to one of
 two routes into the same key store is not a restriction.
+
+✨ **`hypernix-t1` — one executable that runs the server.** Starting a
+T1 API meant remembering a uvicorn invocation, and stopping one meant
+finding the pid. `bin/hypernix-t1` is a single dependency-free shell
+program covering the whole lifecycle: `start` / `stop` / `kill` /
+`restart` / `status` / `logs`, `create` (a fully configured server, with
+`--auto` for an unattended one), `configure` to edit the env file in
+place, `test` for a real end-to-end probe rather than a health ping,
+`key` to mint one through `gkey` against the *server's own* key store,
+`autostart on|off` to install a systemd user service, and `remove`.
+
+`stop` sends `SIGTERM` and waits 15 seconds; if the server is still
+there it says so and points at `kill`, rather than escalating on its own —
+a server that is slow to drain in-flight requests is not the same thing as
+a hung one, and only the operator knows which they have. `restart` does
+escalate, because it has been told the process is going away. The pid file
+is checked
+against the process actually running under it, so a recycled pid is not
+mistaken for a live server, and a stale one is cleaned up instead of
+reported as running. `autostart` writes an absolute `ExecStart`, because
+systemd rejects a relative one at load time rather than at first start.
 
 ## 0.72.2.post5 — T1 v1.0.2026.8.1.1
 

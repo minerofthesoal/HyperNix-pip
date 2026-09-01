@@ -254,6 +254,50 @@ class BillingBindingStore:
             )
             return cur.rowcount > 0
 
+    def transfer(self, old_key_id: str, new_key_id: str) -> BillingBinding | None:
+        """Move a binding to the key that replaced it.
+
+        Rotation replaces a credential without ending the arrangement
+        behind it, so the binding follows — carrying its spend with it,
+        because a rotation that reset ``spent`` to zero would be a way to
+        mint unlimited spend out of a cap.
+
+        The destination is overwritten if it somehow already has one: the
+        UNIQUE constraint on ``key_id`` makes two bindings on one key
+        unrepresentable, and a freshly created key having one is not a
+        state that should exist.
+        """
+        binding = self.get(old_key_id)
+        if binding is None:
+            return None
+        with self._lock, self.backend.connect() as conn:
+            conn.execute(
+                "DELETE FROM t1_billing_bindings WHERE key_id = ?", (new_key_id,)
+            )
+            conn.execute(
+                "UPDATE t1_billing_bindings SET key_id = ? WHERE key_id = ?",
+                (new_key_id, old_key_id),
+            )
+        return self.get(new_key_id)
+
+    def attach_to(self, keymaster: Any) -> None:
+        """Follow a Keymaster's key lifecycle.
+
+        Without this, ``release`` and ``transfer`` are methods nobody
+        calls: revocation happens in the security layer, which knows
+        nothing about billing, and a binding left behind on a dead key ID
+        is a spend cap waiting to be inherited.
+
+        Registration is best-effort. An older Keymaster without the hooks
+        still works — it simply does not prune, which is the behaviour
+        that existed before this method — so a version mismatch degrades
+        instead of failing at startup.
+        """
+        if hasattr(keymaster, "on_revoke"):
+            keymaster.on_revoke(lambda key_id, _reason="": self.release(key_id))
+        if hasattr(keymaster, "on_rotate"):
+            keymaster.on_rotate(self.transfer)
+
     def record_spend(self, key_id: str, amount: float) -> BillingBinding | None:
         """Add to what a binding has spent.
 

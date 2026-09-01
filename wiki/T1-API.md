@@ -5,7 +5,7 @@ mountable into any Python server. The client requests an operation; the
 server decides what exists, what's available, and how much is left — see
 [Design principle](#design-principle).
 
-**Status: released — T1 v1.0.26.8.0.1** (long form `1.0.2026.8.0.1`).
+**Status: released — T1 v1.0.26.8.1.1** (long form `1.0.2026.8.1.1`).
 The betas ended here. This page is the living contract for what's actually
 implemented vs. planned; cross-reference against the
 [Roadmap](#roadmap) before assuming an endpoint exists.
@@ -93,8 +93,8 @@ Two spellings of the same version:
 
 | | | |
 |---|---|---|
-| **short** | `1.0.26.8.0.1` | two-digit year. The wire form — what `__t1api_version__`, `GET /status`, `waiter --version` and every response carry, because it is the form people type. |
-| **long** | `1.0.2026.8.0.1` | four-digit year. The changelog form. |
+| **short** | `1.0.26.8.1.1` | two-digit year. The wire form — what `__t1api_version__`, `GET /status`, `waiter --version` and every response carry, because it is the form people type. |
+| **long** | `1.0.2026.8.1.1` | four-digit year. The changelog form. |
 
 Both parse, with or without a `v` / `t1 v` prefix, and they compare
 equal:
@@ -102,8 +102,8 @@ equal:
 ```python
 from hypernix.t1api.version import T1Version, T1_VERSION
 
-T1Version.parse("t1 v1.0.2026.8.0.1") == T1Version.parse("1.0.26.8.0.1")   # True
-T1Version.parse("1.0.26.8.0.1") < "1.0.26.9.0.0"                            # True
+T1Version.parse("t1 v1.0.2026.8.1.1") == T1Version.parse("1.0.26.8.1.1")   # True
+T1Version.parse("1.0.26.8.1.1") < "1.0.26.9.0.0"                            # True
 T1_VERSION.generation                                                        # "1.0"
 T1_VERSION.release                                                           # "2026-08"
 ```
@@ -119,8 +119,8 @@ it may remove. `T1Version.compatible_with()` is that check.
 
 ```json
 {
-  "t1_api_version": "1.0.26.8.0.1",
-  "t1_api_version_long": "1.0.2026.8.0.1",
+  "t1_api_version": "1.0.26.8.1.1",
+  "t1_api_version_long": "1.0.2026.8.1.1",
   "beta": "t1-1.0",
   "t1_version": {"generation": "1.0", "release": "2026-08", "year": 2026, "month": 8}
 }
@@ -131,7 +131,7 @@ The `beta` field keeps its name — it used to say `beta4` and now says
 breaking change for a cosmetic win.
 
 **Package version.** The pip package (`hypernix`) versions
-independently: `0.72.0` ships T1 v1.0.26.8.0.1. `GET /status` reports
+independently: `0.72.3` ships T1 v1.0.26.8.1.1. `GET /status` reports
 both.
 
 ## Installation
@@ -1481,7 +1481,7 @@ Setting `T1_ENVIRONMENT=production` additionally makes the configuration
 **validated rather than assumed** — see
 [Production deployment](#production-deployment).
 
-T1 v1.0.26.8.0.1 adds:
+T1 v1.0.26.8.0.1 added:
 
 | Variable | Default | |
 |---|---|---|
@@ -1497,6 +1497,15 @@ T1 v1.0.26.8.0.1 adds:
 | `T1_HYPERLINK_MAX_UPLOAD_BYTES` | `67108864` | enforced on bytes read, not `Content-Length` |
 | `T1_HYPERLINK_PAIRING_TTL` | `600` | how long a pairing code lives |
 | `T1_HF_TOKEN` / `HF_TOKEN` | — | secret; for resolving gated repositories |
+
+T1 v1.0.26.8.1.1 adds:
+
+| Variable | Default | |
+|---|---|---|
+| `T1_BOOTSTRAP_KEY` | `1` | mint a local-only three-day admin key on a first start with an empty key store. `0` on a server that is provisioned some other way. |
+| `T1_BILLING_KEY_POLICY` | `allow` | `allow` \| `deny` \| `separate` — whether a [T2P key](#billing-keys-t2p-and-refusing-them) may pay for its own request, must not, or must hand payment to a distinct key in `X-Payment-Key`. |
+| `T1_PAYMENT_URL` | — | where a `deny`/`separate` server sends a caller instead. Returned in the refusal, so the error is actionable. |
+| `T1_KEYMASTER_DIR` | `~/.hypernix/keymaster` | the key store. `gkey` reads the same variable, so a server and the tool that mints its keys cannot disagree about where keys live. |
 
 ## Security
 
@@ -1580,6 +1589,7 @@ six-part scheme in [Versioning](#versioning) rather than a beta number.
 | Release | Scope | Status |
 |---|---|---|
 | **1.0.26.8.0.1** | The [LM Studio bridge](#the-lm-studio-bridge); [HyperLink](#hyperlink) pairing, sessions, attachments and endpoint advertisement; [Hugging Face link merging](#hugging-face-link-merging); the [HyperLink iOS app](../ios/README.md) | **Shipped** |
+| **1.0.26.8.1.1** | The [bootstrap admin key](#the-first-key-a-new-server-has) a fresh server issues itself; [T2P billing keys](#billing-keys-t2p-and-refusing-them) and the server-side policy that can refuse them; the three HyperLink reachability fixes (advertised port, tailnet ATS, Tailscale diagnosis) and [T2S key](#using-a-t2s-key) entry from the app; [undoable](#undoing-an-authentication-change) auth changes and durable server ids | **Shipped** |
 
 ## Design principle
 

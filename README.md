@@ -17,7 +17,7 @@ for most updates
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
-- [What's new: T1 v1.0.26.8.0.1](#whats-new-t1-v10268001)
+- [What's new: 0.72.3 — T1 v1.0.2026.8.1.1](#whats-new-0723--t1-v102026811)
 - [Package layout](#package-layout)
 - [Module reference](#module-reference)
 - [What's new in v0.70.5](#whats-new-in-v0705)
@@ -39,59 +39,58 @@ for most updates
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
 
-## What's new: T1 v1.0.26.8.0.1
+## What's new: 0.72.3 — T1 v1.0.2026.8.1.1
 
-The **T1 API** — HyperNix's controlled HTTP gateway — now versions itself
-rather than tracking the pip package. Six parts,
-`api.major.year.month.feature.fix`, in two spellings of one value:
-`1.0.2026.8.0.1` for changelogs, `1.0.26.8.0.1` for the wire. Package
-`0.72.0` ships it.
-
-Six features:
-
-**The LM Studio bridge.** Borrow a model already loaded in LM Studio — on
-localhost, the LAN, or a tailnet — through the T1 API, so authentication,
-rate limits, the audit log and usage accounting all still apply.
+**A new server can be set up without knowing anything.** It issues itself
+one admin key on first start, prints it once, and that key works only
+from the machine that made it and only for three days. That is enough to
+point `waiter` at it and mint a real one.
 
 ```bash
-export T1_LMSTUDIO_URL=http://localhost:1234
-waiter lmstudio status                       # reachable? loaded? CORS?
-waiter lmstudio chat "explain SIMD in one line"
-waiter lmstudio local                        # probe from this machine, no server
+./install-t1.sh                 # interactive setup, or:
+hypernix-t1 start               # start / stop / restart / status / logs
+hypernix-t1 test                # health, status, and a real end-to-end probe
+hypernix-t1 autostart on        # a systemd user service
 ```
 
-**HyperLink**, and **[HyperLink for iOS](ios/README.md)** — chat with the
-models on your own PC from an iPhone, at home or anywhere over Tailscale.
-Send photos, upload files and code, switch models. Pairing is two steps:
+**HyperLink connects.** Three separate bugs each produced the same
+symptom — the app times out and the server log is empty, because nothing
+ever arrived. The server advertised port 8000 whatever port it was on;
+iOS blocked tailnet addresses before sending, since Tailscale's
+100.64.0.0/10 is not one of the RFC 1918 ranges ATS exempts; and when
+Tailscale was missing the server said nothing about why. All three fixed,
+and the app now takes a **T2S key** as well as a pairing code.
+
+**Keys can pay for themselves.** A **T2P** key carries a billing binding —
+provider references, a spend cap, a currency — so it can be issued to
+someone who pays for their own usage. No card data reaches the server,
+and the binding is not in the credential. A server can refuse them
+outright and point at its own payment page, or require payment on a
+*separate* key, so the credential that identifies a caller and the one
+that spends money have different lifetimes.
+
+**`gkey` mints every format.** `-v v1|v2|v2short`, plus `gkey version`
+for what this build can issue.
 
 ```bash
-waiter hyperlink pair --label "my iPhone"    # prints an address and 6 characters
+gkey create -v v2 --level 5            # T2_…-5
+gkey create -v v2short                 # T2S_…  for HyperLink
+gkey version                           # package, T1 API, key formats
 ```
 
-Type those into the app and you are done. The app is built as an IPA by
-CI and attached to every release.
+**The AI agent asks before it runs anything.** Tool calls are parsed out
+of the model's own reply, so anything that can influence that reply — a
+file it read, a web result, a page it fetched — could previously execute
+shell commands with no prompt. Side-effecting tools now require consent;
+`HYPERNIX_TOOL_POLICY=ask|deny|allow`, and "ask" with no terminal means
+deny.
 
-**Server-side chat sessions.** Conversations live on the PC, so a thread
-started at the desk continues on the phone. **An attachment store**,
-content-addressed, that expands images into vision parts and code into
-fenced blocks at the moment of inference. **Endpoint advertisement**, so
-a client tries every address the machine answers on, Tailscale first, and
-keeps the one that works.
+**Releases are gated on a live server.** After the tests, two jobs each
+mint a T2 key, start a real API, chat through a fake model, drive an
+iPhone simulator, then delete every key they made. Nothing publishes
+until both pass.
 
-**Hugging Face link merging.** Paste a model page, a direct download
-link, or both:
-
-```bash
-waiter fetch https://huggingface.co/bartowski/Qwen3-8B-GGUF
-waiter fetch --page <model page> --file <download-arrow link>
-```
-
-Split GGUFs come back as the whole set of parts, vision projectors are
-included, and two links naming different repositories is reported rather
-than silently resolved.
-
-Full detail: [wiki/T1-API.md](wiki/T1-API.md) and
-[wiki/Changelog.md](wiki/Changelog.md).
+Full detail in the [Changelog](wiki/Changelog.md).
 
 ## Package layout
 

@@ -241,3 +241,82 @@ class TestTheServerPolicy:
         from hypernix.t1api.config import T1APIConfig
 
         assert T1APIConfig().billing_key_policy == "allow"
+
+
+class TestTheBindingFollowsTheKey:
+    """`release` and `transfer` were methods nobody called.
+
+    Revocation happens in the security layer, which knows nothing about
+    billing. Without the lifecycle hooks a binding outlives the key it
+    belongs to — and a spend cap with a recorded spend, sitting on a dead
+    key ID, is waiting to be inherited by whatever holds that ID next.
+    """
+
+    @pytest.fixture
+    def km(self, tmp_path):
+        from hypernix.security.keymaster import Keymaster
+
+        return Keymaster(store_dir=tmp_path / "keys", auto_rotate=False)
+
+    def test_revoking_a_key_releases_its_binding(self, store, km):
+        key = km.create(key_type=KeyType.SERVICE, scopes={KeyScope.READ})
+        store.bind(
+            key.key_id,
+            provider="stripe",
+            customer_ref="cus_test",
+            method_ref="pm_test",
+            spend_cap=25.0,
+        )
+        store.attach_to(km)
+        assert store.get(key.key_id) is not None
+
+        km.revoke(key.key_id, reason="test")
+
+        assert store.get(key.key_id) is None
+
+    def test_rotating_a_key_moves_the_binding_and_its_spend(self, store, km):
+        """A rotation that reset `spent` would mint spend out of a cap."""
+        key = km.create(key_type=KeyType.SERVICE, scopes={KeyScope.READ})
+        store.bind(
+            key.key_id,
+            provider="stripe",
+            customer_ref="cus_test",
+            method_ref="pm_test",
+            spend_cap=10.0,
+        )
+        store.record_spend(key.key_id, 7.5)
+        store.attach_to(km)
+
+        new_meta = km.rotate(key.key_id)
+
+        assert store.get(key.key_id) is None
+        moved = store.get(new_meta.key_id)
+        assert moved is not None
+        assert moved.spend_cap == 10.0
+        assert moved.spent == pytest.approx(7.5)
+
+        # And the cap still bites on the new key.
+        with pytest.raises(PaymentRequired):
+            store.assert_within_cap(new_meta.key_id, estimated=5.0)
+
+    def test_a_failing_observer_cannot_block_a_revocation(self, km):
+        """Revoking is the safety-critical operation; bookkeeping is not."""
+        def explode(_key_id, _reason=""):
+            raise RuntimeError("bookkeeping is down")
+
+        km.on_revoke(explode)
+        key = km.create(key_type=KeyType.SERVICE, scopes={KeyScope.READ})
+
+        km.revoke(key.key_id, reason="test")
+
+        assert key.key_id not in {k.key_id for k in km.list()}
+
+    def test_attach_to_tolerates_a_keymaster_without_the_hooks(self, store):
+        """A version mismatch degrades to the old behaviour, not a crash."""
+        class Older:
+            pass
+
+        store.attach_to(Older())  # must not raise
+
+    def test_transfer_of_a_key_with_no_binding_is_a_no_op(self, store):
+        assert store.transfer("nope", "also-nope") is None
