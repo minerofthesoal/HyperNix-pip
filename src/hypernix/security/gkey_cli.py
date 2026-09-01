@@ -56,6 +56,7 @@ plain text otherwise.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from datetime import UTC, datetime
@@ -164,8 +165,23 @@ def _print_panel(content: str, title: str = "") -> None:
 
 
 def _get_km(store: Path | None = None):
-    """Return a Keymaster instance (auto_rotate=False for CLI use)."""
+    """Return a Keymaster instance (auto_rotate=False for CLI use).
+
+    Honours ``T1_KEYMASTER_DIR``, which is what the server reads. Without
+    that, an install using ``--config-dir`` puts the server's key store
+    under the config directory while gkey kept writing to
+    ``~/.hypernix/keymaster`` — so every key the operator minted was
+    invisible to their own server, and the key they were handed at first
+    start was invisible to gkey. Two halves of one tool disagreeing about
+    where the keys live is a hard failure to reason about, because both
+    of them work.
+    """
     from hypernix.security.keymaster import Keymaster
+
+    if store is None:
+        configured = os.environ.get("T1_KEYMASTER_DIR")
+        if configured:
+            store = Path(configured)
     return Keymaster(store_dir=store, auto_rotate=False)
 
 
@@ -914,6 +930,7 @@ Usage:
   gkey rotate       Rotate (replace) a key with a fresh one
   gkey export       Export key(s) to JSON
   gkey import       Import key(s) from JSON
+  gkey version      HyperNix, T1 API, and key format versions
 
 Run `gkey <subcommand> --help` for detailed options.
 """

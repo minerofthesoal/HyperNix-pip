@@ -310,9 +310,193 @@ jobs:
   # ---------------------------------------------------------------------------
   # Create the GitHub Release and attach the built artifacts + SHA256SUMS.
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------
+  # Live integration: a real server, a real key, a fake model.
+  # ---------------------------------------------------------------------
+  #
+  # Two jobs run after `cut` has built and tested the release, each minting
+  # its own T2 key and
+  # tearing it down afterwards. One drives the API; the other drives the
+  # iPhone app.
+  #
+  # A note on the shape, because it is not the obvious one. Hosted runners
+  # cannot reach each other over the network, so "job A hosts the server,
+  # job B connects to it" is not expressible here — there is no route
+  # between two runners. Each job therefore brings up the server it needs
+  # on its own runner. The split that matters is preserved: one job proves
+  # the API works against a client that authenticates from outside the
+  # process, the other proves the app works against a real server, and the
+  # release waits on both.
+  #
+  # The model is a stub speaking the OpenAI shape rather than a mock
+  # patched into the bridge, so the bridge, the routing engine and the
+  # serialisation are all the real ones. A mock would prove the mock works.
+
+  integration-api:
+    name: integration — live API + fake model
+    needs: cut
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Both halves must agree on where the keys live. The server reads
+      # T1_KEYMASTER_DIR and so does gkey; leaving either to infer it from
+      # $HOME is how a key gets minted into a store the server is not
+      # reading, which looks exactly like a rejected key.
+      T1_KEYMASTER_DIR: ${{ github.workspace }}/.ci-keys
+      T1_DB_PATH: ${{ github.workspace }}/.ci-t1.sqlite3
+      T1_HYPERLINK_ENABLED: "1"
+      T1_LMSTUDIO_ENABLED: "1"
+      T1_LMSTUDIO_URL: http://127.0.0.1:1234
+      T1_ENVIRONMENT: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install with the server extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[t1api]'
+
+      - name: Start the fake model
+        run: |
+          nohup python scripts/ci/fake_model_server.py --port 1234 \
+            > fake-model.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:1234/v1/models >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:1234/v1/models
+
+      - name: Start the T1 API
+        run: |
+          export T1_TOKEN_SECRET="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+          echo "T1_TOKEN_SECRET=$T1_TOKEN_SECRET" >> "$GITHUB_ENV"
+          nohup python -m uvicorn hypernix.t1api.app:create_app --factory \
+            --host 127.0.0.1 --port 8000 > t1api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+
+      - name: Mint a key, authorise it, and chat through the fake model
+        run: python scripts/ci/integration_probe.py --url http://127.0.0.1:8000
+
+      - name: Shut it down and prove no keys are left behind
+        if: always()
+        run: |
+          pkill -f 'uvicorn hypernix.t1api' || true
+          pkill -f fake_model_server || true
+          remaining="$(ls -1 "$T1_KEYMASTER_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')"
+          echo "keys still in the store: $remaining"
+          # The bootstrap key is expected — it is loopback-only and expires
+          # in three days. Anything the probe minted must be gone.
+          if [ "$remaining" -gt 1 ]; then
+            echo "::error::the probe left ${remaining} keys behind"
+            ls -la "$T1_KEYMASTER_DIR" || true
+            exit 1
+          fi
+          rm -rf "$T1_KEYMASTER_DIR" "$T1_DB_PATH"
+
+      - name: Server logs (on failure)
+        if: failure()
+        run: |
+          echo '--- t1api ---'; tail -n 100 t1api.log || true
+          echo '--- fake model ---'; tail -n 40 fake-model.log || true
+
+  integration-ios:
+    name: integration — iPhone simulator + live API
+    needs: cut
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      T1_KEYMASTER_DIR: ${{ github.workspace }}/.ci-keys
+      T1_DB_PATH: ${{ github.workspace }}/.ci-t1.sqlite3
+      T1_HYPERLINK_ENABLED: "1"
+      T1_LMSTUDIO_ENABLED: "1"
+      T1_LMSTUDIO_URL: http://127.0.0.1:1234
+      T1_ENVIRONMENT: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install with the server extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[t1api]'
+
+      - name: Start the fake model and the T1 API
+        run: |
+          nohup python scripts/ci/fake_model_server.py --port 1234 > fake-model.log 2>&1 &
+          export T1_TOKEN_SECRET="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+          echo "T1_TOKEN_SECRET=$T1_TOKEN_SECRET" >> "$GITHUB_ENV"
+          nohup python -m uvicorn hypernix.t1api.app:create_app --factory \
+            --host 127.0.0.1 --port 8000 > t1api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+
+      - name: Mint this job's own key and check the API from outside
+        run: python scripts/ci/integration_probe.py --url http://127.0.0.1:8000
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+
+      - name: Boot an iPhone simulator
+        id: sim
+        run: |
+          device="$(python3 ios/scripts/pick_simulator.py)"
+          echo "device=$device" >> "$GITHUB_OUTPUT"
+          echo "picked: $device"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b || true
+
+      - name: Build and test the app on the simulator
+        run: |
+          cd ios
+          xcodebuild test \
+            -project HyperLink.xcodeproj \
+            -scheme HyperLink \
+            -destination "id=${{ steps.sim.outputs.device }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || xcodebuild test \
+            -project HyperLink.xcodeproj \
+            -scheme HyperLink \
+            -destination "id=${{ steps.sim.outputs.device }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Shut it all down and delete the keys
+        if: always()
+        run: |
+          xcrun simctl shutdown all || true
+          pkill -f 'uvicorn hypernix.t1api' || true
+          pkill -f fake_model_server || true
+          remaining="$(ls -1 "$T1_KEYMASTER_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')"
+          echo "keys still in the store: $remaining"
+          if [ "$remaining" -gt 1 ]; then
+            echo "::error::the probe left ${remaining} keys behind"
+            exit 1
+          fi
+          rm -rf "$T1_KEYMASTER_DIR" "$T1_DB_PATH"
+
+      - name: Logs (on failure)
+        if: failure()
+        run: |
+          echo '--- t1api ---'; tail -n 100 t1api.log || true
+          echo '--- fake model ---'; tail -n 40 fake-model.log || true
+
   github-release:
     name: GitHub Release
-    needs: cut
+    needs: [cut, integration-api, integration-ios]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
@@ -349,7 +533,7 @@ jobs:
   # ---------------------------------------------------------------------------
   pypi-publish:
     name: publish to PyPI
-    needs: cut
+    needs: [cut, integration-api, integration-ios]
     if: >-
       !inputs.dry_run &&
       !inputs.skip_pypi &&
@@ -384,7 +568,7 @@ jobs:
   # ---------------------------------------------------------------------------
   testpypi-publish:
     name: publish to TestPyPI
-    needs: cut
+    needs: [cut, integration-api, integration-ios]
     if: >-
       !inputs.dry_run &&
       !inputs.skip_pypi &&

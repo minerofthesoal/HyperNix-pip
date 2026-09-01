@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.72.2.post5"
+version = "0.72.3"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "HOL-1.0" }
@@ -162,6 +162,12 @@ Logo = "https://raw.githubusercontent.com/minerofthesoal/hypernix-pip/main/asset
 # ---------------------------------------------------------------------------
 [tool.setuptools]
 include-package-data = true
+# hypernix-t1 is a shell program, not a Python entry point, so it cannot
+# go in [project.scripts]. script-files puts it on PATH alongside the
+# console scripts, which is what the documentation promises — without it,
+# `pip install hypernix` gives you every other companion script and not
+# this one.
+script-files = ["bin/hypernix-t1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

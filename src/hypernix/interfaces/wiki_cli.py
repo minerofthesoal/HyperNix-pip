@@ -269,6 +269,7 @@ def _open_in_browser(module_name: str | None) -> None:
             "bell": "Bell",
             "flour": "Flour",
             "stml": "STML",
+            "vram": "VRAM",
             "abbicus": "Abbicus",
             "workshop": "Workshop",
             "scavenger": "Scavenger",

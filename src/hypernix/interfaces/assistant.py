@@ -748,7 +748,10 @@ class InteractiveCLI:
         """Run a shell command and show its real output and exit status."""
         try:
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=60, check=False,
+                # nosec B602 - `/system <cmd>` is an operator-typed shell
+                # escape, the same as `!` in a REPL. No model output reaches
+                # here; shell=True is the feature being asked for.
+                command, shell=True, capture_output=True, text=True, timeout=60, check=False,  # noqa: S602
             )
         except (OSError, subprocess.SubprocessError) as exc:
             _report(exc, f"Running {command!r}")

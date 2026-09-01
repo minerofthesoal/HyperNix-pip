@@ -14,16 +14,16 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from shell_support import BASH, NO_BASH_REASON
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "install-t1.sh"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash is not available"
-)
+pytestmark = pytest.mark.skipif(BASH is None, reason=NO_BASH_REASON)
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +55,7 @@ class TestShape:
         assert os.access(SCRIPT, os.X_OK), "install-t1.sh is not executable"
 
     def test_it_parses(self):
-        subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
+        subprocess.run([BASH, "-n", str(SCRIPT)], check=True)
 
     def test_it_fails_on_error_and_on_unset(self, source):
         assert "set -euo pipefail" in source
@@ -145,7 +145,7 @@ class TestDryRun:
         target = tmp_path / "config"
         result = subprocess.run(
             [
-                "bash",
+                BASH,
                 str(SCRIPT),
                 "--dry-run",
                 "--non-interactive",
@@ -164,14 +164,14 @@ class TestDryRun:
 
     def test_help_exits_zero(self):
         result = subprocess.run(
-            ["bash", str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
+            [BASH, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
         )
         assert result.returncode == 0
         assert "--non-interactive" in result.stdout
 
     def test_an_unknown_flag_is_refused(self):
         result = subprocess.run(
-            ["bash", str(SCRIPT), "--not-a-flag"],
+            [BASH, str(SCRIPT), "--not-a-flag"],
             capture_output=True,
             text=True,
             timeout=60,
@@ -195,7 +195,7 @@ class TestCidrValidation:
             + f'\nvalidate_cidrs "{value}"\n'
         )
         return subprocess.run(
-            ["bash", "-c", harness], capture_output=True, text=True, timeout=60
+            [BASH, "-c", harness], capture_output=True, text=True, timeout=60
         ).stdout.strip()
 
     @pytest.mark.parametrize(
@@ -491,7 +491,7 @@ class TestTheYesFlag:
 
     def test_the_help_text_describes_what_it_does(self):
         result = subprocess.run(
-            ["bash", str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
+            [BASH, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
         )
         assert "--yes" in result.stdout
         # Collapse the wrapping first: the help text is hard-wrapped, so
@@ -508,7 +508,7 @@ class TestTheYesFlag:
         ) + "\n"
         target = tmp_path / "cfg"
         result = subprocess.run(
-            ["bash", str(SCRIPT), "--yes", "--install", "skip",
+            [BASH, str(SCRIPT), "--yes", "--install", "skip",
              "--config-dir", str(target)],
             input=answers,
             capture_output=True,
@@ -563,3 +563,124 @@ def _code_only(text: str) -> str:
     return "\n".join(
         "" if line.lstrip().startswith("#") else line for line in text.splitlines()
     )
+
+
+class TestWhichInterpreter:
+    """`--install skip` has to find the one that *has* hypernix.
+
+    The search used to be ordered `python3.12 python3.13 python3.11
+    python3 python` — newest-ish first, with the operator's own `python3`
+    fourth. On any machine with several interpreters that picks one the
+    operator never chose, and under `--install skip`, whose whole premise
+    is that the package is already installed somewhere, it then verifies
+    an installation that was never meant to be in that interpreter and
+    fails while everything is in fact fine. That is exactly what happened
+    in CI: the job installed into setup-python's 3.11 and the script went
+    looking in the system 3.12.
+    """
+
+    def _fake_python(self, directory: Path, name: str, *, has_hypernix: bool) -> Path:
+        """An interpreter that works but may not have hypernix.
+
+        Delegates everything to the real interpreter except `import
+        hypernix`, so the version and pip preflight checks pass and only
+        the question under test differs.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / name
+        reject = "" if has_hypernix else '''
+for arg in "$@"; do
+  case "$arg" in
+    *"import hypernix"*) exit 1 ;;
+  esac
+done
+'''
+        path.write_text(
+            "#!/usr/bin/env bash\n" + reject + f'exec {sys.executable} "$@"\n',
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+        return path
+
+    def _preflight_choice(self, tmp_path, path_entries: list[str], **env) -> str:
+        """Run just as far as the interpreter report, and return that line."""
+        result = subprocess.run(
+            [BASH, str(SCRIPT), "--dry-run", "--non-interactive",
+             "--config-dir", str(tmp_path / "cfg"), "--install", "skip"],
+            capture_output=True, text=True, timeout=300,
+            env={
+                **os.environ,
+                "NO_COLOR": "1",
+                "HOME": str(tmp_path / "home"),
+                "PATH": os.pathsep.join([*path_entries, os.environ["PATH"]]),
+                **env,
+            },
+        )
+        line = next(
+            (ln for ln in result.stdout.splitlines() if "python:" in ln), ""
+        )
+        assert line, result.stdout[-2000:] + result.stderr[-1000:]
+        return line
+
+    def test_it_prefers_the_interpreter_that_has_hypernix(self, tmp_path):
+        """A newer one without the package must not win."""
+        bin_dir = tmp_path / "bin"
+        self._fake_python(bin_dir, "python3.14", has_hypernix=False)
+        chosen = self._fake_python(bin_dir, "python3", has_hypernix=True)
+
+        line = self._preflight_choice(
+            tmp_path, [str(bin_dir)],
+            PYTHONPATH=str(REPO_ROOT / "src"),
+        )
+
+        assert str(chosen) in line, line
+
+    def test_python_override_wins_over_the_search(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        self._fake_python(bin_dir, "python3", has_hypernix=True)
+        override = self._fake_python(bin_dir, "python3.11", has_hypernix=True)
+
+        line = self._preflight_choice(
+            tmp_path, [str(bin_dir)],
+            HYPERNIX_PYTHON=str(override),
+            PYTHONPATH=str(REPO_ROOT / "src"),
+        )
+
+        assert str(override) in line, line
+
+    def test_an_unusable_override_is_refused_by_name(self, tmp_path):
+        result = subprocess.run(
+            [BASH, str(SCRIPT), "--dry-run", "--non-interactive",
+             "--python", "/definitely/not/a/python",
+             "--config-dir", str(tmp_path / "cfg")],
+            capture_output=True, text=True, timeout=180,
+            env={**os.environ, "NO_COLOR": "1", "HOME": str(tmp_path / "home")},
+        )
+        assert result.returncode != 0
+        assert "/definitely/not/a/python" in result.stderr
+
+    def test_skip_with_no_installation_says_what_to_do(self, tmp_path):
+        """Not "install failed" — nothing was installed, and that is the point."""
+        bin_dir = tmp_path / "bin"
+        self._fake_python(bin_dir, "python3", has_hypernix=False)
+
+        result = subprocess.run(
+            [BASH, str(SCRIPT), "--non-interactive", "--install", "skip",
+             "--config-dir", str(tmp_path / "cfg")],
+            capture_output=True, text=True, timeout=300,
+            env={
+                **os.environ,
+                "NO_COLOR": "1",
+                "HOME": str(tmp_path / "home"),
+                "PATH": os.pathsep.join([str(bin_dir), os.environ["PATH"]]),
+                "PYTHONPATH": "",
+            },
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode != 0
+        assert "--python" in combined, combined[-2000:]
+        assert "after installing" not in combined, "wrong diagnosis"
+
+    def test_the_help_documents_the_override(self, source: str):
+        assert "--python PATH" in source
+        assert "HYPERNIX_PYTHON" in source

@@ -47,8 +47,10 @@ from __future__ import annotations
 
 import logging
 import math
+import sys
 import time
 import uuid
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -66,6 +68,7 @@ from .auth import T1AuthService
 from .authhistory import AuthHistory
 from .backup import BackupStore
 from .billing import BillingLedger
+from .billingkeys import BillingBindingStore
 from .config import T1APIConfig
 from .cost import CostCalculator
 from .db import SQLBackend, make_backend
@@ -167,6 +170,32 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
 }
+
+
+def _announce_bootstrap_key(key: Any, cfg: T1APIConfig) -> None:
+    """Show the key once, on the terminal, and nowhere else.
+
+    Printed rather than logged. A log line is a copy that outlives the
+    three days and gets shipped wherever logs go; stdout on first start
+    is seen by the person who just ran the command and by nobody else.
+    Under a service manager stdout is the journal, which the banner says
+    so the operator can judge it — and which is bounded by the expiry
+    either way.
+    """
+    if key is None or not key.created:
+        return
+    from .bootstrap import bootstrap_banner
+
+    # Only an address the deployment was actually configured with. The
+    # bind address belongs to uvicorn, not to this config, so anything
+    # else here would be a guess printed as an instruction.
+    base_url = (cfg.hyperlink_public_url or "").rstrip("/")
+    try:
+        sys.stdout.write(bootstrap_banner(key, base_url=base_url))
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001
+        # A server must not fail to start because it could not print.
+        logger.info("t1api.bootstrap: minted a bootstrap key (banner not shown)")
 
 
 def create_app(
@@ -311,6 +340,22 @@ def create_app(
     # Dependency wiring lives on app.state so t1api/deps.py never touches
     # a module-level global — this is what makes create_app() safe to call
     # more than once (e.g. once per test) without cross-talk.
+    # The first credential this server has, when it has none. Loopback
+    # only and three days — see hypernix.t1api.bootstrap for why those
+    # two limits are what make printing it acceptable.
+    if cfg.bootstrap_key_enabled:
+        from .bootstrap import ensure_bootstrap_key
+
+        app.state.t1_bootstrap_key = ensure_bootstrap_key(km)
+        _announce_bootstrap_key(app.state.t1_bootstrap_key, cfg)
+    else:
+        app.state.t1_bootstrap_key = None
+
+    app.state.t1_billing_bindings = BillingBindingStore(db)
+    # A binding must not outlive the key it belongs to, and must follow a
+    # key that is rotated rather than being dropped. The Keymaster owns
+    # both events; this is where the two halves are introduced.
+    app.state.t1_billing_bindings.attach_to(km)
     app.state.t1_config = cfg
     app.state.t1_keymaster = km
     app.state.t1_gatekeeper = gk

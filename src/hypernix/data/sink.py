@@ -46,7 +46,8 @@ class Sink:
         write, False when ``dedupe=True`` suppressed a duplicate."""
         payload = line if line.endswith("\n") else line + "\n"
         if self.dedupe:
-            h = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+            # Dedupe only — see pans.py for why the flag matters.
+            h = hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()
             if h in self._seen:
                 return False
             self._seen.add(h)

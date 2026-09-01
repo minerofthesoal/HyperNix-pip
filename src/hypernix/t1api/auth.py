@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from hypernix.security.gatekeeper import Gatekeeper, QuotaViolation
 from hypernix.security.keymaster import Keymaster, KeyMeta, KeyScope, KeyType
 
+from ..security.t2keys import looks_like_t2
 from .errors import T1APIError, T1ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -215,7 +216,7 @@ class T1AuthService:
         has nowhere to put are carried on the returned context instead of
         being silently discarded.
         """
-        if key_str[:2] == "T2" and key_str[:3] in ("T2_", "T2S"):
+        if looks_like_t2(key_str):
             if not self.accept_t2_keys:
                 raise T1APIError(
                     T1ErrorCode.AUTH_INVALID_KEY,

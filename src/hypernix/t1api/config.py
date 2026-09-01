@@ -236,6 +236,17 @@ class T1APIConfig:
     hyperlink_advertised_port: int = field(
         default_factory=lambda: _int_env("T1_HYPERLINK_PORT", 8000)
     )
+    #: Whether that port was actually configured, or is just the default.
+    #:
+    #: The two cannot be told apart from the value — 8000 is both — and
+    #: they mean opposite things: a configured port must be advertised as
+    #: given (a proxy knows something the request cannot), while a default
+    #: one must give way to the port the request really arrived on.
+    #: Captured here, beside the value, so the answer cannot drift from
+    #: what was read.
+    hyperlink_port_is_explicit: bool = field(
+        default_factory=lambda: bool(os.environ.get("T1_HYPERLINK_PORT"))
+    )
     hyperlink_pairing_ttl_seconds: float = field(
         default_factory=lambda: _float_env("T1_HYPERLINK_PAIRING_TTL", 600.0)
     )
@@ -298,6 +309,33 @@ class T1APIConfig:
     # a config directory and needs the server to read that same store,
     # and two servers on one machine, which would otherwise share one
     # store and see each other's keys.
+    # Mint a loopback-only admin key on first start, so a new server is
+    # reachable without running gkey on the box by hand. On by default:
+    # the alternative is a server nobody can configure, which is how
+    # "HyperLink cannot connect" starts. Off for a deployment that
+    # provisions credentials some other way.
+    # What this server does with a key that bills somewhere else.
+    #
+    # "allow" accepts the caller's own payment arrangement. "deny"
+    # refuses it and points at this server's payment page, which is the
+    # right answer for an operator who sells access themselves. "separate"
+    # accepts the request but requires payment on a *different* key, so
+    # the credential that identifies the caller and the one that spends
+    # money have separate lifetimes.
+    billing_key_policy: str = field(
+        default_factory=lambda: (
+            os.environ.get("T1_BILLING_KEY_POLICY", "allow").strip().lower() or "allow"
+        )
+    )
+    #: Where to send someone whose billing key was refused. Without it
+    #: "deny" is a dead end, so the refusal says so rather than pretending
+    #: there is somewhere to go.
+    payment_url: str = field(default_factory=lambda: os.environ.get("T1_PAYMENT_URL", ""))
+
+    bootstrap_key_enabled: bool = field(
+        default_factory=lambda: _bool_env("T1_BOOTSTRAP_KEY", True)
+    )
+
     keymaster_dir: str | None = field(
         default_factory=lambda: os.environ.get("T1_KEYMASTER_DIR") or None
     )

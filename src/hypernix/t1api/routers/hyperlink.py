@@ -105,9 +105,35 @@ def _require_enabled(config: T1APIConfig) -> None:
         )
 
 
-def _endpoints(config: T1APIConfig) -> dict[str, Any]:
+def _advertised_port(config: T1APIConfig, request: Request | None) -> int:
+    """The port to hand a phone, which is not the one in the config.
+
+    uvicorn owns the bind address; nothing passes it to the app. So the
+    config's port was a default — 8000 — and a server started on any
+    other port advertised endpoints pointing at 8000. The phone dutifully
+    connected there and timed out, and the server log stayed empty
+    because nothing ever arrived.
+
+    The request knows. Whatever address a client just successfully
+    reached this server on is, by construction, an address that works, so
+    that is what gets advertised. An explicit T1_HYPERLINK_PORT still
+    wins: a deployment behind a proxy that forwards to a different port
+    is telling us something the request cannot.
+    """
+    if config.hyperlink_port_is_explicit:
+        return config.hyperlink_advertised_port
+    if request is not None:
+        port = request.url.port
+        if port:
+            return int(port)
+        # No port in the Host header means the scheme's default.
+        return 443 if request.url.scheme == "https" else 80
+    return config.hyperlink_advertised_port
+
+
+def _endpoints(config: T1APIConfig, request: Request | None = None) -> dict[str, Any]:
     return advertise(
-        port=config.hyperlink_advertised_port,
+        port=_advertised_port(config, request),
         configured=config.hyperlink_public_url,
         t1_version=T1_VERSION.short,
     )
@@ -120,6 +146,7 @@ def _endpoints(config: T1APIConfig) -> dict[str, Any]:
 
 @router.get("/endpoints", response_model=HyperLinkEndpointsResponse)
 def list_endpoints(
+    request: Request,
     principal: HyperLinkPrincipal = Depends(get_hyperlink_principal),
     config: T1APIConfig = Depends(get_config),
     request_id: str = Depends(get_request_id),
@@ -131,7 +158,7 @@ def list_endpoints(
     is reconnaissance if handed to anyone who asks.
     """
     _require_enabled(config)
-    payload = _endpoints(config)
+    payload = _endpoints(config, request)
     return HyperLinkEndpointsResponse(
         server_name=payload["server_name"],
         t1_version=payload["t1_version"],
@@ -167,7 +194,7 @@ def create_pairing_code(
         label=payload.label,
         ttl_seconds=ttl,
     )
-    endpoints = _endpoints(config)
+    endpoints = _endpoints(config, request)
     audit.record(
         "hyperlink.pair.create",
         category=AuditCategory.ADMIN,
@@ -241,7 +268,7 @@ def redeem_pairing_code(
         )
         raise
 
-    endpoints = _endpoints(config)
+    endpoints = _endpoints(config, request)
     audit.record(
         "hyperlink.pair.redeem",
         category=AuditCategory.ADMIN,

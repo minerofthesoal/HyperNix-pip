@@ -5,7 +5,7 @@ mountable into any Python server. The client requests an operation; the
 server decides what exists, what's available, and how much is left — see
 [Design principle](#design-principle).
 
-**Status: released — T1 v1.0.26.8.0.1** (long form `1.0.2026.8.0.1`).
+**Status: released — T1 v1.0.26.8.1.1** (long form `1.0.2026.8.1.1`).
 The betas ended here. This page is the living contract for what's actually
 implemented vs. planned; cross-reference against the
 [Roadmap](#roadmap) before assuming an endpoint exists.
@@ -93,8 +93,8 @@ Two spellings of the same version:
 
 | | | |
 |---|---|---|
-| **short** | `1.0.26.8.0.1` | two-digit year. The wire form — what `__t1api_version__`, `GET /status`, `waiter --version` and every response carry, because it is the form people type. |
-| **long** | `1.0.2026.8.0.1` | four-digit year. The changelog form. |
+| **short** | `1.0.26.8.1.1` | two-digit year. The wire form — what `__t1api_version__`, `GET /status`, `waiter --version` and every response carry, because it is the form people type. |
+| **long** | `1.0.2026.8.1.1` | four-digit year. The changelog form. |
 
 Both parse, with or without a `v` / `t1 v` prefix, and they compare
 equal:
@@ -102,8 +102,8 @@ equal:
 ```python
 from hypernix.t1api.version import T1Version, T1_VERSION
 
-T1Version.parse("t1 v1.0.2026.8.0.1") == T1Version.parse("1.0.26.8.0.1")   # True
-T1Version.parse("1.0.26.8.0.1") < "1.0.26.9.0.0"                            # True
+T1Version.parse("t1 v1.0.2026.8.1.1") == T1Version.parse("1.0.26.8.1.1")   # True
+T1Version.parse("1.0.26.8.1.1") < "1.0.26.9.0.0"                            # True
 T1_VERSION.generation                                                        # "1.0"
 T1_VERSION.release                                                           # "2026-08"
 ```
@@ -119,8 +119,8 @@ it may remove. `T1Version.compatible_with()` is that check.
 
 ```json
 {
-  "t1_api_version": "1.0.26.8.0.1",
-  "t1_api_version_long": "1.0.2026.8.0.1",
+  "t1_api_version": "1.0.26.8.1.1",
+  "t1_api_version_long": "1.0.2026.8.1.1",
   "beta": "t1-1.0",
   "t1_version": {"generation": "1.0", "release": "2026-08", "year": 2026, "month": 8}
 }
@@ -131,7 +131,7 @@ The `beta` field keeps its name — it used to say `beta4` and now says
 breaking change for a cosmetic win.
 
 **Package version.** The pip package (`hypernix`) versions
-independently: `0.72.0` ships T1 v1.0.26.8.0.1. `GET /status` reports
+independently: `0.72.3` ships T1 v1.0.26.8.1.1. `GET /status` reports
 both.
 
 ## Installation
@@ -425,6 +425,102 @@ Two consequences fall out of that:
 Every impossible combination is refused *before* the key is minted. A key
 created and then found unpresentable would still be in the store — valid,
 usable, and known to nobody, since the operator saw only an error.
+
+### Billing keys (T2P), and refusing them
+
+A **T2P** key is an ordinary T2 key with a billing binding attached, so a
+key can be issued to someone who pays for their own usage rather than
+drawing on the operator's budget.
+
+Two things are deliberately not in the credential:
+
+- **No card data, anywhere.** A binding holds provider-issued references —
+  a customer token and a method token — and the store refuses anything
+  shaped like a card number at the boundary. This server is not in the
+  cardholder data path.
+- **No binding in the key.** Keys get pasted into terminals and config
+  files and land in shell history. The key says only *that* it is
+  billing-bearing; the server looks the binding up by key ID.
+
+A T2P key is **never an administrator**. Spending money and reconfiguring
+a server are separate authorities with no reason to travel together.
+
+#### A server does not have to accept one
+
+Somebody else's payment arrangement is somebody else's business
+relationship. `T1_BILLING_KEY_POLICY`:
+
+| Policy | Behaviour |
+| --- | --- |
+| `allow` (default) | Accept the key and use its binding. Nothing changes for existing servers. |
+| `deny` | Refuse with `402 BILLING_KEY_REFUSED`, pointing at `T1_PAYMENT_URL` — for an operator who sells access through their own site. |
+| `separate` | Accept the request but never bill the authenticating key. Payment must arrive as a distinct T2P key in `X-Payment-Key`. |
+
+`separate` exists so the credential that identifies a caller and the one
+that spends money are different objects with different lifetimes: either
+can be rotated without disturbing the other, and a leaked auth key does
+not spend anything.
+
+The policy is enforced at **authentication**, not at charge time.
+Refusing after the work is done is a refund, not a policy — the operator
+has already paid for the inference.
+
+#### Spend caps
+
+A cap is in currency, not tokens, and is checked against the *estimated*
+cost before the work runs, in the same cascade that already tracks
+per-key cost. Revoking a key releases its binding: a binding that
+outlives its key is a standing authorisation to charge someone for a
+credential that no longer exists.
+
+### The first key a new server has
+
+A fresh server starts with an empty key store, and every route that could
+put something in it is admin-only. That is a closed loop, and it is why
+`waiter hyperlink pair` could not be run on a new install: pairing is
+admin-only and there was no admin.
+
+So a new server issues itself one credential and prints it, once:
+
+```
+  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃  First start — here is a key to set this server up with.     ┃
+  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    T2_Nc2npsJZgGXD_kNg7ZHWo2TZgsT9yggwWAyP3kn@[[*^/2-9
+
+    Works only from this machine, and only for 72 more hours.
+```
+
+Three limits are what make printing an admin key acceptable:
+
+| Limit | What enforces it |
+| --- | --- |
+| **Loopback only** | Checked on every request against the address the network policy already resolved. A key that leaks off the box authenticates nowhere — 403 `bootstrap_key_is_local_only`. |
+| **Three days** | The key store's own expiry. Nothing extra runs to enforce it. |
+| **Once** | Minted only when there is no live bootstrap key, so restarts do not accumulate admin credentials. On day four, an expired one is replaced rather than leaving you locked out. |
+
+It is a T2 admin key because you are going to type it into `waiter`, and
+because admin on a T2 key is carried by the password component — so the
+credential itself says which one is the powerful one.
+
+```bash
+waiter serv -A -I http://127.0.0.1:8000 -K '<the key>' -L
+waiter hyperlink pair --label "my iPhone"       # now works on a new server
+```
+
+Then mint a real key and let this one expire:
+
+```bash
+gkey create --type admin --scopes admin,read,write
+```
+
+`T1_BOOTSTRAP_KEY=0` turns it off for a deployment that provisions
+credentials some other way.
+
+The banner does not print a port unless the deployment was configured
+with one (`T1_HYPERLINK_PUBLIC_URL`): uvicorn owns the bind address, so
+anything else would be a guess printed as an instruction.
 
 ### Using a T2S key
 
@@ -1385,7 +1481,7 @@ Setting `T1_ENVIRONMENT=production` additionally makes the configuration
 **validated rather than assumed** — see
 [Production deployment](#production-deployment).
 
-T1 v1.0.26.8.0.1 adds:
+T1 v1.0.26.8.0.1 added:
 
 | Variable | Default | |
 |---|---|---|
@@ -1401,6 +1497,15 @@ T1 v1.0.26.8.0.1 adds:
 | `T1_HYPERLINK_MAX_UPLOAD_BYTES` | `67108864` | enforced on bytes read, not `Content-Length` |
 | `T1_HYPERLINK_PAIRING_TTL` | `600` | how long a pairing code lives |
 | `T1_HF_TOKEN` / `HF_TOKEN` | — | secret; for resolving gated repositories |
+
+T1 v1.0.26.8.1.1 adds:
+
+| Variable | Default | |
+|---|---|---|
+| `T1_BOOTSTRAP_KEY` | `1` | mint a local-only three-day admin key on a first start with an empty key store. `0` on a server that is provisioned some other way. |
+| `T1_BILLING_KEY_POLICY` | `allow` | `allow` \| `deny` \| `separate` — whether a [T2P key](#billing-keys-t2p-and-refusing-them) may pay for its own request, must not, or must hand payment to a distinct key in `X-Payment-Key`. |
+| `T1_PAYMENT_URL` | — | where a `deny`/`separate` server sends a caller instead. Returned in the refusal, so the error is actionable. |
+| `T1_KEYMASTER_DIR` | `~/.hypernix/keymaster` | the key store. `gkey` reads the same variable, so a server and the tool that mints its keys cannot disagree about where keys live. |
 
 ## Security
 
@@ -1484,6 +1589,7 @@ six-part scheme in [Versioning](#versioning) rather than a beta number.
 | Release | Scope | Status |
 |---|---|---|
 | **1.0.26.8.0.1** | The [LM Studio bridge](#the-lm-studio-bridge); [HyperLink](#hyperlink) pairing, sessions, attachments and endpoint advertisement; [Hugging Face link merging](#hugging-face-link-merging); the [HyperLink iOS app](../ios/README.md) | **Shipped** |
+| **1.0.26.8.1.1** | The [bootstrap admin key](#the-first-key-a-new-server-has) a fresh server issues itself; [T2P billing keys](#billing-keys-t2p-and-refusing-them) and the server-side policy that can refuse them; the three HyperLink reachability fixes (advertised port, tailnet ATS, Tailscale diagnosis) and [T2S key](#using-a-t2s-key) entry from the app; [undoable](#undoing-an-authentication-change) auth changes and durable server ids | **Shipped** |
 
 ## Design principle
 

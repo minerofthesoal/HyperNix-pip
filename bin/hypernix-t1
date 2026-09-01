@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+#
+# hypernix-t1 — run a T1 API server as a thing you manage, not a command
+# you remember.
+#
+#   hypernix-t1 start | stop | kill | restart | status | logs
+#   hypernix-t1 create | configure | test | key | autostart | remove
+#
+# The gap this fills: starting the server is a uvicorn incantation with
+# six environment variables, and every one of them has to match what
+# `gkey` and `waiter` think. Getting one wrong does not fail loudly — it
+# produces a server that runs and rejects your keys, which is the single
+# most expensive way for this to go wrong.
+#
+# So there is one config file, one place the keys live, and one command
+# that reads both.
+#
+# Requires: bash 3.2+, python3 3.10+ with hypernix[t1api] installed.
+
+set -euo pipefail
+
+VERSION="0.72.3"
+
+CONFIG_DIR="${T1_CONFIG_DIR:-$HOME/.hypernix/t1api}"
+ENV_FILE="$CONFIG_DIR/.env"
+PID_FILE="$CONFIG_DIR/server.pid"
+LOG_FILE="$CONFIG_DIR/server.log"
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RED=$'\033[38;5;160m'; C_DIM=$'\033[38;5;245m'; C_TEXT=$'\033[38;5;253m'
+  C_OK=$'\033[38;5;71m'; C_WARN=$'\033[38;5;179m'; C_BOLD=$'\033[1m'; C_OFF=$'\033[0m'
+else
+  C_RED=''; C_DIM=''; C_TEXT=''; C_OK=''; C_WARN=''; C_BOLD=''; C_OFF=''
+fi
+
+say()  { printf '%s\n' "${C_TEXT}$*${C_OFF}"; }
+dim()  { printf '%s\n' "${C_DIM}$*${C_OFF}"; }
+ok()   { printf '%s\n' "${C_OK}  ✓${C_OFF} ${C_TEXT}$*${C_OFF}"; }
+warn() { printf '%s\n' "${C_WARN}  !${C_OFF} ${C_TEXT}$*${C_OFF}" >&2; }
+err()  { printf '%s\n' "${C_RED}  ✗${C_OFF} ${C_TEXT}$*${C_OFF}" >&2; }
+die()  { err "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+load_env() {
+  [ -r "$ENV_FILE" ] || return 0
+  # Read, do not source: .env is a file people edit by hand, and sourcing
+  # runs whatever ends up in it.
+  while IFS= read -r line; do
+    case "$line" in
+      ''|'#'*) continue ;;
+      *=*) ;;
+      *) continue ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    value="${value%\'}"; value="${value#\'}"
+    value="${value%\"}"; value="${value#\"}"
+    case "$key" in
+      T1_*|HYPERNIX_*) export "$key=$value" ;;
+    esac
+  done < "$ENV_FILE"
+}
+
+setting() {
+  # setting NAME DEFAULT — from the environment, else the .env, else the default.
+  local name="$1" fallback="${2:-}"
+  local current
+  eval "current=\${$name:-}"
+  if [ -n "$current" ]; then printf '%s' "$current"; return; fi
+  printf '%s' "$fallback"
+}
+
+python_bin() {
+  if [ -x "$CONFIG_DIR/venv/bin/python" ]; then
+    printf '%s' "$CONFIG_DIR/venv/bin/python"
+  else
+    command -v python3 || command -v python || true
+  fi
+}
+
+require_installed() {
+  local py; py="$(python_bin)"
+  [ -n "$py" ] || die "No python3 found."
+  "$py" -c "import hypernix.t1api" >/dev/null 2>&1 || die \
+    "hypernix[t1api] is not installed for $py. Run: pip install 'hypernix[t1api]'"
+}
+
+# ---------------------------------------------------------------------------
+# Process
+# ---------------------------------------------------------------------------
+
+server_pid() {
+  [ -r "$PID_FILE" ] || return 1
+  local pid; pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  [ -n "$pid" ] || return 1
+  # A PID file outlives the process it named, and PIDs are reused. Check
+  # that what is running is actually ours before reporting it up — or,
+  # worse, before killing it.
+  kill -0 "$pid" 2>/dev/null || return 1
+  if command -v ps >/dev/null 2>&1; then
+    ps -p "$pid" -o args= 2>/dev/null | grep -q "hypernix.t1api" || return 1
+  fi
+  printf '%s' "$pid"
+}
+
+wait_healthy() {
+  local url="$1" seconds="${2:-45}" i=0
+  while [ "$i" -lt "$seconds" ]; do
+    if curl -fsS --noproxy '*' "$url/health" >/dev/null 2>&1; then return 0; fi
+    # Died during startup? Say so now rather than after the full timeout.
+    server_pid >/dev/null 2>&1 || return 2
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+cmd_start() {
+  load_env; require_installed
+  local existing; existing="$(server_pid || true)"
+  if [ -n "$existing" ]; then
+    ok "Already running (pid $existing)."
+    return 0
+  fi
+
+  local host port py url
+  host="$(setting T1_HOST 127.0.0.1)"
+  port="$(setting T1_PORT 8000)"
+  py="$(python_bin)"
+  url="http://${host}:${port}"
+  [ "$host" = "0.0.0.0" ] && url="http://127.0.0.1:${port}"
+
+  mkdir -p "$CONFIG_DIR"
+  say "Starting the T1 API on ${host}:${port}…"
+  # setsid so the server outlives this shell; without it, closing the
+  # terminal takes the server with it.
+  ( setsid "$py" -m uvicorn hypernix.t1api.app:create_app --factory \
+      --host "$host" --port "$port" >>"$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE" ) || die "Could not start the server."
+
+  case "$(wait_healthy "$url" "$(setting T1_START_TIMEOUT 45)"; echo $?)" in
+    0) ok "Running (pid $(server_pid)) — $url" ;;
+    2) rm -f "$PID_FILE"
+       err "The server exited during startup. Last lines:"
+       tail -n 20 "$LOG_FILE" >&2 || true
+       return 1 ;;
+    *) err "Started, but it never answered /health. Last lines:"
+       tail -n 20 "$LOG_FILE" >&2 || true
+       return 1 ;;
+  esac
+}
+
+cmd_stop() {
+  local pid; pid="$(server_pid || true)"
+  if [ -z "$pid" ]; then ok "Not running."; rm -f "$PID_FILE"; return 0; fi
+  say "Stopping (pid $pid)…"
+  kill -TERM "$pid" 2>/dev/null || true
+  local i=0
+  while [ "$i" -lt 15 ]; do
+    server_pid >/dev/null 2>&1 || { rm -f "$PID_FILE"; ok "Stopped."; return 0; }
+    sleep 1; i=$((i + 1))
+  done
+  warn "Still running after 15s. Use \`hypernix-t1 kill\` to force it."
+  return 1
+}
+
+cmd_kill() {
+  local pid; pid="$(server_pid || true)"
+  if [ -z "$pid" ]; then ok "Not running."; rm -f "$PID_FILE"; return 0; fi
+  warn "Force-killing pid $pid — in-flight requests are lost."
+  kill -KILL "$pid" 2>/dev/null || true
+  sleep 1
+  rm -f "$PID_FILE"
+  ok "Killed."
+}
+
+cmd_restart() { cmd_stop || cmd_kill; cmd_start; }
+
+cmd_status() {
+  load_env
+  local pid; pid="$(server_pid || true)"
+  local host port url
+  host="$(setting T1_HOST 127.0.0.1)"; port="$(setting T1_PORT 8000)"
+  url="http://${host}:${port}"; [ "$host" = "0.0.0.0" ] && url="http://127.0.0.1:${port}"
+
+  say ""
+  say "  ${C_BOLD}HyperNix T1 API${C_OFF}"
+  if [ -n "$pid" ]; then
+    ok "running (pid $pid)"
+  else
+    warn "not running"
+  fi
+  dim "     config    $ENV_FILE"
+  dim "     keys      $(setting T1_KEYMASTER_DIR "$CONFIG_DIR/keymaster")"
+  dim "     log       $LOG_FILE"
+  dim "     address   $url"
+  if [ -n "$pid" ]; then
+    local body
+    body="$(curl -fsS --noproxy '*' "$url/status" 2>/dev/null || true)"
+    if [ -n "$body" ]; then
+      printf '%s' "$body" | "$(python_bin)" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit
+print("     version   t1 v%s" % d.get("t1_api_version", "?"))
+print("     name      %s" % (d.get("server_name") or "unnamed"))
+print("     env       %s" % d.get("environment", "?"))
+' 2>/dev/null || true
+    else
+      warn "running, but /status did not answer — see the log"
+    fi
+  fi
+  say ""
+}
+
+cmd_logs() {
+  [ -r "$LOG_FILE" ] || die "No log yet at $LOG_FILE"
+  if [ "${1:-}" = "-f" ] || [ "${1:-}" = "--follow" ]; then
+    tail -f "$LOG_FILE"
+  else
+    tail -n "${1:-60}" "$LOG_FILE"
+  fi
+}
+
+cmd_create() {
+  # Hand off to the installer when it is here: it asks about deployment
+  # kind, key policy, allowlist and pricing, and writes a configuration
+  # that matches the answers. Nothing below reproduces that.
+  local here=""
+  here="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || here=""
+  local candidate
+  for candidate in "$here/install-t1.sh" "$(dirname "$0")/install-t1.sh" ./install-t1.sh; do
+    if [ -x "$candidate" ]; then exec "$candidate" "$@"; fi
+  done
+
+  # Installed from a wheel, so there is no checkout and no installer. A
+  # dead end here would mean `pip install hypernix` gives you a manager
+  # that cannot create the thing it manages, so write a minimal working
+  # configuration instead and say plainly what it does not cover.
+  create_minimal "$@"
+}
+
+create_minimal() {
+  require_installed
+  local host="127.0.0.1" port="8000" force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --host) shift; [ $# -gt 0 ] || die "--host needs an address"; host="$1" ;;
+      --port) shift; [ $# -gt 0 ] || die "--port needs a number"; port="$1" ;;
+      --force) force=1 ;;
+      --non-interactive|--yes|-y) ;;   # accepted, since `create` forwards them
+      *) die "Unknown option for create: $1" ;;
+    esac
+    shift
+  done
+
+  case "$port" in
+    ''|*[!0-9]*) die "--port must be a number; got '$port'" ;;
+  esac
+
+  if [ -f "$ENV_FILE" ] && [ "$force" = "0" ]; then
+    die "$ENV_FILE already exists. Edit it with \`hypernix-t1 configure\`, or pass --force."
+  fi
+
+  local py; py="$(python_bin)"
+  local secret
+  secret="$("$py" -c 'import secrets; print(secrets.token_hex(32))')" \
+    || die "Could not generate a token secret."
+
+  mkdir -p "$CONFIG_DIR"
+  # Written before the file exists, so the secret is never briefly
+  # world-readable on a machine with a permissive umask.
+  ( umask 077; : > "$ENV_FILE" )
+  cat > "$ENV_FILE" <<EOF
+# Generated by hypernix-t1 $VERSION. A minimal, local-only server.
+# For the guided setup — deployment kind, key policy, connection
+# allowlist, pricing, models — run install-t1.sh from a checkout.
+T1_HOST=$host
+T1_PORT=$port
+T1_TOKEN_SECRET=$secret
+T1_KEYMASTER_DIR=$CONFIG_DIR/keymaster
+T1_ENVIRONMENT=development
+EOF
+  chmod 600 "$ENV_FILE"
+  mkdir -p "$CONFIG_DIR/keymaster"
+  chmod 700 "$CONFIG_DIR/keymaster"
+
+  ok "Wrote $ENV_FILE (0600)"
+  ok "Key store: $CONFIG_DIR/keymaster"
+  say ""
+  warn "This is the minimal configuration, not the guided one."
+  dim "     No connection allowlist, no rate limits, no pricing, no model"
+  dim "     registry — T1_ENVIRONMENT=development, bound to $host."
+  dim "     Before exposing this to anything, run install-t1.sh from a"
+  dim "     checkout, or edit the file: hypernix-t1 configure"
+  say ""
+  say "Next:"
+  dim "     hypernix-t1 start"
+  dim "     hypernix-t1 status      # the bootstrap admin key is printed at"
+  dim "                             # first start, and works for three days"
+}
+
+cmd_configure() {
+  local editor; editor="${EDITOR:-${VISUAL:-}}"
+  [ -f "$ENV_FILE" ] || die "No config at $ENV_FILE — run \`hypernix-t1 create\` first."
+  if [ -n "$editor" ]; then
+    "$editor" "$ENV_FILE"
+  else
+    say "No \$EDITOR set. The config is at:"
+    say "  $ENV_FILE"
+    return 0
+  fi
+  say ""
+  dim "  Restart for changes to take effect:  hypernix-t1 restart"
+}
+
+cmd_test() {
+  load_env; require_installed
+  local host port url py
+  host="$(setting T1_HOST 127.0.0.1)"; port="$(setting T1_PORT 8000)"
+  url="http://${host}:${port}"; [ "$host" = "0.0.0.0" ] && url="http://127.0.0.1:${port}"
+  py="$(python_bin)"
+
+  server_pid >/dev/null 2>&1 || die "Not running. Start it first: hypernix-t1 start"
+
+  say "Checking $url …"
+  if curl -fsS --noproxy '*' "$url/health" >/dev/null 2>&1; then
+    ok "health"
+  else
+    err "health check failed"; return 1
+  fi
+  if curl -fsS --noproxy '*' "$url/status" >/dev/null 2>&1; then
+    ok "status"
+  else
+    err "status failed"; return 1
+  fi
+
+  # The end-to-end probe if this is a checkout that has it.
+  local root=""
+  root="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || root=""
+  local probe="$root/scripts/ci/integration_probe.py"
+  if [ -r "$probe" ]; then
+    say ""
+    "$py" "$probe" --url "$url"
+  else
+    dim "     (mint a key and try it: gkey create -v v2)"
+  fi
+}
+
+cmd_key() {
+  load_env; require_installed
+  local py; py="$(python_bin)"
+  exec "$py" -m hypernix.security.gkey_cli "$@"
+}
+
+cmd_autostart() {
+  local action="${1:-on}"
+  local unit_dir="$HOME/.config/systemd/user"
+  local unit="$unit_dir/hypernix-t1.service"
+
+  command -v systemctl >/dev/null 2>&1 || die \
+    "systemd not found. On a non-systemd machine, add \`hypernix-t1 start\` to your session startup."
+
+  case "$action" in
+    off|disable)
+      systemctl --user disable --now hypernix-t1.service 2>/dev/null || true
+      rm -f "$unit"
+      systemctl --user daemon-reload 2>/dev/null || true
+      ok "Autostart off."
+      return 0 ;;
+    status)
+      systemctl --user status hypernix-t1.service --no-pager || true
+      return 0 ;;
+  esac
+
+  # systemd requires an absolute ExecStart and will not resolve "./…" or
+  # anything relative to a working directory it does not share. Invoked as
+  # `./bin/hypernix-t1`, $0 is relative, and the unit it wrote silently
+  # refused to start.
+  local self
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  [ -x "$self" ] || self="$(command -v hypernix-t1 || true)"
+  [ -n "$self" ] || die "Could not work out an absolute path to this script."
+
+  mkdir -p "$unit_dir"
+  # PATH is set explicitly: a user unit gets a minimal one, and tailscale
+  # living in /usr/local/bin then becomes invisible — which presents as
+  # "Tailscale is broken" when only PATH is.
+  cat > "$unit" <<UNIT
+[Unit]
+Description=HyperNix T1 API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=T1_CONFIG_DIR=$CONFIG_DIR
+ExecStart=$self start-foreground
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+UNIT
+  systemctl --user daemon-reload
+  systemctl --user enable --now hypernix-t1.service
+  ok "Autostart on (systemd user service)."
+  dim "     It starts at login. For a machine with no login session:"
+  dim "       sudo loginctl enable-linger $USER"
+}
+
+cmd_start_foreground() {
+  # What the unit runs: no PID file, no backgrounding, systemd supervises.
+  load_env; require_installed
+  local py host port
+  py="$(python_bin)"
+  host="$(setting T1_HOST 127.0.0.1)"; port="$(setting T1_PORT 8000)"
+  exec "$py" -m uvicorn hypernix.t1api.app:create_app --factory \
+    --host "$host" --port "$port"
+}
+
+cmd_remove() {
+  say "This removes the service and its configuration."
+  dim "  config : $CONFIG_DIR"
+  printf '%s' "  Type the word 'remove' to confirm: "
+  local answer=""; IFS= read -r answer || answer=""
+  [ "$answer" = "remove" ] || { say "Left alone."; return 0; }
+  cmd_stop >/dev/null 2>&1 || cmd_kill >/dev/null 2>&1 || true
+  cmd_autostart off >/dev/null 2>&1 || true
+  # The keys are the one thing worth keeping: they are not recoverable
+  # and may still be in use elsewhere.
+  local keep="$CONFIG_DIR/keymaster"
+  if [ -d "$keep" ]; then
+    warn "Keeping the key store at $keep — delete it yourself if you mean to."
+  fi
+  find "$CONFIG_DIR" -mindepth 1 -maxdepth 1 ! -name keymaster -exec rm -rf {} + 2>/dev/null || true
+  ok "Removed."
+}
+
+usage() {
+  cat <<USAGE
+hypernix-t1 — manage a T1 API server
+
+  start                 Start it in the background
+  stop                  Ask it to stop, and wait
+  kill                  Force it to stop, losing in-flight requests
+  restart               Stop (or kill) then start
+  status                Is it running, where, and what version
+  logs [N|-f]           Last N lines, or follow
+
+  create [--host H] [--port N] [--force]
+                        Set up a new server. Runs install-t1.sh when it is
+                        available (the guided setup); otherwise writes a
+                        minimal local-only configuration.
+  configure             Edit the configuration in \$EDITOR
+  test                  Health, status, and a real end-to-end probe
+  key ...               Run gkey against this server's key store
+  autostart [on|off|status]
+                        Start at login via a systemd user service
+  remove                Stop, disable, and delete the config (keeps keys)
+
+Config: $CONFIG_DIR
+USAGE
+}
+
+main() {
+  local cmd="${1:-status}"
+  if [ $# -gt 0 ]; then shift; fi
+  case "$cmd" in
+    start)             cmd_start "$@" ;;
+    start-foreground)  cmd_start_foreground "$@" ;;
+    stop)              cmd_stop "$@" ;;
+    kill|force-stop)   cmd_kill "$@" ;;
+    restart)           cmd_restart "$@" ;;
+    status)            cmd_status "$@" ;;
+    logs)              cmd_logs "$@" ;;
+    create)            cmd_create "$@" ;;
+    configure|config)  cmd_configure "$@" ;;
+    test)              cmd_test "$@" ;;
+    key|keys)          cmd_key "$@" ;;
+    autostart)         cmd_autostart "$@" ;;
+    remove|uninstall)  cmd_remove "$@" ;;
+    version|--version) printf 'hypernix-t1 %s\n' "$VERSION" ;;
+    help|-h|--help)    usage ;;
+    *) err "Unknown command: $cmd"; usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"

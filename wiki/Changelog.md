@@ -20,6 +20,262 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3 — T1 v1.0.2026.8.1.1
+
+🛡️ **The AI agent no longer runs code without being asked.** hyped-pro
+parses tool calls out of the model's own reply and dispatched them
+immediately — so anything that could influence that reply (a file it
+read, a web result, a fetched page, a T1 server's response) had arbitrary
+code execution on the operator's machine. `ToolRegistry.execute_tool` now
+gates the side-effecting tools behind `HYPERNIX_TOOL_POLICY`
+(ask/deny/allow); "ask" with no terminal degrades to **deny**, so a CI
+job or daemon is not a shell for whoever can reach the model.
+
+The gated set was enumerated from the registry, not from memory. The
+first version gated `run_command` and left `create_skill`/`run_skill`
+open — those write a Python module and execute it, so a model that wanted
+a shell never had to name a gated tool. Also gated: the file writers, the
+keymaster key create/revoke pair, `set_env` and `git_commit`. Reads and
+the web tools stay ungated, and the source records why.
+
+🐛 Three `hashlib.sha1` calls now pass `usedforsecurity=False`. Two are
+dedupe and one is the WebSocket handshake, where RFC 6455 mandates
+SHA-1 — none is a security digest, and without the flag all three raise
+on a FIPS-enabled host.
+
+✨ **CI and the public release now gate on a live server.** After the
+tests pass, two jobs run: one drives the T1 API from outside the process,
+the other drives the iPhone app against a real server on a booted
+simulator. Each mints its own T2 key with `gkey`, authorises it, sends a
+chat all the way through the bridge to a **fake model**, and then deletes
+every key it created — in a `finally`, so the run that failed is cleaned
+up too. The teardown counts what is left in the store and fails the job
+if the probe left anything behind. No publish step runs until both jobs
+are green.
+
+The model is a stub speaking the OpenAI shape over HTTP rather than a
+mock patched into the bridge, so the bridge, the routing engine and the
+serialisation are all real. Its reply carries a distinctive marker *and*
+echoes the prompt back, because a check that passes when the request body
+never arrived is not a check.
+
+One shape note: hosted runners cannot reach each other, so "one job hosts
+the server, the other connects" is not expressible — there is no route
+between two runners. Each job brings up its own server; the split that
+matters (API-from-outside, app-against-a-real-server, release waits on
+both) is preserved.
+
+𖢥 **`gkey` ignored `T1_KEYMASTER_DIR`, which the server reads.** On any
+install using `--config-dir`, the server's key store lived under the
+config directory while `gkey` kept writing to `~/.hypernix/keymaster` —
+so keys the operator minted were invisible to their own server, and the
+key printed at first start was invisible to `gkey`. Two halves of one
+tool disagreeing about where the keys live is a hard failure to reason
+about, because both of them work.
+
+✨ **T2P keys carry billing, and servers can refuse them.** A T2P key is
+an ordinary T2 key with a billing binding attached — provider references,
+a spend cap, a currency — so a key can be issued to someone who pays for
+their own usage. No card data is ever stored (the store refuses anything
+shaped like a card number at the boundary) and the binding is not in the
+credential, because keys land in shell history and payment tokens must
+not. A T2P key is never an administrator.
+
+`T1_BILLING_KEY_POLICY` gives a server three answers: `allow` (default,
+so nothing changes), `deny` with a `T1_PAYMENT_URL` to point at, or
+`separate`, which requires the payment key in `X-Payment-Key` so the
+credential that identifies a caller and the one that spends money have
+separate lifetimes. Enforced at authentication — refusing after the work
+is a refund, not a policy.
+
+𖢥 **A binding outlived the key it belonged to.** `release` existed, was
+documented as "called when a key is revoked", and was called by nothing —
+revocation happens in `hypernix.security`, which knows nothing about
+billing. So a revoked key left behind a spend cap and a recorded spend on
+a dead key ID, waiting to be inherited by whatever held that ID next.
+
+`Keymaster.on_revoke` and `Keymaster.on_rotate` are the missing seam, and
+the billing store registers on both. Revoking releases the binding;
+rotating **moves** it, carrying its spend — a rotation that reset `spent`
+to zero would be a way to mint unlimited spend out of a cap, and a
+rotation that dropped the binding would silently make a paid key free.
+Observers are advisory: revoking a key is the safety-critical operation,
+so one that raises is logged and cannot block it.
+
+🐛 **Family detection was a hardcoded list and silently stopped covering
+the family.** Two call sites tested `key[:3] in ("T2_", "T2S")`, so a
+T2P key fell through to the T1 path and was rejected as malformed several
+layers before the code that had an opinion about it. Derived from the
+enum now.
+
+𖢥 **HyperLink timed out because the server advertised the wrong port.**
+uvicorn owns the bind address and passes it to nobody, so the config's
+default — 8000 — went out in the endpoint list whatever port the server
+was actually on. The phone connected to 8000, timed out, and the server
+log stayed empty because nothing ever arrived. The advertised port is now
+the one the request came in on, which is by construction an address that
+works; an explicit `T1_HYPERLINK_PORT` still wins, because a proxy
+forwarding to another port knows something the request cannot.
+
+𖢥 **iOS blocked tailnet requests before they left the phone.**
+`NSAllowsLocalNetworking` exempts link-local, `.local` and the RFC 1918
+ranges. Tailscale is 100.64.0.0/10 — shared address space, not RFC 1918 —
+so ATS refused it, which is the same silent timeout with nothing to log.
+`ts.net` is now an exception domain with subdomains included, scoped so
+arbitrary loads stay off and a public `http://` endpoint is still
+refused.
+
+🛡️ **When there is no tailnet address, the server says why.**
+`tailscale_self` returned empty for four different reasons and named
+none of them: not installed, not logged in, daemon down, or IPv6-only.
+That is fine for a server — a tailnet is optional — and useless to
+someone staring at a phone that cannot connect. `tailscale_diagnosis`
+names the actual cause, including the common one where tailscale is
+installed and a service manager's minimal PATH hides it.
+
+✨ **A new server issues itself a bootstrap key.** An empty key store plus
+admin-only key routes is a closed loop, and it is why `waiter hyperlink
+pair` could not run on a new install. First start now mints a T2 admin
+key that works **only from that machine**, expires after **three days**,
+and is minted **once**. Loopback is enforced on every request, on both
+the ordinary and HyperLink auth paths — a restriction applied to one of
+two routes into the same key store is not a restriction.
+
+🐛 **`pip install hypernix` did not give you `hypernix-t1`.** It is a
+shell program, so `[project.scripts]` cannot carry it, and nothing else
+did — the documentation promised an executable the package never
+installed. `script-files` ships it now, and `MANIFEST.in` carries it and
+`install-t1.sh` into the sdist, which matters because the sdist also
+ships `tests/`, and two of those test files run these scripts.
+
+✨ **`hypernix-t1 create` works without a checkout.** It hands off to
+`install-t1.sh` for the guided setup, and that is a checkout file — so
+from a wheel, the manager could not create the thing it manages. It now
+falls back to writing a minimal local-only configuration (a real
+generated secret, 0600, its own key store) and says plainly what the
+minimal path does not cover: no allowlist, no rate limits, no pricing, no
+model registry. `--host`, `--port`, and `--force` to overwrite; it
+refuses to overwrite an existing config without being told to.
+
+𖢥 **`install-t1.sh --install skip` failed on a machine where nothing was
+wrong.** The interpreter search ran `python3.12 python3.13 python3.11
+python3 python` — newest-ish first, with the operator's own `python3`
+fourth. On any machine with several interpreters that picks one the
+operator never chose; under `--install skip`, whose entire premise is
+that the package is already installed *somewhere*, it then verified an
+installation that was never meant to be in that interpreter and failed
+while everything was in fact fine. That is exactly what CI hit: the job
+installed into setup-python's 3.11 and the script went looking in the
+system 3.12.
+
+`python3` — the interpreter actually on PATH, which is a venv's or a
+version manager's — now comes first, and a pass ahead of that prefers any
+interpreter that can already import hypernix. `--python PATH` (or
+`HYPERNIX_PYTHON`) settles it outright. A `skip` run that finds no
+installation now says that, and points at `--python`, rather than
+reporting a failed install that never ran.
+
+🐛 **Windows: 31 tests failed on a `bash` that is not one.** Every shell
+test gated on `shutil.which("bash")`, which on a GitHub Windows runner
+finds `C:\Windows\System32\bash.exe` — the WSL launcher stub, present
+on every Windows install, which exits non-zero and answers in UTF-16LE
+that no distribution is installed. So the tests ran and asserted against
+output that was never a shell's. `tests/shell_support.py` asks the only
+question that matters — does running a trivial script through it produce
+the script's output — and the three shell test modules gate on that.
+
+𖢥 **`hypernix path` wrote backslashes into POSIX shell profiles.**
+`snippet_for_shell` and `session_hint` interpolated `str(directory)`, so
+on Windows a bash or fish line came out as `export
+PATH="\opt\bin:$PATH"` — and a POSIX shell reads `\` as an escape, so
+that line is not merely ugly but wrong. These snippets are written on
+Windows, for Git Bash and WSL. They use `as_posix()` now, which is
+identical everywhere else and turns `C:\Scripts` into `C:/Scripts`,
+which is what those shells want. PowerShell keeps the native separator.
+
+✨ **VRAM optimizations: `hypernix.system.vram`.** [`freezer`](Freezer.md)
+answers "how big a batch fits?"; this answers "how do I make more of it
+fit without changing what the model learns?" Five techniques, each opt-in
+and each reversible:
+
+- **Allocator tuning.** The CUDA caching allocator carves VRAM into
+  fixed-size segments and cannot satisfy a large request from several
+  small free ones — which is the OOM that happens while `nvidia-smi`
+  still reports gigabytes free, because that memory is *reserved and
+  unusable* rather than in use. `configure_allocator()` sets
+  `expandable_segments`. It has to run before the first CUDA allocation,
+  so importing the module deliberately does **not** import torch, and a
+  call that comes too late reports that instead of silently doing
+  nothing.
+- **Activation checkpointing.** Activations, not parameters, are what a
+  long-context run runs out of: they scale with batch x sequence x
+  layers and the parameters scale with none of those.
+  `checkpoint_blocks(model, every=N)` finds the layer stack as the
+  longest `nn.ModuleList` of structurally identical children — which is
+  what a transformer's layers are in every architecture here, without
+  hard-coding `.layers` vs `.h` vs `.blocks`. `use_reentrant=False`
+  because the reentrant implementation silently produces **no gradients
+  at all** when no input to the region requires grad, which is the normal
+  case for the first block; that failure mode is a model training on a
+  subset of its own layers and never saying so.
+- **Optimizer-in-backward.** An ordinary loop holds every gradient at
+  once between `backward` and `step` — a second full copy of the model,
+  in gradient dtype, at exactly the moment activations peak.
+  `fuse_optimizer_into_backward` steps and frees each one as it finishes.
+  It refuses gradient clipping, accumulation and a `GradScaler` rather
+  than accepting them: each would produce a plausible-looking loss curve
+  for a model that trained differently than the caller asked for.
+- **Optimizer-state offload.** Adam state is twice the parameter memory
+  sitting idle through any pass that is not a training step. A context
+  manager, not a mode — host-resident state during the step would cross
+  the bus every step — with the restore in a `finally`, so an exception
+  inside cannot leave the optimizer split across two devices and fail
+  later with an error naming neither.
+- **Measurement.** `measure_peak()` reports peak allocated and reserved.
+  The gap between them is fragmentation, which is the number the
+  allocator change is trying to move.
+
+Wired to the loop, not just the library: `train()` and
+`hypernix train run` take `--gradient-checkpointing`,
+`--checkpoint-every`, `--fuse-optimizer` and `--tune-allocator`. The
+clipping/fusing conflict is refused before the checkpoint is read off
+disk, so nobody waits out a model load to be told the combination was
+never going to work.
+
+📚 **The wiki and the README were up to three releases behind.** Home's
+index called the T1 API "Beta 2" and waiter "Beta 1" — both shipped —
+`T1-API.md` still read `1.0.26.8.0.1` throughout, and the one page
+nothing linked to was the security checklist. New [VRAM](VRAM.md) page;
+`hypernix-t1` and the `gkey -v` / `gkey version` surface documented in
+[CLI](CLI.md); `HYPERNIX_TOOL_POLICY` and `T1_KEYMASTER_DIR` added to the
+environment table; the roadmap's 0.72.3 section moved from "Next
+Milestone" to what actually landed.
+
+🔧 **348 `.pyc` files were tracked in the repository**, added by ed11d4b
+and ec509fe. The `.gitignore` note said removing them was a separate
+deliberate step; this is that step.
+
+✨ **`hypernix-t1` — one executable that runs the server.** Starting a
+T1 API meant remembering a uvicorn invocation, and stopping one meant
+finding the pid. `bin/hypernix-t1` is a single dependency-free shell
+program covering the whole lifecycle: `start` / `stop` / `kill` /
+`restart` / `status` / `logs`, `create` (a fully configured server, with
+`--auto` for an unattended one), `configure` to edit the env file in
+place, `test` for a real end-to-end probe rather than a health ping,
+`key` to mint one through `gkey` against the *server's own* key store,
+`autostart on|off` to install a systemd user service, and `remove`.
+
+`stop` sends `SIGTERM` and waits 15 seconds; if the server is still
+there it says so and points at `kill`, rather than escalating on its own —
+a server that is slow to drain in-flight requests is not the same thing as
+a hung one, and only the operator knows which they have. `restart` does
+escalate, because it has been told the process is going away. The pid file
+is checked
+against the process actually running under it, so a recycled pid is not
+mistaken for a live server, and a stale one is cleaned up instead of
+reported as running. `autostart` writes an absolute `ExecStart`, because
+systemd rejects a relative one at load time rather than at first start.
+
 ## 0.72.2.post5 — T1 v1.0.2026.8.1.1
 
 A fix bump inside the same feature line, so no client needs to change.

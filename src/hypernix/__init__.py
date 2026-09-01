@@ -63,7 +63,7 @@ import importlib.util
 import sys
 from typing import TYPE_CHECKING, Any
 
-__version__ = "0.72.2.post5"
+__version__ = "0.72.3"
 DEFAULT_REPO_ID = "ray0rf1re/hyper-Nix.2"
 DEFAULT_MODEL = "qwen3.5-4b"  # New default model
 
@@ -226,6 +226,7 @@ __all__ = [
     "ups",
     "upload_gguf",
     "verify_snapshot",
+    "vram",
     "whisk",
     "workshop",
     "fizzle",
@@ -373,6 +374,7 @@ MODULE_CATEGORIES: dict[str, tuple[str, ...]] = {
         "torch_compat",
         "ups",
         "utils",
+        "vram",
     ),
     # Timers, alarms, cadence control and progress animation.
     "timing": (
@@ -579,6 +581,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'ups': ('system.ups', None),
     'utils': ('system.utils', None),
     'verify_snapshot': ('models.download', 'verify_snapshot'),
+    'vram': ('system.vram', None),
     'whisk': ('models.whisk', None),
     'workshop': ('models.workshop', None),
     # v0.71.0 — security & usage management

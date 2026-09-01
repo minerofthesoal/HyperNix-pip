@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import Header, Request
 
+from ..security.t2keys import looks_like_t2
 from .auth import AuthContext, T1AuthService
 from .config import T1APIConfig
 from .errors import T1APIError, T1ErrorCode
@@ -193,8 +195,148 @@ def get_auth_context(
     svc: T1AuthService = get_auth_service(request)
     credential = _extract_credential(authorization)
     if credential.startswith("T1S."):
-        return svc.verify_scoped_token(credential)
-    return svc.validate_key(credential)
+        ctx = svc.verify_scoped_token(credential)
+    else:
+        ctx = svc.validate_key(credential)
+    _enforce_local_only(request, ctx)
+    _enforce_billing_policy(request, ctx)
+    return ctx
+
+
+def _enforce_billing_policy(request: Request, ctx: AuthContext) -> None:
+    """Apply this server's stance on keys that bill somewhere else.
+
+    At authentication, not at charge time: refusing after the work is
+    done is a refund, not a policy, and the operator has already paid for
+    the inference by then.
+
+    A server that says nothing (the default, ``allow``) behaves exactly
+    as before, so this is inert for every existing deployment.
+    """
+    from .billingkeys import BillingKeyPolicy
+
+    if ctx.t2_family != "T2P":
+        return
+    config = getattr(request.app.state, "t1_config", None)
+    policy = getattr(config, "billing_key_policy", "allow")
+
+    if policy == BillingKeyPolicy.ALLOW:
+        return
+
+    if policy == BillingKeyPolicy.DENY:
+        payment_url = getattr(config, "payment_url", "") or ""
+        details = {
+            "reason": "billing_keys_not_accepted",
+            "policy": "deny",
+        }
+        message = (
+            "This server does not accept keys that bill elsewhere; access is "
+            "paid for here."
+        )
+        if payment_url:
+            details["payment_url"] = payment_url
+            message += f" Buy access at {payment_url}."
+        else:
+            # Saying "pay here" without saying where is a dead end, and
+            # the operator, not the caller, is the one who can fix it.
+            message += (
+                " No payment URL is configured on this server (T1_PAYMENT_URL), "
+                "so ask its operator how to buy access."
+            )
+        raise T1APIError(
+            T1ErrorCode.BILLING_KEY_REFUSED, message, details=details, http_status=402
+        )
+
+    if policy == BillingKeyPolicy.SEPARATE:
+        raise T1APIError(
+            T1ErrorCode.BILLING_KEY_REFUSED,
+            "This server bills on a separate key. Authenticate with an ordinary "
+            "T2 key and send the payment key in X-Payment-Key.",
+            details={
+                "reason": "payment_key_must_be_separate",
+                "policy": "separate",
+                "payment_header": PAYMENT_KEY_HEADER,
+            },
+            http_status=402,
+        )
+
+
+#: Where a payment key travels under the ``separate`` policy. A header
+#: rather than the Authorization slot, because the whole point is that it
+#: is not the credential being authenticated.
+PAYMENT_KEY_HEADER = "X-Payment-Key"
+
+
+def get_payment_binding(request: Request) -> Any | None:
+    """The billing binding that should pay for this request, if any.
+
+    Resolves the two arrangements a server can be running:
+
+    * ``allow`` — the authenticating key may itself be a T2P key, and its
+      own binding pays.
+    * ``separate`` — payment arrives as a distinct T2P key in
+      ``X-Payment-Key``, which is authenticated in its own right. A key
+      that cannot be validated cannot pay: an unchecked header would let
+      a caller name someone else's binding.
+    """
+    store = getattr(request.app.state, "t1_billing_bindings", None)
+    if store is None:
+        return None
+
+    presented = request.headers.get(PAYMENT_KEY_HEADER, "").strip()
+    if presented:
+        svc: T1AuthService = get_auth_service(request)
+        payer = svc.validate_key(presented)
+        if payer.t2_family != "T2P":
+            raise T1APIError(
+                T1ErrorCode.BILLING_KEY_REFUSED,
+                f"{PAYMENT_KEY_HEADER} must carry a T2P key. An ordinary key has "
+                "no billing binding to charge.",
+                details={"reason": "payment_key_wrong_family"},
+                http_status=402,
+            )
+        return store.get(payer.key_id)
+
+    ctx = getattr(request.state, "auth_context", None)
+    if ctx is not None and ctx.t2_family == "T2P":
+        return store.get(ctx.key_id)
+    return None
+
+
+def _enforce_local_only(request: Request, ctx: AuthContext) -> None:
+    """A bootstrap key works only from the machine that minted it.
+
+    Checked here, on every request, rather than at mint time: minting
+    decides what a key *is*, and only the request knows where it came
+    from. The address is the one the network policy already resolved, so
+    this cannot disagree with the access decision that let the request in.
+
+    The restriction is what makes printing an admin key on a terminal
+    reasonable. Without it the key is an unauthenticated-until-copied
+    admin credential with a three-day life, which is worse than making
+    the operator run `gkey`.
+    """
+    from .bootstrap import is_bootstrap_key, is_loopback
+
+    if not is_bootstrap_key(ctx.key_meta):
+        return
+    address = get_client_ip(request)
+    if is_loopback(address):
+        return
+    raise T1APIError(
+        T1ErrorCode.AUTH_INVALID_KEY,
+        "This is a bootstrap key. It works only from the machine that "
+        "created it, and this request did not come from there.",
+        details={
+            "reason": "bootstrap_key_is_local_only",
+            "client_ip": address,
+            "remedy": (
+                "Run waiter on the server itself, or mint an ordinary key: "
+                "gkey create --type admin --scopes admin,read,write"
+            ),
+        },
+        http_status=403,
+    )
 
 
 def require_admin(ctx: AuthContext) -> AuthContext:
@@ -307,7 +449,7 @@ def get_hyperlink_principal(
     """
     credential = _extract_credential(authorization)
 
-    if credential[:3] in ("T2_", "T2S"):
+    if looks_like_t2(credential):
         return _principal_from_t2(request, credential)
 
     if credential.startswith("HLNK_"):
@@ -351,6 +493,11 @@ def _principal_from_t2(request: Request, credential: str) -> HyperLinkPrincipal:
 
     svc: T1AuthService = get_auth_service(request)
     ctx = svc.validate_key(credential)
+    # HyperLink resolves T2 keys here rather than through
+    # get_auth_context, so the loopback binding has to be applied on this
+    # path too. A restriction enforced on one of two routes into the same
+    # key store is not a restriction.
+    _enforce_local_only(request, ctx)
 
     scopes = tuple(scope.value for scope in ctx.scopes)
     if parsed.family is T2Type.T2S:

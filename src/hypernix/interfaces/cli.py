@@ -602,6 +602,26 @@ def _run_train(raw: list[str]) -> int:
     p_run.add_argument("--use-stml", action="store_true")
     p_run.add_argument("--untrained-max-context", type=int, default=8192)
     p_run.add_argument("--segment-length", type=int, default=512)
+    p_run.add_argument(
+        "--gradient-checkpointing", action="store_true",
+        help="Recompute activations in backward instead of storing them: "
+             "~30%% more compute for most of the activation memory.",
+    )
+    p_run.add_argument(
+        "--checkpoint-every", type=int, default=1,
+        help="Checkpoint every Nth block (1 = all, 2 = half the saving "
+             "for half the extra compute).",
+    )
+    p_run.add_argument(
+        "--fuse-optimizer", action="store_true",
+        help="Step and free each gradient as it is produced, instead of "
+             "holding a full copy of them. Needs --grad-clip 0.",
+    )
+    p_run.add_argument(
+        "--tune-allocator", action="store_true",
+        help="Set expandable_segments on the CUDA allocator so a long run "
+             "fragments less.",
+    )
 
     ns = p.parse_args(raw)
     if ns.action == "init":
@@ -639,6 +659,10 @@ def _run_train(raw: list[str]) -> int:
             use_stml=ns.use_stml,
             untrained_max_context=ns.untrained_max_context,
             segment_length=ns.segment_length,
+            gradient_checkpointing=ns.gradient_checkpointing,
+            checkpoint_every=ns.checkpoint_every,
+            fuse_optimizer=ns.fuse_optimizer,
+            tune_allocator=ns.tune_allocator,
         )
     print(out)
     return 0

@@ -82,6 +82,8 @@ authoritative list):
 * `eth` — Ethanol GPU overclock and VRAM helper. Refuses to apply changes without `--confirm`.
 * `gkey` — Same as `hypernix gkey`, as its own executable.
 * `hnx-map` — Same as `hypernix map`, as its own executable.
+* `waiter` — The official [T1 API client](Waiter-TUI.md) CLI/TUI. Client-side only: stdlib `urllib`, no `[t1api]` extra needed.
+* `hypernix-t1` — Start, stop, configure, test and autostart a local T1 API server (see below). A shell program, so it ships via `script-files` rather than `[project.scripts]`.
 
 ## `all` — the classic pipeline
 
@@ -257,6 +259,23 @@ hypernix train run \
     --dtype float32 --log-every 10 --save-every 500 --seed 0
 ```
 
+### `train run` — VRAM flags
+
+```bash
+hypernix train run --model-dir ./m --dataset ./d.txt --out-dir ./out \
+    --gradient-checkpointing --checkpoint-every 2 --tune-allocator
+```
+
+| Flag | |
+|---|---|
+| `--gradient-checkpointing` | Recompute activations in backward instead of storing them: ~30% more compute for most of the activation memory, which is what a long-context run actually runs out of. |
+| `--checkpoint-every N` | Checkpoint every Nth block. `1` for all, `2` for half the saving at half the extra compute. |
+| `--fuse-optimizer` | Step and free each gradient as it is produced, instead of holding a full copy of them between `backward` and `step`. Needs `--grad-clip 0` — a global norm cannot be computed one gradient at a time, and the combination is refused before the checkpoint loads rather than after. |
+| `--tune-allocator` | `expandable_segments` on the CUDA allocator, so a long run with varying sequence lengths fragments less. |
+
+Full detail, plus the parts with no CLI surface (optimizer-state offload,
+peak measurement): [VRAM](VRAM.md).
+
 ## `generate`
 
 ```bash
@@ -427,13 +446,79 @@ Distributed network manager built on Tailscale — mainly for driving
 ## `gkey`
 
 ```bash
-hypernix gkey create --type service --scopes download,upload --expires 2027-01-01
-hypernix gkey list
-hypernix gkey revoke <key_id>
+gkey create --type service --scopes download,upload --expires 2027-01-01
+gkey create -v v2 --level 5            # a T2 key:  T2_…-5
+gkey create -v v2short                 # a T2S key: T2S_…   (HyperLink)
+gkey list                              # `gkey list id <key-id>` for detail
+gkey revoke <key_id>
+gkey version                           # what this build can issue
 ```
 
 Unified CLI over the Gatekeeper + Keymaster modules for issuing, scoping,
-and revoking API keys used by `hyped-pro`'s cloud routing.
+and revoking API keys — for `hyped-pro`'s cloud routing and for the
+[T1 API](T1-API.md#authentication).
+
+**`-v` / `--level` — which format to mint.** A T2 key is a *spelling* of
+a T1 key, not a separate credential: it is converted back and looked up in
+the same store, which is why one minted anywhere else authenticates as
+nothing.
+
+| `-v` | Mints | For |
+|---|---|---|
+| `v1` (default) | `T1_…` | servers, admin, everything |
+| `v2` | `T2_…-N` | a client key with an access level `--level N` |
+| `v2short` | `T2S_…` | HyperLink and the iOS app; 26-character body; **never** an administrator |
+
+`v2.1` is recognised and refused with the reason — it is reserved, not
+unknown. `--password` / `--word` set the human-carried half where the
+format has one; without them one is generated, and it is never a
+predictable sequence.
+
+**`gkey version`** prints the four numbers that move independently — the
+`hypernix` package, the T1 API contract (short and long spellings), the
+latest key format this build can issue, and the formats it accepts —
+because "my key is refused" is usually one of them disagreeing.
+
+`gkey` honours **`T1_KEYMASTER_DIR`**, which is what the server reads. On
+an install using `--config-dir`, a `gkey` that ignored it would write keys
+the server could not see, and both halves would appear to work.
+
+## `hypernix-t1`
+
+```bash
+hypernix-t1 create                       # set up a server (hands off to install-t1.sh)
+hypernix-t1 create --non-interactive     # …or unattended, accepting every default
+hypernix-t1 start                        # start / stop / kill / restart / status
+hypernix-t1 logs -f                      # follow the log (or `logs 200`)
+hypernix-t1 test                         # health, status, and a real end-to-end probe
+hypernix-t1 key create -v v2 --level 5   # gkey, against this server's own store
+hypernix-t1 configure                    # open the config in $EDITOR
+hypernix-t1 autostart on                 # install a systemd user service
+hypernix-t1 remove                       # tear it back down
+```
+
+A single dependency-free shell program covering the whole lifecycle of a
+[T1 API](T1-API.md) server, so running one does not mean remembering a
+uvicorn invocation or hunting for a pid.
+
+| Command | |
+|---|---|
+| `start` | background the server (`setsid`, so closing the terminal does not take it with you), then wait for `/health` — and say *why* if it exits during startup instead of timing out |
+| `stop` | `SIGTERM`, then wait 15s. Still there? It says so and points at `kill` rather than escalating on its own. |
+| `kill` | `SIGKILL`, immediately. In-flight requests are lost, and it says so. |
+| `restart` | `stop`, escalating to `kill` if needed, then `start` |
+| `status` | pid, address, version, whether `/health` actually answers |
+| `logs` | tail; `-f` to follow |
+| `create` | hands off to `install-t1.sh` when it is available — the guided setup, and every flag passes through (`--non-interactive`, `--yes`, …). Installed from a wheel there is no checkout and no installer, so it writes a **minimal** local-only config instead (`--host`, `--port`, `--force`) and says plainly what that does not cover: no allowlist, no rate limits, no pricing, no model registry. |
+| `configure` | open the config in `$EDITOR`; with none set it prints the path rather than picking an editor for you |
+| `test` | not a health ping — `/health`, then `/status`, then (in a checkout) the same end-to-end probe CI runs, reported per stage |
+| `key` | pass straight through to `gkey`, against **this server's** key store — `hypernix-t1 key create -v v2 --level 5` |
+| `autostart` | `on` / `off` / `status` — a systemd **user** service, with an absolute `ExecStart` because systemd rejects a relative one at load |
+| `remove` | stop, disable, delete the config — but **keeps the key store**, which is not recoverable and may still be in use elsewhere. Confirmed by typing the word, not by `y`. |
+
+The pid file is checked against the process actually running under it, so
+a recycled pid is never mistaken for a live server and a stale file is
+cleaned up rather than reported as running.
 
 ## `config`
 
@@ -475,6 +560,8 @@ currently implemented rather than assuming full parity with `chat` or
 | `HF_TOKEN` | HuggingFace token for gated repos / upload |
 | `HYPERNIX_AUTO_INSTALL=0` | Disable the runtime pip-install shim |
 | `HYPERNIX_CACHE_DIR` | Override `~/.cache/hypernix/` |
+| `HYPERNIX_TOOL_POLICY` | `ask` (default) / `deny` / `allow` — consent before `hyped-pro`'s agent runs a side-effecting tool. Tool calls are parsed out of the *model's own reply*, so anything that can influence that reply could otherwise run shell commands. `ask` with no terminal degrades to **deny**, so a CI job or daemon is not a shell for whoever can reach the model. |
+| `T1_KEYMASTER_DIR` | The key store `gkey` and the [T1 API](T1-API.md) server share. Set it on both, or neither. |
 
 ## Exit codes
 

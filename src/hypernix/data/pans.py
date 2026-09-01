@@ -183,7 +183,10 @@ class GrillPan(Pan):
         line = _WS_RE.sub(" ", line.strip())
         if len(line) < self.min_chars:
             return None
-        h = hashlib.sha1(line.encode("utf-8")).hexdigest()
+        # Dedupe only — not a security digest. The flag says so, and is
+        # what keeps this working on a FIPS-enabled host, where an
+        # unflagged SHA-1 raises rather than returning a hash.
+        h = hashlib.sha1(line.encode("utf-8"), usedforsecurity=False).hexdigest()
         if h in self._seen:
             return None
         self._seen.add(h)

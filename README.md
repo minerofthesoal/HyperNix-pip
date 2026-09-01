@@ -17,7 +17,7 @@ for most updates
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
-- [What's new: T1 v1.0.26.8.0.1](#whats-new-t1-v10268001)
+- [What's new: 0.72.3 — T1 v1.0.2026.8.1.1](#whats-new-0723--t1-v102026811)
 - [Package layout](#package-layout)
 - [Module reference](#module-reference)
 - [What's new in v0.70.5](#whats-new-in-v0705)
@@ -39,59 +39,69 @@ for most updates
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
 
-## What's new: T1 v1.0.26.8.0.1
+## What's new: 0.72.3 — T1 v1.0.2026.8.1.1
 
-The **T1 API** — HyperNix's controlled HTTP gateway — now versions itself
-rather than tracking the pip package. Six parts,
-`api.major.year.month.feature.fix`, in two spellings of one value:
-`1.0.2026.8.0.1` for changelogs, `1.0.26.8.0.1` for the wire. Package
-`0.72.0` ships it.
-
-Six features:
-
-**The LM Studio bridge.** Borrow a model already loaded in LM Studio — on
-localhost, the LAN, or a tailnet — through the T1 API, so authentication,
-rate limits, the audit log and usage accounting all still apply.
+**A new server can be set up without knowing anything.** It issues itself
+one admin key on first start, prints it once, and that key works only
+from the machine that made it and only for three days. That is enough to
+point `waiter` at it and mint a real one.
 
 ```bash
-export T1_LMSTUDIO_URL=http://localhost:1234
-waiter lmstudio status                       # reachable? loaded? CORS?
-waiter lmstudio chat "explain SIMD in one line"
-waiter lmstudio local                        # probe from this machine, no server
+./install-t1.sh                 # interactive setup, or:
+hypernix-t1 start               # start / stop / restart / status / logs
+hypernix-t1 test                # health, status, and a real end-to-end probe
+hypernix-t1 autostart on        # a systemd user service
 ```
 
-**HyperLink**, and **[HyperLink for iOS](ios/README.md)** — chat with the
-models on your own PC from an iPhone, at home or anywhere over Tailscale.
-Send photos, upload files and code, switch models. Pairing is two steps:
+**HyperLink connects.** Three separate bugs each produced the same
+symptom — the app times out and the server log is empty, because nothing
+ever arrived. The server advertised port 8000 whatever port it was on;
+iOS blocked tailnet addresses before sending, since Tailscale's
+100.64.0.0/10 is not one of the RFC 1918 ranges ATS exempts; and when
+Tailscale was missing the server said nothing about why. All three fixed,
+and the app now takes a **T2S key** as well as a pairing code.
+
+**Keys can pay for themselves.** A **T2P** key carries a billing binding —
+provider references, a spend cap, a currency — so it can be issued to
+someone who pays for their own usage. No card data reaches the server,
+and the binding is not in the credential. A server can refuse them
+outright and point at its own payment page, or require payment on a
+*separate* key, so the credential that identifies a caller and the one
+that spends money have different lifetimes.
+
+**`gkey` mints every format.** `-v v1|v2|v2short`, plus `gkey version`
+for what this build can issue.
 
 ```bash
-waiter hyperlink pair --label "my iPhone"    # prints an address and 6 characters
+gkey create -v v2 --level 5            # T2_…-5
+gkey create -v v2short                 # T2S_…  for HyperLink
+gkey version                           # package, T1 API, key formats
 ```
 
-Type those into the app and you are done. The app is built as an IPA by
-CI and attached to every release.
+**The AI agent asks before it runs anything.** Tool calls are parsed out
+of the model's own reply, so anything that can influence that reply — a
+file it read, a web result, a page it fetched — could previously execute
+shell commands with no prompt. Side-effecting tools now require consent;
+`HYPERNIX_TOOL_POLICY=ask|deny|allow`, and "ask" with no terminal means
+deny.
 
-**Server-side chat sessions.** Conversations live on the PC, so a thread
-started at the desk continues on the phone. **An attachment store**,
-content-addressed, that expands images into vision parts and code into
-fenced blocks at the moment of inference. **Endpoint advertisement**, so
-a client tries every address the machine answers on, Tailscale first, and
-keeps the one that works.
-
-**Hugging Face link merging.** Paste a model page, a direct download
-link, or both:
+**More fits on the same card.** `hypernix.system.vram` — allocator
+tuning so a long run stops fragmenting, activation checkpointing so
+sequence length stops costing activation memory, an optimizer that steps
+during backward so the gradients are never all held at once, and a way to
+measure whether any of it worked. Nothing is applied for you and nothing
+changes a default.
 
 ```bash
-waiter fetch https://huggingface.co/bartowski/Qwen3-8B-GGUF
-waiter fetch --page <model page> --file <download-arrow link>
+hypernix train run ... --gradient-checkpointing --tune-allocator
 ```
 
-Split GGUFs come back as the whole set of parts, vision projectors are
-included, and two links naming different repositories is reported rather
-than silently resolved.
+**Releases are gated on a live server.** After the tests, two jobs each
+mint a T2 key, start a real API, chat through a fake model, drive an
+iPhone simulator, then delete every key they made. Nothing publishes
+until both pass.
 
-Full detail: [wiki/T1-API.md](wiki/T1-API.md) and
-[wiki/Changelog.md](wiki/Changelog.md).
+Full detail in the [Changelog](wiki/Changelog.md).
 
 ## Package layout
 
@@ -109,7 +119,7 @@ directory:
 | `hypernix/optimizers/` | 8 | The Pressure Cooker optimizer family and optimizer plumbing. |
 | `hypernix/quant/` | 4 | The GGUF pipeline: convert, quantize, fetch tooling and upload. |
 | `hypernix/security/` | 3 | API keys, quotas and request gating. |
-| `hypernix/system/` | 14 | Environment, dependencies, hardware and housekeeping. |
+| `hypernix/system/` | 15 | Environment, dependencies, hardware and housekeeping. |
 | `hypernix/timing/` | 5 | Timers, alarms, cadence control and progress animation. |
 | `hypernix/training/` | 14 | Training entry points, schedules and weight perturbation. |
 | `hypernix/t1api/` | — | The [T1 API](wiki/T1-API.md) server: registry, routing, quota, billing, audit, rate limiting, mTLS, deployment. |
@@ -174,6 +184,7 @@ Click a category below to expand it.
 | `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
 | `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB, conservative batches, bf16/fp16), `NewFreezer` (11 GB+, fp32-preferred), `FlashFreezer` (OOM-safe retry wrapper around either). Pascal (sm_61 / CUDA 6.1) helpers + 60 CPU presets (Intel i5/i7/i9 7th-14th gen, Core Ultra Series 1/2, AMD Ryzen 5000/7000/9000 series) via `auto_freezer()`. |
 | `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
+| `hypernix.vram` | *(v0.72.3)* **VRAM optimizations** — `configure_allocator()` (`expandable_segments`, so a long run stops fragmenting; must run before the first CUDA allocation, which is why importing the module does not import torch), `checkpoint_blocks(model, every=N)` (recompute activations instead of storing them), `fuse_optimizer_into_backward()` (step and free each gradient as it is produced, so they are never all held at once), `offload_optimizer_state(opt)` (a context manager for the duration of an eval pass), `measure_peak()` and `recommend()`. Each opt-in, each reversible, each refusing rather than silently doing nothing. See [VRAM](wiki/VRAM.md). |
 | `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. The `STML` context manager folds long sequences into batch segments to keep the *untrained* context length bounded during training. |
 
 </details>

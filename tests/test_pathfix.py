@@ -45,7 +45,10 @@ def not_isolated(monkeypatch):
 
 def test_path_entries_drops_empty_segments():
     value = os.pathsep.join(["/a", "", "/b"])
-    assert [str(p) for p in pathfix.path_entries(value)] == ["/a", "/b"]
+    # Compared as Path, not str: on Windows `str(Path("/a"))` comes back
+    # with a backslash, and what this asserts is that the empty segment is
+    # dropped — not how the host spells a separator.
+    assert pathfix.path_entries(value) == [Path("/a"), Path("/b")]
 
 
 def test_is_on_path_matches_resolved_location(tmp_path):
@@ -187,7 +190,9 @@ def test_ensure_on_path_writes_a_marked_block(tmp_path, monkeypatch):
     assert result.changed and result.status == "written"
     text = profile.read_text()
     assert pathfix.BLOCK_START in text and pathfix.BLOCK_END in text
-    assert str(scripts) in text
+    # as_posix: the block is a bash snippet, so the path in it uses
+    # forward slashes even when a Windows host wrote the file.
+    assert scripts.as_posix() in text
     # The person's own content survives untouched.
     assert "alias ll='ls -l'" in text
 
@@ -234,8 +239,8 @@ def test_ensure_on_path_replaces_a_block_pointing_elsewhere(tmp_path, monkeypatc
 
     text = profile.read_text()
     assert text.count(pathfix.BLOCK_START) == 1
-    assert str(new_scripts) in text
-    assert str(old_scripts) not in text
+    assert new_scripts.as_posix() in text
+    assert old_scripts.as_posix() not in text
 
 
 def test_ensure_on_path_creates_missing_parent_dirs(tmp_path, monkeypatch):
@@ -276,7 +281,7 @@ def test_ensure_on_path_force_writes_even_when_on_path(tmp_path, monkeypatch):
                                     profile=profile, force=True)
 
     assert result.changed
-    assert str(scripts) in profile.read_text()
+    assert scripts.as_posix() in profile.read_text()
 
 
 def test_ensure_on_path_unknown_shell_explains_instead_of_writing(tmp_path, monkeypatch):
@@ -431,7 +436,7 @@ def test_autoconfigure_writes_once_and_announces_it(fake_home, not_isolated, mon
     result = pathfix.maybe_autoconfigure(echo=said.append)
 
     assert result.changed and result.status == "written"
-    assert str(scripts) in _expected_profile().read_text()
+    assert scripts.as_posix() in _expected_profile().read_text()
     # It must say what it did, and how to opt out.
     joined = "\n".join(said)
     assert str(scripts) in joined
@@ -485,7 +490,10 @@ def test_cli_print_emits_only_the_snippet(fake_home, capsys, tmp_path, monkeypat
     monkeypatch.setattr(pathfix, "scripts_dir", lambda: scripts)
 
     assert pathfix.cli_main(["--print", "--shell", "fish"]) == 0
-    assert capsys.readouterr().out.strip() == f'fish_add_path "{scripts}"'
+    assert (
+        capsys.readouterr().out.strip()
+        == f'fish_add_path "{scripts.as_posix()}"'
+    )
 
 
 def test_cli_apply_then_undo(fake_home, capsys, tmp_path, monkeypatch):

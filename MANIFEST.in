@@ -19,6 +19,12 @@ recursive-include examples *
 # The whole scripts/ tree: tests/test_autofix_scripts.py runs the
 # autofix scripts, and the sdist ships tests/.
 recursive-include scripts *
+# The installer and the service manager. tests/test_install_script.py and
+# tests/test_hypernix_t1_service.py run them, and the sdist ships tests/ —
+# so leaving these out makes the sdist's own test suite fail on files that
+# are simply not there.
+include install-t1.sh
+recursive-include bin *
 recursive-include .github/workflows *.yml
 recursive-include wiki *.md
 recursive-include assets *.png *.svg *.jpg

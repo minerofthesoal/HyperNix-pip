@@ -378,6 +378,139 @@ class ToolRegistry:
             "parameters": schema,
         })
 
+    # ------------------------------------------------------------------
+    # Consent
+    # ------------------------------------------------------------------
+    #
+    # Tool calls arrive as JSON *inside the model's reply*, which is
+    # parsed and dispatched. That makes every one of these reachable by
+    # anything that can influence the model's output — a file it was asked
+    # to read, a web result, a page it fetched, a response from a T1
+    # server. Prompt injection into any of those is, without a gate,
+    # arbitrary code execution on the operator's machine.
+    #
+    # So the side-effecting tools ask first. Reading is not gated: a model
+    # that can read a file is the entire point of the tool, and gating it
+    # would train the operator to hold down "yes".
+
+    #: Tools that execute code, write outside this process, or control
+    #: credentials. Everything else runs unprompted.
+    #:
+    #: Enumerated from the registry rather than from memory. Gating
+    #: `run_command` alone would have been theatre: `create_skill` writes
+    #: a Python file and `run_skill` executes it, so a model that wanted a
+    #: shell could have had one without ever naming a gated tool. A gate
+    #: with a bypass is worse than none, because it is trusted.
+    DANGEROUS_TOOLS: frozenset[str] = frozenset({
+        # Runs code, one way or another.
+        "run_command",
+        "run_background_command",
+        "execute_script",
+        "create_skill",       # writes a Python module the agent can call
+        "run_skill",          # …and this calls it
+        "delete_skill",
+        "hypernix_train",
+        "hypernix_convert",
+        "hypernix_quantize",
+        "hypernix_download",
+        "hypernix_assistant",
+        # Writes or destroys files.
+        "write_file",
+        "replace_file_content",
+        "multi_replace",
+        "batch_replace",      # across a whole directory
+        "apply_patch",
+        "delete_file",
+        "move_file",
+        "copy_file",
+        # Credentials. A model that can mint or revoke a key can lock the
+        # operator out of their own server, or issue itself one.
+        "keymaster_create_key",
+        "keymaster_revoke_key",
+        # Changes this process's environment for every later tool call.
+        "set_env",
+        # Rewrites history.
+        "git_commit",
+    })
+
+    #: Deliberately *not* gated, and why.
+    #:
+    #: The web tools (`fetch_url`, `read_web_page`, `web_search`,
+    #: `non_api_web_search`) are an exfiltration channel: a model that has
+    #: read a file can put it in a URL. They are left ungated because they
+    #: fire constantly in ordinary use, and a prompt that appears on every
+    #: web read is one the operator learns to dismiss — which would cost
+    #: more safety than it buys. An operator who cares can set
+    #: HYPERNIX_TOOL_POLICY=deny and approve nothing.
+    #:
+    #: Reads (`view_file`, `list_dir`, `grep_search`, `git_status`, the
+    #: gatekeeper stats) are ungated for the same reason: a model that can
+    #: read a file is the point of the tool.
+    UNGATED_EGRESS: frozenset[str] = frozenset({
+        "fetch_url", "read_web_page", "web_search", "non_api_web_search",
+    })
+
+    #: What to do when a dangerous tool is called.
+    #:
+    #: ``ask``   — prompt, and run only on an explicit yes (the default).
+    #: ``deny``  — refuse, and tell the model why.
+    #: ``allow`` — run without asking. Opt-in only, for an operator who
+    #:             has decided the trade is worth it in their sandbox.
+    #:
+    #: A session with no terminal falls back to ``deny`` rather than
+    #: ``allow``: when nobody can answer, "don't" is the safe answer, and
+    #: silently running is how a CI job becomes a shell for whoever can
+    #: reach the model.
+    def _consent_policy(self) -> str:
+        policy = os.environ.get("HYPERNIX_TOOL_POLICY", "ask").strip().lower()
+        if policy not in ("ask", "deny", "allow"):
+            policy = "ask"
+        if policy == "ask" and not sys.stdin.isatty():
+            return "deny"
+        return policy
+
+    def _describe_call(self, name: str, kwargs: dict[str, Any]) -> str:
+        """The call as the operator needs to see it, not as it was typed.
+
+        The whole decision rests on this string, so it shows the actual
+        arguments rather than a summary — a truncated command is one an
+        operator cannot judge.
+        """
+        if name in ("run_command", "run_background_command"):
+            return str(kwargs.get("command", ""))
+        if name == "execute_script":
+            return str(kwargs.get("code", ""))
+        return json.dumps(kwargs, default=str)
+
+    def _confirm(self, name: str, kwargs: dict[str, Any]) -> tuple[bool, str]:
+        """Ask the operator. Returns (allowed, reason-when-refused)."""
+        policy = self._consent_policy()
+        if policy == "allow":
+            return True, ""
+        if policy == "deny":
+            return False, (
+                "refused: this tool changes things and no one is present to "
+                "approve it (HYPERNIX_TOOL_POLICY=deny, or no terminal). "
+                "Explain what you would run instead."
+            )
+
+        detail = self._describe_call(name, kwargs)
+        sys.stdout.write(
+            "\n\033[38;5;220m  the model wants to run a tool that changes things\033[0m\n"
+            f"    tool: {name}\n"
+        )
+        for line in detail.splitlines() or [""]:
+            sys.stdout.write(f"    {line}\n")
+        sys.stdout.write("  allow? [y/N] ")
+        sys.stdout.flush()
+        try:
+            answer = sys.stdin.readline().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer in ("y", "yes"):
+            return True, ""
+        return False, "refused by the operator."
+
     def _register_all(self) -> None:
         # File System Tools
         self.register("view_file", "Read file lines with optional range", self._view_file, {
@@ -714,12 +847,23 @@ class ToolRegistry:
         })
 
     def execute_tool(self, name: str, kwargs: dict[str, Any]) -> str:
-        if name in self.tools:
-            try:
-                return self.tools[name](**kwargs)
-            except Exception as exc:  # noqa: BLE001
-                return f"Tool Execution Error ({name}): {exc}"
-        return f"Error: Tool '{name}' is not registered."
+        """Run a registered tool, asking first when it changes something.
+
+        The gate lives here rather than at the call site because there is
+        more than one call site — the model's JSON, the slash commands,
+        and the agent loop all arrive through this method. A check in the
+        dispatcher would have covered one of them.
+        """
+        if name not in self.tools:
+            return f"Error: Tool '{name}' is not registered."
+        if name in self.DANGEROUS_TOOLS:
+            allowed, reason = self._confirm(name, kwargs)
+            if not allowed:
+                return f"Tool '{name}' was not run — {reason}"
+        try:
+            return self.tools[name](**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            return f"Tool Execution Error ({name}): {exc}"
 
     # Implementations
     def _view_file(self, path: str, start_line: int | None = None, end_line: int | None = None) -> str:
@@ -851,9 +995,12 @@ class ToolRegistry:
 
     def _run_command(self, command: str, cwd: str | None = None) -> str:
         try:
+            # nosec B602 - reachable only through ToolRegistry.execute_tool,
+            # which requires operator consent for this tool (see
+            # DANGEROUS_TOOLS). shell=True is the tool's stated purpose.
             res = subprocess.run(
                 command,
-                shell=True,
+                shell=True,  # noqa: S602
                 cwd=cwd or os.getcwd(),
                 capture_output=True,
                 text=True,
@@ -1168,8 +1315,9 @@ class ToolRegistry:
     # OpenClaw Background Process
     def _run_background_command(self, command: str) -> str:
         try:
+            # nosec B602 - consent-gated, as above.
             proc = subprocess.Popen(
-                command, shell=True,
+                command, shell=True,  # noqa: S602
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )

@@ -309,7 +309,13 @@ def profile_for_shell(shell: str | None = None) -> Path | None:
 def snippet_for_shell(directory: Path, shell: str | None = None) -> str:
     """The single line that puts *directory* on ``PATH`` for *shell*."""
     shell = shell or detect_shell()
-    text = str(directory)
+    # A POSIX shell reads `\` as an escape, so `str(directory)` on Windows
+    # produces a line that is not merely ugly but wrong — and these
+    # snippets are written on Windows, for Git Bash and WSL. `as_posix()`
+    # is identical to `str()` everywhere else, and turns `C:\Scripts` into
+    # `C:/Scripts`, which is what those shells want anyway. PowerShell is
+    # the one that gets the native separator, so it keeps `str()`.
+    text = str(directory) if shell == "powershell" else directory.as_posix()
 
     if shell == "fish":
         # fish_add_path is idempotent and handles the universal/global
@@ -361,11 +367,14 @@ def _strip_block(text: str) -> tuple[str, bool]:
 def session_hint(directory: Path, shell: str | None = None) -> str:
     """The command that fixes ``PATH`` for the *current* shell session."""
     shell = shell or detect_shell()
-    if shell == "fish":
-        return f'set -gx PATH "{directory}" $PATH'
     if shell == "powershell":
         return f'$env:PATH = "{directory};$env:PATH"'
-    return f'export PATH="{directory}:$PATH"'
+    # Same reason as snippet_for_shell: forward slashes for a POSIX shell,
+    # whatever host wrote the line.
+    text = directory.as_posix()
+    if shell == "fish":
+        return f'set -gx PATH "{text}" $PATH'
+    return f'export PATH="{text}:$PATH"'
 
 
 # ---------------------------------------------------------------------------

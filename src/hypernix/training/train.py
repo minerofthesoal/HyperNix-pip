@@ -668,6 +668,39 @@ def _iter_chunks(path: Path, tokenizer, ctx_len: int, bos_id: int | None = None)
         yield torch.tensor(ids[i : i + ctx_len + 1], dtype=torch.long)
 
 
+class _FusedScheduler:
+    """Cosine schedule across per-parameter optimizers.
+
+    ``fuse_optimizer_into_backward`` produces one optimizer per
+    parameter, and ``CosineAnnealingLR`` drives exactly one. Rather than
+    hold N schedulers that would each advance on the same call, this
+    computes the cosine directly and writes it across every param group —
+    the same lr every one of them would have arrived at, from one place.
+    """
+
+    def __init__(self, handle: Any, total_steps: int) -> None:
+        self._optimizers = list(handle.optimizers.values())
+        self._base_lrs = [
+            [group["lr"] for group in opt.param_groups]
+            for opt in self._optimizers
+        ]
+        self._total = max(1, total_steps)
+        self._step = 0
+
+    def step(self) -> None:
+        self._step += 1
+        # CosineAnnealingLR's closed form, with eta_min=0.
+        scale = 0.5 * (1.0 + math.cos(math.pi * min(self._step, self._total) / self._total))
+        for opt, bases in zip(self._optimizers, self._base_lrs, strict=True):
+            for group, base in zip(opt.param_groups, bases, strict=True):
+                group["lr"] = base * scale
+
+    def get_last_lr(self) -> list[float]:
+        if not self._optimizers:
+            return []
+        return [group["lr"] for group in self._optimizers[0].param_groups]
+
+
 def train(
     model_dir: Path | str,
     dataset_path: Path | str,
@@ -689,6 +722,10 @@ def train(
     use_stml: bool = False,
     untrained_max_context: int = 8192,
     segment_length: int = 512,
+    gradient_checkpointing: bool = False,
+    checkpoint_every: int = 1,
+    fuse_optimizer: bool = False,
+    tune_allocator: bool = False,
 ) -> Path:
     """Minimal causal-LM training loop.
 
@@ -704,11 +741,43 @@ def train(
         use_stml: Enable STML context segment folding for efficient memory use.
         untrained_max_context: Absolute maximum token count before truncation (STML).
         segment_length: Segment size for STML folding (must be <= context_length).
+        gradient_checkpointing: Recompute activations in the backward pass
+            instead of storing them. Trades roughly 30% more compute for
+            most of the activation memory, which is what a long-context
+            run actually runs out of. See :mod:`hypernix.system.vram`.
+        checkpoint_every: Checkpoint every Nth block. 1 for all of them,
+            2 for half the saving at half the extra compute.
+        fuse_optimizer: Apply and free each gradient the moment it is
+            ready, instead of holding every gradient between ``backward``
+            and ``step`` — one full copy of the model, in gradient dtype,
+            at exactly the moment activations peak. Requires
+            ``grad_clip=0``: a global norm cannot be computed from one
+            gradient at a time, so passing both is an error rather than a
+            silently unclipped run.
+        tune_allocator: Set ``expandable_segments`` on the CUDA caching
+            allocator, so a long run with varying sequence lengths
+            fragments less. Off by default because it edits the process
+            environment; it has no effect once CUDA is initialized, and
+            says so rather than pretending.
     """
     model_dir = Path(model_dir)
     dataset_path = Path(dataset_path)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    if fuse_optimizer and grad_clip:
+        raise ValueError(
+            "fuse_optimizer=True steps and frees each gradient as it is "
+            "produced, so there is never a moment when every gradient "
+            f"exists to take a global norm over. Pass grad_clip=0 to accept "
+            f"that, or leave fuse_optimizer off. (grad_clip={grad_clip})"
+        )
+
+    if tune_allocator:
+        from hypernix.system import vram
+
+        report = vram.configure_allocator()
+        print(f"[hypernix.train] {report.report()}", flush=True)
 
     if seed is not None:
         torch.manual_seed(seed)
@@ -740,8 +809,35 @@ def train(
     if not chunks:
         raise RuntimeError(f"dataset {dataset_path} produced no training chunks (too short?)")
 
-    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95))
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+    if gradient_checkpointing:
+        from hypernix.system import vram
+
+        ckpt = vram.checkpoint_blocks(model, every=checkpoint_every)
+        print(f"[hypernix.train] {ckpt.report()}", flush=True)
+
+    if fuse_optimizer:
+        from hypernix.system import vram
+
+        opt = vram.fuse_optimizer_into_backward(
+            model,
+            lambda params: torch.optim.AdamW(
+                params, lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95)
+            ),
+            grad_clip=None,
+        )
+        # The scheduler needs something with param_groups to walk. Every
+        # per-parameter optimizer shares the same schedule, so stepping
+        # one is stepping the schedule; the rest are driven the same way
+        # by writing the resulting lr across all of them.
+        sched = _FusedScheduler(opt, steps)
+        print(
+            f"[hypernix.train] optimizer-in-backward over "
+            f"{opt.parameter_count} parameters",
+            flush=True,
+        )
+    else:
+        opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95))
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
 
     # Build curriculum regulator (Abbicus or TurboAbbicus)
     regulator = None
