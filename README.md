@@ -85,6 +85,17 @@ shell commands with no prompt. Side-effecting tools now require consent;
 `HYPERNIX_TOOL_POLICY=ask|deny|allow`, and "ask" with no terminal means
 deny.
 
+**More fits on the same card.** `hypernix.system.vram` — allocator
+tuning so a long run stops fragmenting, activation checkpointing so
+sequence length stops costing activation memory, an optimizer that steps
+during backward so the gradients are never all held at once, and a way to
+measure whether any of it worked. Nothing is applied for you and nothing
+changes a default.
+
+```bash
+hypernix train run ... --gradient-checkpointing --tune-allocator
+```
+
 **Releases are gated on a live server.** After the tests, two jobs each
 mint a T2 key, start a real API, chat through a fake model, drive an
 iPhone simulator, then delete every key they made. Nothing publishes
@@ -108,7 +119,7 @@ directory:
 | `hypernix/optimizers/` | 8 | The Pressure Cooker optimizer family and optimizer plumbing. |
 | `hypernix/quant/` | 4 | The GGUF pipeline: convert, quantize, fetch tooling and upload. |
 | `hypernix/security/` | 3 | API keys, quotas and request gating. |
-| `hypernix/system/` | 14 | Environment, dependencies, hardware and housekeeping. |
+| `hypernix/system/` | 15 | Environment, dependencies, hardware and housekeeping. |
 | `hypernix/timing/` | 5 | Timers, alarms, cadence control and progress animation. |
 | `hypernix/training/` | 14 | Training entry points, schedules and weight perturbation. |
 | `hypernix/t1api/` | — | The [T1 API](wiki/T1-API.md) server: registry, routing, quota, billing, audit, rate limiting, mTLS, deployment. |
@@ -173,6 +184,7 @@ Click a category below to expand it.
 | `hypernix.old_fridge` | Memory housekeeping: `freeze`, `unfreeze`, `parameter_stats`, `offload_to_cpu`, `chill_cache`. |
 | `hypernix.freezer` | VRAM manager: `OldFreezer` (8-10 GB, conservative batches, bf16/fp16), `NewFreezer` (11 GB+, fp32-preferred), `FlashFreezer` (OOM-safe retry wrapper around either). Pascal (sm_61 / CUDA 6.1) helpers + 60 CPU presets (Intel i5/i7/i9 7th-14th gen, Core Ultra Series 1/2, AMD Ryzen 5000/7000/9000 series) via `auto_freezer()`. |
 | `hypernix.cake_pan` | Hybrid CPU + GPU training guard with NaN/Inf detection, wall-time watchdog, memory-pressure offload, and pristine-state rollback via `BakeOff`. |
+| `hypernix.vram` | *(v0.72.3)* **VRAM optimizations** — `configure_allocator()` (`expandable_segments`, so a long run stops fragmenting; must run before the first CUDA allocation, which is why importing the module does not import torch), `checkpoint_blocks(model, every=N)` (recompute activations instead of storing them), `fuse_optimizer_into_backward()` (step and free each gradient as it is produced, so they are never all held at once), `offload_optimizer_state(opt)` (a context manager for the duration of an eval pass), `measure_peak()` and `recommend()`. Each opt-in, each reversible, each refusing rather than silently doing nothing. See [VRAM](wiki/VRAM.md). |
 | `hypernix.stml` | *(v0.70.4)* **Short Term Memory Loss** — two tools. `calculate_vram_context(vram_gb, params, batch_size, precision)` estimates the max safe trained context given your hardware. The `STML` context manager folds long sequences into batch segments to keep the *untrained* context length bounded during training. |
 
 </details>

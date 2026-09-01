@@ -141,6 +141,68 @@ and is minted **once**. Loopback is enforced on every request, on both
 the ordinary and HyperLink auth paths — a restriction applied to one of
 two routes into the same key store is not a restriction.
 
+✨ **VRAM optimizations: `hypernix.system.vram`.** [`freezer`](Freezer.md)
+answers "how big a batch fits?"; this answers "how do I make more of it
+fit without changing what the model learns?" Five techniques, each opt-in
+and each reversible:
+
+- **Allocator tuning.** The CUDA caching allocator carves VRAM into
+  fixed-size segments and cannot satisfy a large request from several
+  small free ones — which is the OOM that happens while `nvidia-smi`
+  still reports gigabytes free, because that memory is *reserved and
+  unusable* rather than in use. `configure_allocator()` sets
+  `expandable_segments`. It has to run before the first CUDA allocation,
+  so importing the module deliberately does **not** import torch, and a
+  call that comes too late reports that instead of silently doing
+  nothing.
+- **Activation checkpointing.** Activations, not parameters, are what a
+  long-context run runs out of: they scale with batch x sequence x
+  layers and the parameters scale with none of those.
+  `checkpoint_blocks(model, every=N)` finds the layer stack as the
+  longest `nn.ModuleList` of structurally identical children — which is
+  what a transformer's layers are in every architecture here, without
+  hard-coding `.layers` vs `.h` vs `.blocks`. `use_reentrant=False`
+  because the reentrant implementation silently produces **no gradients
+  at all** when no input to the region requires grad, which is the normal
+  case for the first block; that failure mode is a model training on a
+  subset of its own layers and never saying so.
+- **Optimizer-in-backward.** An ordinary loop holds every gradient at
+  once between `backward` and `step` — a second full copy of the model,
+  in gradient dtype, at exactly the moment activations peak.
+  `fuse_optimizer_into_backward` steps and frees each one as it finishes.
+  It refuses gradient clipping, accumulation and a `GradScaler` rather
+  than accepting them: each would produce a plausible-looking loss curve
+  for a model that trained differently than the caller asked for.
+- **Optimizer-state offload.** Adam state is twice the parameter memory
+  sitting idle through any pass that is not a training step. A context
+  manager, not a mode — host-resident state during the step would cross
+  the bus every step — with the restore in a `finally`, so an exception
+  inside cannot leave the optimizer split across two devices and fail
+  later with an error naming neither.
+- **Measurement.** `measure_peak()` reports peak allocated and reserved.
+  The gap between them is fragmentation, which is the number the
+  allocator change is trying to move.
+
+Wired to the loop, not just the library: `train()` and
+`hypernix train run` take `--gradient-checkpointing`,
+`--checkpoint-every`, `--fuse-optimizer` and `--tune-allocator`. The
+clipping/fusing conflict is refused before the checkpoint is read off
+disk, so nobody waits out a model load to be told the combination was
+never going to work.
+
+📚 **The wiki and the README were up to three releases behind.** Home's
+index called the T1 API "Beta 2" and waiter "Beta 1" — both shipped —
+`T1-API.md` still read `1.0.26.8.0.1` throughout, and the one page
+nothing linked to was the security checklist. New [VRAM](VRAM.md) page;
+`hypernix-t1` and the `gkey -v` / `gkey version` surface documented in
+[CLI](CLI.md); `HYPERNIX_TOOL_POLICY` and `T1_KEYMASTER_DIR` added to the
+environment table; the roadmap's 0.72.3 section moved from "Next
+Milestone" to what actually landed.
+
+🔧 **348 `.pyc` files were tracked in the repository**, added by ed11d4b
+and ec509fe. The `.gitignore` note said removing them was a separate
+deliberate step; this is that step.
+
 ✨ **`hypernix-t1` — one executable that runs the server.** Starting a
 T1 API meant remembering a uvicorn invocation, and stopping one meant
 finding the pid. `bin/hypernix-t1` is a single dependency-free shell

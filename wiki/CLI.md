@@ -259,6 +259,23 @@ hypernix train run \
     --dtype float32 --log-every 10 --save-every 500 --seed 0
 ```
 
+### `train run` — VRAM flags
+
+```bash
+hypernix train run --model-dir ./m --dataset ./d.txt --out-dir ./out \
+    --gradient-checkpointing --checkpoint-every 2 --tune-allocator
+```
+
+| Flag | |
+|---|---|
+| `--gradient-checkpointing` | Recompute activations in backward instead of storing them: ~30% more compute for most of the activation memory, which is what a long-context run actually runs out of. |
+| `--checkpoint-every N` | Checkpoint every Nth block. `1` for all, `2` for half the saving at half the extra compute. |
+| `--fuse-optimizer` | Step and free each gradient as it is produced, instead of holding a full copy of them between `backward` and `step`. Needs `--grad-clip 0` — a global norm cannot be computed one gradient at a time, and the combination is refused before the checkpoint loads rather than after. |
+| `--tune-allocator` | `expandable_segments` on the CUDA allocator, so a long run with varying sequence lengths fragments less. |
+
+Full detail, plus the parts with no CLI surface (optimizer-state offload,
+peak measurement): [VRAM](VRAM.md).
+
 ## `generate`
 
 ```bash

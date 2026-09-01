@@ -2,7 +2,8 @@
 
 Modules: ``compactor``, ``config``, ``deps``, ``dishwasher``,
 ``doctor``, ``ethanol``, ``freezer``, ``net``, ``old_fridge``,
-``outage``, ``protect``, ``torch_compat``, ``ups``, ``utils``.
+``outage``, ``protect``, ``torch_compat``, ``ups``, ``utils``,
+``vram``.
 
 Every module here is also reachable under its historical flat name
 (``hypernix.compactor``); see the alias finder in ``hypernix/__init__.py``.
@@ -29,6 +30,7 @@ __all__ = [
     "torch_compat",
     "ups",
     "utils",
+    "vram",
 ]
 
 
