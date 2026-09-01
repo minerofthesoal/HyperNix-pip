@@ -43,6 +43,27 @@ dedupe and one is the WebSocket handshake, where RFC 6455 mandates
 SHA-1 — none is a security digest, and without the flag all three raise
 on a FIPS-enabled host.
 
+✨ **T2P keys carry billing, and servers can refuse them.** A T2P key is
+an ordinary T2 key with a billing binding attached — provider references,
+a spend cap, a currency — so a key can be issued to someone who pays for
+their own usage. No card data is ever stored (the store refuses anything
+shaped like a card number at the boundary) and the binding is not in the
+credential, because keys land in shell history and payment tokens must
+not. A T2P key is never an administrator.
+
+`T1_BILLING_KEY_POLICY` gives a server three answers: `allow` (default,
+so nothing changes), `deny` with a `T1_PAYMENT_URL` to point at, or
+`separate`, which requires the payment key in `X-Payment-Key` so the
+credential that identifies a caller and the one that spends money have
+separate lifetimes. Enforced at authentication — refusing after the work
+is a refund, not a policy.
+
+🐛 **Family detection was a hardcoded list and silently stopped covering
+the family.** Two call sites tested `key[:3] in ("T2_", "T2S")`, so a
+T2P key fell through to the T1 path and was rejected as malformed several
+layers before the code that had an opinion about it. Derived from the
+enum now.
+
 𖢥 **HyperLink timed out because the server advertised the wrong port.**
 uvicorn owns the bind address and passes it to nobody, so the config's
 default — 8000 — went out in the endpoint list whatever port the server

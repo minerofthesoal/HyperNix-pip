@@ -99,6 +99,20 @@ T2C_UNAVAILABLE_REASON = (
 )
 
 
+def looks_like_t2(key: str) -> bool:
+    """Is this credential in the T2 family, whichever member?
+
+    Derived from :class:`T2Type` rather than from a list of prefixes.
+    Two call sites tested ``key[:3] in ("T2_", "T2S")``, which silently
+    stopped covering the family the moment T2P was added: a T2P key fell
+    through to the T1 path and was rejected as malformed, several layers
+    before the code that had an opinion about it.
+    """
+    if not isinstance(key, str) or not key.startswith("T2"):
+        return False
+    return any(key.startswith(f"{member.value}_") for member in T2Type)
+
+
 def t2_api_available(hypernix_version: str | None = None) -> bool:
     """Is the T2 *API* (as opposed to T2 keys) released in this build?
 
@@ -144,12 +158,27 @@ class T2Type(StrEnum):
 
     T2 = "T2"        # general purpose
     T2S = "T2S"      # HyperLink; 26-character body, restricted outside HyperLink
+    T2P = "T2P"      # carries a billing binding — see hypernix.t1api.billingkeys
     T2C = "T2C"      # reserved for 1.x — see T2C_UNAVAILABLE_REASON
 
 
 #: Valid access levels. Level is carried in the suffix and validated on
 #: creation, conversion, and every authentication.
 ACCESS_LEVELS: tuple[int, ...] = tuple(range(1, 10))
+
+#: What a payment-bearing key is *not*.
+#:
+#: A T2P key names a billing binding held by the server. It is a
+#: credential for spending money, so it is never an administrator: the
+#: two authorities have no reason to travel together, and a key that can
+#: both pay and reconfigure the server is a worse thing to lose than
+#: either alone.
+#:
+#: The binding itself is never in the key. A key is pasted into terminals
+#: and config files and shows up in shell history; a payment token that
+#: lives there is a payment token that leaks. The key carries only the
+#: fact that a binding exists, and the server looks the rest up.
+T2P_IS_NEVER_ADMIN = True
 
 #: T2S bodies are exactly this long — "26 chars, not counting prefix and
 #: suffix". Fixed rather than minimum: a variable-length key that must be
@@ -212,7 +241,7 @@ _HOST_ID_SPECIAL_CHARS = _T2_SPECIAL_CHARS.replace("#", "").replace("-", "")
 # with alphanumerics is indistinguishable from a password, and a parser
 # that has to guess is a parser an attacker gets to steer.
 _T2_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?P<family>T2S|T2C|T2)_"
+    r"^(?P<family>T2S|T2P|T2C|T2)_"
     r"(?:(?P<password>[A-Za-z1-9]{7,13})_)?"
     r"(?P<body>[A-Za-z0-9]{16,})"
     r"(?P<ll>[a-z]{2})"
@@ -746,6 +775,12 @@ class T2KeyGenerator:
                     "A T2S key cannot be an admin key. It is short enough to type, which "
                     "is precisely why it must not carry administrative authority."
                 )
+            if family is T2Type.T2P:
+                raise ValueError(
+                    "A T2P key cannot be an admin key. It authorises spending; "
+                    "administering the server is a separate authority and there is no "
+                    "reason for the two to travel on one credential."
+                )
             password = password or generate_admin_password(include_word=include_word)
             ok, reason = validate_admin_password(password)
             if not ok:
@@ -957,6 +992,10 @@ class T2KeyGenerator:
         wrapped = T2KeyGenerator.from_t1(
             t1_key, access_level=access_level, family=T2Type.T2, sspkid=sspkid
         )
+        # Always T2 — the signature pins the family, but saying so here
+        # means a later edit that parameterises it cannot quietly produce
+        # an admin T2S or T2P.
+        assert wrapped.family is T2Type.T2
         password = password or generate_admin_password()
         ok, reason = validate_admin_password(password)
         if not ok:

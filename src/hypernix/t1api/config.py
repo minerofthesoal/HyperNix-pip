@@ -314,6 +314,24 @@ class T1APIConfig:
     # the alternative is a server nobody can configure, which is how
     # "HyperLink cannot connect" starts. Off for a deployment that
     # provisions credentials some other way.
+    # What this server does with a key that bills somewhere else.
+    #
+    # "allow" accepts the caller's own payment arrangement. "deny"
+    # refuses it and points at this server's payment page, which is the
+    # right answer for an operator who sells access themselves. "separate"
+    # accepts the request but requires payment on a *different* key, so
+    # the credential that identifies the caller and the one that spends
+    # money have separate lifetimes.
+    billing_key_policy: str = field(
+        default_factory=lambda: (
+            os.environ.get("T1_BILLING_KEY_POLICY", "allow").strip().lower() or "allow"
+        )
+    )
+    #: Where to send someone whose billing key was refused. Without it
+    #: "deny" is a dead end, so the refusal says so rather than pretending
+    #: there is somewhere to go.
+    payment_url: str = field(default_factory=lambda: os.environ.get("T1_PAYMENT_URL", ""))
+
     bootstrap_key_enabled: bool = field(
         default_factory=lambda: _bool_env("T1_BOOTSTRAP_KEY", True)
     )

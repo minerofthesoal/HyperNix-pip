@@ -68,6 +68,7 @@ from .auth import T1AuthService
 from .authhistory import AuthHistory
 from .backup import BackupStore
 from .billing import BillingLedger
+from .billingkeys import BillingBindingStore
 from .config import T1APIConfig
 from .cost import CostCalculator
 from .db import SQLBackend, make_backend
@@ -350,6 +351,7 @@ def create_app(
     else:
         app.state.t1_bootstrap_key = None
 
+    app.state.t1_billing_bindings = BillingBindingStore(db)
     app.state.t1_config = cfg
     app.state.t1_keymaster = km
     app.state.t1_gatekeeper = gk

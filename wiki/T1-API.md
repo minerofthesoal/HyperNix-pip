@@ -426,6 +426,53 @@ Every impossible combination is refused *before* the key is minted. A key
 created and then found unpresentable would still be in the store — valid,
 usable, and known to nobody, since the operator saw only an error.
 
+### Billing keys (T2P), and refusing them
+
+A **T2P** key is an ordinary T2 key with a billing binding attached, so a
+key can be issued to someone who pays for their own usage rather than
+drawing on the operator's budget.
+
+Two things are deliberately not in the credential:
+
+- **No card data, anywhere.** A binding holds provider-issued references —
+  a customer token and a method token — and the store refuses anything
+  shaped like a card number at the boundary. This server is not in the
+  cardholder data path.
+- **No binding in the key.** Keys get pasted into terminals and config
+  files and land in shell history. The key says only *that* it is
+  billing-bearing; the server looks the binding up by key ID.
+
+A T2P key is **never an administrator**. Spending money and reconfiguring
+a server are separate authorities with no reason to travel together.
+
+#### A server does not have to accept one
+
+Somebody else's payment arrangement is somebody else's business
+relationship. `T1_BILLING_KEY_POLICY`:
+
+| Policy | Behaviour |
+| --- | --- |
+| `allow` (default) | Accept the key and use its binding. Nothing changes for existing servers. |
+| `deny` | Refuse with `402 BILLING_KEY_REFUSED`, pointing at `T1_PAYMENT_URL` — for an operator who sells access through their own site. |
+| `separate` | Accept the request but never bill the authenticating key. Payment must arrive as a distinct T2P key in `X-Payment-Key`. |
+
+`separate` exists so the credential that identifies a caller and the one
+that spends money are different objects with different lifetimes: either
+can be rotated without disturbing the other, and a leaked auth key does
+not spend anything.
+
+The policy is enforced at **authentication**, not at charge time.
+Refusing after the work is done is a refund, not a policy — the operator
+has already paid for the inference.
+
+#### Spend caps
+
+A cap is in currency, not tokens, and is checked against the *estimated*
+cost before the work runs, in the same cascade that already tracks
+per-key cost. Revoking a key releases its binding: a binding that
+outlives its key is a standing authorisation to charge someone for a
+credential that no longer exists.
+
 ### The first key a new server has
 
 A fresh server starts with an empty key store, and every route that could
