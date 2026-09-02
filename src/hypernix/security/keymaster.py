@@ -684,6 +684,31 @@ class Keymaster:
         logger.info("keymaster: set scopes of %s", key_id[:8])
         return meta
 
+    def set_server_id(self, key_id: str, server_id: str) -> KeyMeta:
+        """Move a key to a different V1 Server ID.
+
+        Validated, not trusted: the identifier comes from a configuration
+        source that may be somewhere else on the network, and an
+        unparseable one written into the store would break
+        ``_resume_server_id`` for every key minted afterwards — the
+        counter reads existing keys to work out where to continue from.
+        """
+        try:
+            _parse_server_id(server_id)
+        except Exception as exc:
+            raise ValueError(
+                f"{server_id!r} is not a V1 Server ID (expected NNNNN-LN, "
+                "e.g. 00042-C1)"
+            ) from exc
+        with self._lock:
+            meta = self._keys.get(key_id)
+            if meta is None:
+                raise KeyError(f"Key not found: {key_id!r}")
+            meta.server_id = server_id
+        self._save(meta)
+        logger.info("keymaster: set server_id of %s to %s", key_id[:8], server_id)
+        return meta
+
     def set_revoked(self, key_id: str, revoked: bool) -> KeyMeta:
         """Revoke or un-revoke a key.
 
@@ -718,6 +743,16 @@ class Keymaster:
             pass
         logger.info("keymaster: un-revoked key %s", key_id[:8])
         return meta
+
+    @property
+    def store_dir(self) -> Path:
+        """Where this Keymaster's keys live.
+
+        Public because anything that indexes these keys has to live beside
+        them — the SSPKID registry most of all, since a registry pointing
+        at a different directory indexes keys that are not there.
+        """
+        return self._store
 
     def on_revoke(self, callback: Callable[[str, str], None]) -> None:
         """Register a callback to run when a key is revoked or rotated away.

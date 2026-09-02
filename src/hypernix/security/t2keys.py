@@ -612,8 +612,15 @@ class ServerKeyRegistry:
     unit tests want.
     """
 
-    #: Filename inside the store directory.
-    FILENAME = "sspkid-registry.json"
+    #: Where the registry lives inside the store directory.
+    #:
+    #: A subdirectory, not a bare file, because the Keymaster globs
+    #: ``*.json`` in its store to load keys — a registry sitting there
+    #: gets read as a malformed key on every start, and the CI teardown
+    #: that counts ``*.json`` to prove no keys leaked would count it as a
+    #: leaked key. Neither is a failure this file should be able to cause.
+    SUBDIR = "sspkid"
+    FILENAME = "registry.json"
 
     def __init__(self, store_dir: Path | str | None = _UNSET) -> None:
         self._by_sspkid: dict[str, str] = {}          # str(SSPKID) -> key_id
@@ -624,7 +631,9 @@ class ServerKeyRegistry:
         if store_dir is _UNSET:
             store_dir = default_sspkid_store_dir()
         self._path: Path | None = (
-            Path(store_dir) / self.FILENAME if store_dir is not None else None
+            Path(store_dir) / self.SUBDIR / self.FILENAME
+            if store_dir is not None
+            else None
         )
         self._load()
 

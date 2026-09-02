@@ -308,7 +308,14 @@ def create_app(
     # security extra is installed rather than sitting in plain JSON.
     history = auth_history or AuthHistory(db, fernet=getattr(km, "_fernet", None))
     backups = backup_store or BackupStore(cfg.backup_dir)
-    server_keys = server_key_registry or ServerKeyRegistry()
+    # Beside this app's keys, taken from the Keymaster rather than from
+    # the config: cfg.keymaster_dir is None whenever T1_KEYMASTER_DIR is
+    # unset, and a bare ServerKeyRegistry() defaults to the operator's
+    # real store — so every create_app() in a test suite would write
+    # SSPKID assignments into ~/.hypernix, and two servers with different
+    # key stores would share one registry. The Keymaster in use is the
+    # authority on where these keys are.
+    server_keys = server_key_registry or ServerKeyRegistry(store_dir=km.store_dir)
 
     # T1 v1.0.26.8.0.1 subsystems. All three share the same backend as
     # everything else, so a HyperLink deployment is still one database

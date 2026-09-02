@@ -279,7 +279,28 @@ def _cmd_create(args: list[str]) -> int:
     p.add_argument("--word", dest="include_word", action="store_true",
                    help="Embed a six-letter word in a generated admin password "
                         "(memorability, not entropy)")
+    p.add_argument("-Con", "--config-source", dest="config_source", default=None,
+                   metavar="ADDR|URL|PATH",
+                   help="Take the V1 Server ID and/or SSPKID from a JSONL "
+                        "config. A bare IP or host becomes "
+                        "http://<host>/gkey.jsonl; a URL or path is used as "
+                        "given. Sets identity only — never scopes, type or "
+                        "expiry.")
     ns = p.parse_args(args)
+
+    # Read the config before minting. A key created and then found to have
+    # an unusable identity would still be in the store, valid, and known
+    # to nobody but the operator who saw an error — the same reasoning as
+    # every other precondition in this function.
+    key_config = None
+    if ns.config_source:
+        from hypernix.security.keyconfig import KeyConfigError, load_key_config
+
+        try:
+            key_config = load_key_config(ns.config_source)
+        except KeyConfigError as exc:
+            print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+            return 2
 
     try:
         version = resolve_key_version(ns.key_version)
@@ -367,6 +388,47 @@ def _cmd_create(args: list[str]) -> int:
         note=ns.note,
         body_length=body_length,
     )
+    # Identity from the config source, applied to the key that now
+    # exists. Failing here does not leave a key with a half-applied
+    # identity: the server ID is validated before it is written, and an
+    # SSPKID collision leaves the key on its default identity with the
+    # reason printed, rather than silently taking an identifier that
+    # belongs to a different key.
+    config_applied: list[str] = []
+    if key_config is not None:
+        if key_config.server_id:
+            try:
+                meta = km.set_server_id(meta.key_id, key_config.server_id)
+                config_applied.append(f"server_id={key_config.server_id}")
+            except ValueError as exc:
+                km.stop()
+                print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+                return 2
+
+        sspkid_text = key_config.sspkid
+        if not sspkid_text and key_config.sspkid_index is not None:
+            sspkid_text = f"{meta.server_id}#{key_config.sspkid_index}"
+        if sspkid_text:
+            from hypernix.security.t2keys import (
+                SSPKID,
+                ServerKeyRegistry,
+                SSPKIDCollision,
+            )
+
+            try:
+                parsed_sspkid = SSPKID.parse(sspkid_text)
+            except ValueError as exc:
+                km.stop()
+                print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+                return 2
+            try:
+                ServerKeyRegistry().assign(meta.key_id, parsed_sspkid)
+            except SSPKIDCollision as exc:
+                km.stop()
+                print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+                return 2
+            config_applied.append(f"sspkid={parsed_sspkid}")
+
     km.stop()
 
     # Present the minted key in the requested format.
@@ -427,6 +489,11 @@ def _cmd_create(args: list[str]) -> int:
         content_lines.append(
             f"[bold]Password:[/bold]   [yellow]{admin_password}[/yellow]"
         )
+    if config_applied:
+        content_lines.append(
+            f"[bold]Config:[/bold]     {', '.join(config_applied)}"
+        )
+        content_lines.append(f"[dim]             from {key_config.source}[/dim]")
     if tags:
         content_lines.append(f"[bold]Tags:[/bold]       {json.dumps(tags)}")
     if version is not DEFAULT_KEY_VERSION:
