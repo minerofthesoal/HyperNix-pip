@@ -179,11 +179,8 @@ jobs:
         run: |
           nohup python scripts/ci/fake_model_server.py --port 1234 \
             > fake-model.log 2>&1 &
-          for _ in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:1234/v1/models >/dev/null 2>&1 && break
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:1234/v1/models
+          python scripts/ci/wait_for_http.py http://127.0.0.1:1234/v1/models \
+            --timeout 60 --name "the fake model" --log fake-model.log
 
       - name: Start the T1 API
         run: |
@@ -191,11 +188,8 @@ jobs:
           echo "T1_TOKEN_SECRET=$T1_TOKEN_SECRET" >> "$GITHUB_ENV"
           nohup python -m uvicorn hypernix.t1api.app:create_app --factory \
             --host 127.0.0.1 --port 8000 > t1api.log 2>&1 &
-          for _ in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && break
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:8000/health
+          python scripts/ci/wait_for_http.py http://127.0.0.1:8000/health \
+            --timeout 90 --name "the T1 API" --log t1api.log
 
       - name: Mint a key, authorise it, and chat through the fake model
         run: python scripts/ci/integration_probe.py --url http://127.0.0.1:8000
@@ -252,11 +246,15 @@ jobs:
           echo "T1_TOKEN_SECRET=$T1_TOKEN_SECRET" >> "$GITHUB_ENV"
           nohup python -m uvicorn hypernix.t1api.app:create_app --factory \
             --host 127.0.0.1 --port 8000 > t1api.log 2>&1 &
-          for _ in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && break
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:8000/health
+          # Both, not just the API. This job used to wait only for port
+          # 8000, and a macOS runner is slow enough starting a Python
+          # process that the probe reached the bridge before the fake
+          # model was listening — which fails as MODEL_UNAVAILABLE and
+          # reads as a broken bridge rather than a race.
+          python scripts/ci/wait_for_http.py http://127.0.0.1:1234/v1/models \
+            --timeout 90 --name "the fake model" --log fake-model.log
+          python scripts/ci/wait_for_http.py http://127.0.0.1:8000/health \
+            --timeout 90 --name "the T1 API" --log t1api.log
 
       - name: Mint this job's own key and check the API from outside
         run: python scripts/ci/integration_probe.py --url http://127.0.0.1:8000

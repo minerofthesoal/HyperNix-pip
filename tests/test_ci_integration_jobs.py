@@ -15,6 +15,7 @@ are green.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -231,3 +232,107 @@ class TestTheProbeScript:
         time on a fast one, and is the usual reason CI is flaky."""
         source = (SCRIPTS / "integration_probe.py").read_text()
         assert "def wait_for(" in source
+
+
+def _job_steps_text(path: Path, job: str) -> str:
+    """Every `run:` block of a job, concatenated."""
+    steps = workflow(path)["jobs"][job]["steps"]
+    return "\n".join(step.get("run", "") for step in steps)
+
+
+class TestEveryJobWaitsForEveryServer:
+    """The failure that produced this class.
+
+    Both integration jobs start two background servers and then talk to
+    them. Whether each one was waited for used to be written out by hand
+    per job, and the macOS job waited only for the API — so on a runner
+    slow enough to matter, the probe reached the bridge before the fake
+    model was listening and the build failed with MODEL_UNAVAILABLE,
+    which reads as a broken bridge and is actually a race.
+    """
+
+    @pytest.mark.parametrize("path", [CI, RELEASE])
+    @pytest.mark.parametrize("job", ["integration-api", "integration-ios"])
+    def test_it_waits_for_the_fake_model(self, path, job):
+        text = _job_steps_text(path, job)
+        assert "fake_model_server.py" in text, "does not start the fake model"
+        assert "wait_for_http.py http://127.0.0.1:1234" in text, (
+            f"{path.name}:{job} starts the fake model and never waits for it"
+        )
+
+    @pytest.mark.parametrize("path", [CI, RELEASE])
+    @pytest.mark.parametrize("job", ["integration-api", "integration-ios"])
+    def test_it_waits_for_the_api(self, path, job):
+        text = _job_steps_text(path, job)
+        assert "wait_for_http.py http://127.0.0.1:8000" in text, (
+            f"{path.name}:{job} starts the API and never waits for it"
+        )
+
+    @pytest.mark.parametrize("path", [CI, RELEASE])
+    @pytest.mark.parametrize("job", ["integration-api", "integration-ios"])
+    def test_the_wait_prints_the_log_on_failure(self, path, job):
+        """A timeout with no log costs a second run to diagnose."""
+        text = _job_steps_text(path, job)
+        for waited in ("fake-model.log", "t1api.log"):
+            assert f"--log {waited}" in text, f"{path.name}:{job} loses {waited}"
+
+    @pytest.mark.parametrize("path", [CI, RELEASE])
+    @pytest.mark.parametrize("job", ["integration-api", "integration-ios"])
+    def test_no_job_still_hand_rolls_a_wait_loop(self, path, job):
+        """One helper, or the two jobs drift apart again."""
+        assert "seq 1 " not in _job_steps_text(path, job)
+
+    def test_the_helper_exists_and_is_executable(self):
+        helper = SCRIPTS / "wait_for_http.py"
+        assert helper.exists()
+        assert os.access(helper, os.X_OK)
+
+
+class TestSkippingTheIntegrationGate:
+    """`skip_integration` is for a runner outage, not a red test.
+
+    The subtle half is downstream: a job that `needs` a skipped job is
+    itself skipped by default, so gating the integration jobs without
+    also teaching the publish jobs that "skipped" is acceptable would
+    have made the flag silently cancel the release instead of the gate.
+    """
+
+    def test_the_input_exists(self):
+        trigger = workflow(RELEASE)[True]["workflow_dispatch"]
+        assert "skip_integration" in trigger["inputs"]
+        assert trigger["inputs"]["skip_integration"]["default"] is False
+
+    def test_it_says_what_it_is_giving_up(self):
+        desc = workflow(RELEASE)[True]["workflow_dispatch"]["inputs"][
+            "skip_integration"
+        ]["description"].lower()
+        assert "gate" in desc or "proves" in desc
+        assert "never" in desc or "only" in desc
+
+    @pytest.mark.parametrize("job", ["integration-api", "integration-ios"])
+    def test_it_gates_both_jobs(self, job):
+        condition = workflow(RELEASE)["jobs"][job]["if"]
+        assert "skip_integration" in condition, job
+
+    @pytest.mark.parametrize(
+        "job", ["github-release", "pypi-publish", "testpypi-publish"]
+    )
+    def test_publishing_survives_a_skip_but_not_a_failure(self, job):
+        condition = workflow(RELEASE)["jobs"][job]["if"]
+        # always(), or a skipped dependency skips this job too.
+        assert "always()" in condition, job
+        # ...which means success is no longer implied and has to be asked for.
+        assert "needs.cut.result == 'success'" in condition, job
+        for dep in ("integration-api", "integration-ios"):
+            assert f"needs.{dep}.result" in condition, f"{job} ignores {dep}"
+            assert '"success","skipped"' in condition, job
+
+    @pytest.mark.parametrize(
+        "job", ["github-release", "pypi-publish", "testpypi-publish"]
+    )
+    def test_a_failed_gate_is_not_in_the_accepted_set(self, job):
+        """The whole point: skipped is fine, failed is not."""
+        condition = workflow(RELEASE)["jobs"][job]["if"]
+        assert "failure" not in condition, (
+            f"{job} accepts a failed integration job"
+        )
