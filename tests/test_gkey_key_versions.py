@@ -149,6 +149,66 @@ class TestMintedKeysAuthenticate:
         context = auth_service().validate_key(key)
         assert context.key_id
 
+    @pytest.mark.parametrize(
+        "version,prefix",
+        [("v1", "T1_"), ("v2", "T2_"), ("v2short", "T2S_")],
+    )
+    def test_a_key_containing_brackets_is_printed_intact(
+        self, store, monkeypatch, version, prefix
+    ):
+        """The panel is rendered with rich markup on, and a key is not markup.
+
+        The T1/T2 special-character set includes ``[`` and ``]``, so
+        about one key in three thousand carries a bracket pair that rich
+        reads as a style tag, eats, and prints without. That is not
+        cosmetic: `gkey create` shows the operator a credential missing
+        characters, they paste it, and it authenticates as nothing with
+        no error anywhere saying why. It surfaced as a CI flake on one
+        run out of many, which is exactly how often it happens.
+
+        Forcing the special set to brackets makes it happen every time.
+        """
+        monkeypatch.setattr("hypernix.security.keymaster._SPECIAL_CHARS", "[]")
+        monkeypatch.setattr("hypernix.security.t2keys._T2_SPECIAL_CHARS", "[]")
+
+        key, text = mint("-v", version)
+        assert key.startswith(prefix)
+        assert "[" in key or "]" in key, "the special set was not forced"
+        # The printed key is the minted key: it still authenticates.
+        assert auth_service().validate_key(key).key_id
+        assert key in text, "the panel printed something other than the key"
+
+    def test_a_value_that_looks_like_markup_survives_the_panel(self):
+        """The exact failure, without waiting for the dice.
+
+        `[bold]` inside a value is what rich eats. Five random specials
+        land on a pair like it about once in three thousand keys, which
+        is a CI flake and a support ticket rather than a visible bug.
+        """
+        from hypernix.security.gkey_cli import _literal, _print_panel
+
+        forged = "T2S_abcdefghijklmnopqrstuvwxyzAB[bold]/7-1"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            _print_panel(f"[bold]Key:[/bold] [yellow]{_literal(forged)}[/yellow]")
+        assert forged in ANSI.sub("", out.getvalue() + err.getvalue())
+
+    def test_the_unescaped_form_really_would_lose_it(self):
+        """Otherwise the test above proves nothing about the escaping."""
+        pytest.importorskip("rich")
+        forged = "T2S_abcdefghijklmnopqrstuvwxyzAB[bold]/7-1"
+        out, err = io.StringIO(), io.StringIO()
+        from hypernix.security.gkey_cli import _print_panel
+
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            _print_panel(f"Key: {forged}")
+        assert forged not in ANSI.sub("", out.getvalue() + err.getvalue())
+
+    def test_a_bracketed_note_is_printed_intact(self, store):
+        """Same hazard, arbitrary text: --note is whatever was typed."""
+        _key, text = mint("--note", "for the [alpha] cluster")
+        assert "for the [alpha] cluster" in text
+
     def test_a_v2_key_carries_its_access_level(self, store):
         key, _ = mint("-v", "v2", "--level", "5")
         assert auth_service().validate_key(key).t2_access_level == 5

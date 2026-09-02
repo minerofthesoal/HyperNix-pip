@@ -10,6 +10,7 @@ from the library and returns a non-zero exit code on failure.
     download            fetch a HuggingFace snapshot
     convert             produce fp32 / fp16 GGUF from a snapshot
     quantize            run llama-quantize on an fp16/fp32 GGUF
+    wakeup              train a wake word, then listen for it
     verify              read-check a GGUF and print its headers
     info                show package + GGUF header info
     upload              push files to a HuggingFace repo
@@ -62,6 +63,7 @@ _SUBCOMMANDS = {
     "download",
     "convert",
     "quantize",
+    "wakeup",
     "verify",
     "info",
     "upload",
@@ -417,12 +419,23 @@ def _run_quantize(raw: list[str]) -> int:
              "releases and falls back to `pip install llama-cpp-python` "
              "if GitHub fetching fails.",
     )
+    p.add_argument(
+        "-hnx", "--hnx", dest="hnx", action="store_true",
+        help="Quantise with hyprslug and never touch llama.cpp — no binary "
+             "looked for, downloaded or built, and llama-cpp-python not "
+             "needed. Covers the HyperNix sub-bit tiers (IQ0.9_L, IQ0.75_M, "
+             "IQ0.5_XXXL), which llama-quantize cannot produce at all.",
+    )
+    p.add_argument("--imatrix", default=None,
+                   help="Importance matrix as JSON (hyprslug tiers).")
     ns = p.parse_args(raw)
     with Spinner(f"Quantizing → {ns.qtype.upper()}", style="bar"):
         out = quantize_gguf(
             source_gguf=ns.source, output_gguf=ns.output, quant_type=ns.qtype,
             threads=ns.threads, llama_quantize_bin=ns.llama_quantize,
             auto_fetch=ns.auto_fetch, auto=ns.auto,
+            backend="hnx" if ns.hnx else "auto",
+            imatrix=ns.imatrix,
         )
     print(out)
     return 0
@@ -687,7 +700,8 @@ def _run_oven(raw: list[str]) -> int:
     p.add_argument("--repo-id", default="ray0rf1re/hyper-nix.1")
     p.add_argument("--revision", default=None)
     p.add_argument("--model-dir", default=None,
-                   help="Reuse an existing local snapshot instead of downloading.")
+                   help="An existing local snapshot, or a .gguf file, instead "
+                        "of downloading.")
     p.add_argument("--token", default=None)
     p.add_argument("--device", default=None)
     p.add_argument("--dtype", default="float32",
@@ -787,10 +801,25 @@ def _run_chat(raw: list[str]) -> int:
 
     ns = p.parse_args(raw)
 
-    oven = preheat(
-        repo_id=ns.repo_id, revision=ns.revision, local_dir=ns.model_dir,
-        token=ns.token, device=ns.device, dtype=ns.dtype, quiet=ns.quiet,
-    )
+    # A .gguf given as --model-dir is a model, not a snapshot directory.
+    # Held open across the whole session rather than reloaded per turn: a
+    # GGUF load is seconds to minutes, and paying it on every message
+    # would make the REPL unusable.
+    from hypernix.models.ggufrun import GGUFRunError, is_gguf, load_gguf
+
+    gguf_model = None
+    if ns.model_dir and is_gguf(ns.model_dir):
+        try:
+            gguf_model = load_gguf(ns.model_dir, quiet=ns.quiet)
+        except GGUFRunError as exc:
+            print(f"hypernix chat: {exc}", file=sys.stderr)
+            return 1
+        oven = None
+    else:
+        oven = preheat(
+            repo_id=ns.repo_id, revision=ns.revision, local_dir=ns.model_dir,
+            token=ns.token, device=ns.device, dtype=ns.dtype, quiet=ns.quiet,
+        )
 
     history: list[dict[str, str]] = []
     if ns.system:
@@ -798,12 +827,20 @@ def _run_chat(raw: list[str]) -> int:
 
     def turn(user_msg: str) -> str:
         history.append({"role": "user", "content": user_msg})
-        reply = oven.chat(
-            list(history),
-            max_new_tokens=ns.max_new_tokens,
-            temperature=ns.temperature, top_k=ns.top_k, top_p=ns.top_p,
-            seed=ns.seed,
-        )
+        if gguf_model is not None:
+            reply = gguf_model.chat(
+                [m for m in history if m["role"] != "system"],
+                system=ns.system,
+                max_tokens=ns.max_new_tokens,
+                temperature=ns.temperature,
+            )
+        else:
+            reply = oven.chat(
+                list(history),
+                max_new_tokens=ns.max_new_tokens,
+                temperature=ns.temperature, top_k=ns.top_k, top_p=ns.top_p,
+                seed=ns.seed,
+            )
         history.append({"role": "assistant", "content": reply})
         return reply
 
@@ -832,7 +869,8 @@ def _run_generate(raw: list[str]) -> int:
         description="Sample text from a local HyperNix snapshot directory.",
     )
     p.add_argument("--model-dir", required=True,
-                   help="Path to a HF-style snapshot (config.json + safetensors).")
+                   help="A HF-style snapshot (config.json + safetensors), or a "
+                        ".gguf file.")
     p.add_argument("--prompt", default="",
                    help="Prompt to condition on. Empty => start from BOS.")
     p.add_argument("--max-new-tokens", type=int, default=64)
@@ -844,6 +882,25 @@ def _run_generate(raw: list[str]) -> int:
     p.add_argument("--dtype", default="float32",
                    choices=["float32", "float16", "bfloat16"])
     ns = p.parse_args(raw)
+
+    # A .gguf is not a snapshot directory, and generate_text would fail
+    # looking for config.json. GGUF is the format this package spends most
+    # of its time producing, so `generate` reading one is the least
+    # surprising behaviour available.
+    from hypernix.models.ggufrun import GGUFRunError, generate_with_gguf, is_gguf
+
+    if is_gguf(ns.model_dir):
+        try:
+            print(generate_with_gguf(
+                ns.model_dir, ns.prompt,
+                max_new_tokens=ns.max_new_tokens,
+                temperature=ns.temperature,
+            ))
+        except GGUFRunError as exc:
+            print(f"hypernix generate: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
     text = generate_text(
         model_dir=ns.model_dir, prompt=ns.prompt,
         max_new_tokens=ns.max_new_tokens, temperature=ns.temperature,
@@ -899,6 +956,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_convert(rest)
     if cmd == "quantize":
         return _run_quantize(rest)
+    if cmd == "wakeup":
+        from hypernix.audio.wakeup_cli import main as _wakeup_main
+
+        return _wakeup_main(rest)
     if cmd == "verify":
         return _run_verify(rest)
     if cmd == "info":

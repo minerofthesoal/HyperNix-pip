@@ -13,6 +13,8 @@ nothing ever arrives:
 """
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -37,13 +39,35 @@ needs_server = pytest.mark.skipif(not _HAS_FASTAPI, reason="needs the [t1api] ex
 
 @pytest.fixture
 def stub_tailscale(tmp_path, monkeypatch):
-    """Put a scripted `tailscale` first on PATH."""
+    """Put a scripted `tailscale` first on PATH.
 
-    def install(script: str):
-        binary = tmp_path / "tailscale"
-        binary.write_text(f"#!/bin/sh\n{script}\n")
-        binary.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+    The stub is Python rather than shell, and named for the platform.
+    The code under test finds the binary with ``shutil.which`` and runs
+    it with ``subprocess``; on Windows neither step can do anything with
+    an extensionless ``#!/bin/sh`` file, so every diagnosis test was
+    really asserting against "tailscale is not installed" -- the one
+    message none of them is about.
+    """
+
+    def install(stdout: str = "", stderr: str = "", returncode: int = 0):
+        body = (
+            "import sys\n"
+            f"sys.stdout.write({stdout!r})\n"
+            f"sys.stderr.write({stderr!r})\n"
+            f"raise SystemExit({returncode})\n"
+        )
+        if os.name == "nt":
+            # PATHEXT is what lets shutil.which find this without an
+            # extension, and CreateProcess runs a .cmd through cmd.exe.
+            script = tmp_path / "tailscale_stub.py"
+            script.write_text(body)
+            binary = tmp_path / "tailscale.cmd"
+            binary.write_text(f'@"{sys.executable}" "{script}" %*\n')
+        else:
+            binary = tmp_path / "tailscale"
+            binary.write_text(f"#!{sys.executable}\n{body}")
+            binary.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
         return binary
 
     return install
@@ -56,31 +80,29 @@ class TestTailscaleDiagnosis:
     cannot connect, which is the case this exists for."""
 
     def test_logged_out_says_to_log_in(self, stub_tailscale):
-        stub_tailscale(
-            'echo \'{"BackendState":"NeedsLogin","Self":{"TailscaleIPs":[]}}\''
-        )
+        stub_tailscale(stdout='{"BackendState":"NeedsLogin","Self":{"TailscaleIPs":[]}}')
         assert "tailscale up" in tailscale_diagnosis()
 
     def test_a_dead_daemon_reports_the_real_error(self, stub_tailscale):
-        stub_tailscale('echo "failed to connect to tailscaled" >&2; exit 1')
+        stub_tailscale(stderr="failed to connect to tailscaled", returncode=1)
         assert "failed to connect to tailscaled" in tailscale_diagnosis()
 
     def test_garbage_output_is_survivable(self, stub_tailscale):
-        stub_tailscale('echo "not json"')
+        stub_tailscale(stdout="not json")
         assert "not JSON" in tailscale_diagnosis()
 
     def test_a_v6_only_node_is_named_as_such(self, stub_tailscale):
         """HyperLink needs IPv4, and "no address" would be wrong here."""
         stub_tailscale(
-            'echo \'{"BackendState":"Running","Self":{"DNSName":"pc.ts.net.",'
-            '"TailscaleIPs":["fd7a::1"]}}\''
+            stdout='{"BackendState":"Running","Self":{"DNSName":"pc.ts.net.",'
+                   '"TailscaleIPs":["fd7a::1"]}}'
         )
         assert "no IPv4" in tailscale_diagnosis()
 
     def test_a_working_node_diagnoses_nothing(self, stub_tailscale):
         stub_tailscale(
-            'echo \'{"BackendState":"Running","Self":{"DNSName":"pc.tail1.ts.net.",'
-            '"TailscaleIPs":["100.101.102.103","fd7a::1"]}}\''
+            stdout='{"BackendState":"Running","Self":{"DNSName":"pc.tail1.ts.net.",'
+                   '"TailscaleIPs":["100.101.102.103","fd7a::1"]}}'
         )
         assert tailscale_diagnosis() == ""
         assert tailscale_self() == ("pc.tail1.ts.net", ["100.101.102.103"])

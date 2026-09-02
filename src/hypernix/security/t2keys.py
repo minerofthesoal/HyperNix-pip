@@ -54,18 +54,45 @@ and it is lossy *on purpose and in one direction* — see its docstring.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
+import os
 import re
 import secrets
 import string
+import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+#: Sentinel for "the caller said nothing", so that an explicit
+#: ``store_dir=None`` can mean "ephemeral" and be told apart from the
+#: default. A plain None default cannot express both.
+_UNSET: Any = object()
+
+
+def default_sspkid_store_dir() -> Path:
+    """Where SSPKID assignments live when nobody says otherwise.
+
+    The Keymaster's directory, and by the same reasoning: ``gkey`` and
+    the server both read ``T1_KEYMASTER_DIR``, and two halves of one tool
+    disagreeing about where identity lives is a failure in which both
+    halves appear to work.
+    """
+    configured = os.environ.get("T1_KEYMASTER_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".hypernix" / "keymaster"
 
 __all__ = [
     "T2Type",
     "T2Key",
     "T2KeyGenerator",
     "SSPKID",
+    "default_sspkid_store_dir",
     "ServerKeyRegistry",
     "SSPKIDCollision",
     "encode_sspkid_index",
@@ -562,16 +589,96 @@ class SSPKID:
 class ServerKeyRegistry:
     """Which SSPKID belongs to which key, and the guarantee that it is one.
 
-    In-memory and deliberately small: the T1 API persists this through its
-    own key directory. What lives here is the *rule* — many keys per V1
-    Server ID, one key per SSPKID — so it can be tested without a
-    database and reused by anything that needs it.
+    The rule it enforces — many keys per V1 Server ID, one key per
+    SSPKID — is what makes an SSPKID an identifier rather than a label.
+
+    **This used to be memory-only.** That was the same defect that made
+    every key `gkey` minted carry server ID ``00001-A1``: each `gkey`
+    invocation is its own process, and the server is another, so an
+    assignment made in one was invisible to the other and gone entirely
+    on the next restart. An identifier that does not survive the process
+    that issued it cannot identify anything, and worse, it comes back
+    around — a fresh registry hands out ``#1`` again to a different key
+    while an audit trail still names the first one.
+
+    So it persists. ``store_dir`` defaults to the same directory the
+    Keymaster uses (``T1_KEYMASTER_DIR``, else ``~/.hypernix/keymaster``)
+    for exactly the reason that variable exists: two halves of one tool
+    disagreeing about where identity lives is a failure where both halves
+    appear to work.
+
+    Pass ``store_dir=None`` explicitly for an ephemeral registry — the
+    rule can still be exercised without a filesystem, which is what the
+    unit tests want.
     """
 
-    def __init__(self) -> None:
+    #: Where the registry lives inside the store directory.
+    #:
+    #: A subdirectory, not a bare file, because the Keymaster globs
+    #: ``*.json`` in its store to load keys — a registry sitting there
+    #: gets read as a malformed key on every start, and the CI teardown
+    #: that counts ``*.json`` to prove no keys leaked would count it as a
+    #: leaked key. Neither is a failure this file should be able to cause.
+    SUBDIR = "sspkid"
+    FILENAME = "registry.json"
+
+    def __init__(self, store_dir: Path | str | None = _UNSET) -> None:
         self._by_sspkid: dict[str, str] = {}          # str(SSPKID) -> key_id
         self._by_key: dict[str, SSPKID] = {}          # key_id -> SSPKID
         self._by_server: dict[str, set[str]] = {}     # server_id -> {key_id}
+        self._lock = threading.RLock()
+
+        if store_dir is _UNSET:
+            store_dir = default_sspkid_store_dir()
+        self._path: Path | None = (
+            Path(store_dir) / self.SUBDIR / self.FILENAME
+            if store_dir is not None
+            else None
+        )
+        self._load()
+
+    # -- persistence ---------------------------------------------------
+
+    def _load(self) -> None:
+        if self._path is None or not self._path.exists():
+            return
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # A corrupt registry must not stop a server from starting.
+            # Losing the assignments is bad; refusing to boot is worse,
+            # and the collision check still protects what gets written
+            # from here on.
+            logger.warning("t2keys: could not read %s; starting empty", self._path)
+            return
+        for text, key_id in (raw.get("assignments") or {}).items():
+            try:
+                sspkid = SSPKID.parse(text)
+            except ValueError:
+                continue
+            self._by_sspkid[text] = key_id
+            self._by_key[key_id] = sspkid
+            self._by_server.setdefault(sspkid.server_id, set()).add(key_id)
+
+    def _save(self) -> None:
+        if self._path is None:
+            return
+        payload = {"version": 1, "assignments": dict(self._by_sspkid)}
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            # Written beside the target and moved, so a crash mid-write
+            # leaves the previous registry rather than a truncated one.
+            tmp = self._path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            os.replace(tmp, self._path)
+            os.chmod(self._path, 0o600)
+        except OSError:
+            logger.warning("t2keys: could not write %s", self._path)
+
+    @property
+    def path(self) -> Path | None:
+        """Where assignments are kept, or None for an ephemeral registry."""
+        return self._path
 
     def assign(self, key_id: str, sspkid: SSPKID) -> SSPKID:
         """Bind *key_id* to *sspkid*, or raise :class:`SSPKIDCollision`."""
@@ -591,6 +698,7 @@ class ServerKeyRegistry:
         self._by_sspkid[text] = key_id
         self._by_key[key_id] = sspkid
         self._by_server.setdefault(sspkid.server_id, set()).add(key_id)
+        self._save()
         return sspkid
 
     def allocate(self, key_id: str, server_id: str) -> SSPKID:
@@ -628,6 +736,7 @@ class ServerKeyRegistry:
             return False
         self._by_sspkid.pop(str(sspkid), None)
         self._by_server.get(sspkid.server_id, set()).discard(key_id)
+        self._save()
         return True
 
     def __len__(self) -> int:

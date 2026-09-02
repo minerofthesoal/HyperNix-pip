@@ -219,7 +219,7 @@ class TestSSPKID:
 
 class TestServerKeyRegistry:
     def test_many_keys_on_one_v1_server(self):
-        registry = ServerKeyRegistry()
+        registry = ServerKeyRegistry(store_dir=None)
         for i in range(5):
             registry.allocate(f"key{i}", "00042-C1")
         assert len(registry.keys_on("00042-C1")) == 5
@@ -228,33 +228,33 @@ class TestServerKeyRegistry:
         }
 
     def test_one_key_per_sspkid(self):
-        registry = ServerKeyRegistry()
+        registry = ServerKeyRegistry(store_dir=None)
         registry.assign("keyA", SSPKID("00042-C1", 2))
         with pytest.raises(SSPKIDCollision, match="already assigned"):
             registry.assign("keyB", SSPKID("00042-C1", 2))
 
     def test_reassigning_the_same_key_is_not_a_collision(self):
-        registry = ServerKeyRegistry()
+        registry = ServerKeyRegistry(store_dir=None)
         registry.assign("keyA", SSPKID("00042-C1", 2))
         registry.assign("keyA", SSPKID("00042-C1", 2))
         assert registry.resolve("00042-C1#2") == "keyA"
 
     def test_rehoming_releases_the_old_identifier(self):
-        registry = ServerKeyRegistry()
+        registry = ServerKeyRegistry(store_dir=None)
         registry.assign("keyA", SSPKID("00042-C1", 2))
         registry.assign("keyA", SSPKID("00042-C1", 3))
         assert registry.resolve("00042-C1#2") is None
         assert registry.resolve("00042-C1#3") == "keyA"
 
     def test_allocation_reuses_the_lowest_free_index(self):
-        registry = ServerKeyRegistry()
+        registry = ServerKeyRegistry(store_dir=None)
         for i in range(3):
             registry.allocate(f"key{i}", "00042-C1")
         registry.release("key1")
         assert str(registry.allocate("newkey", "00042-C1")) == "00042-C1#2"
 
     def test_resolution_finds_the_right_key(self):
-        registry = ServerKeyRegistry()
+        registry = ServerKeyRegistry(store_dir=None)
         registry.allocate("first", "00001-A1")
         registry.allocate("second", "00001-A1")
         assert registry.resolve("00001-A1#2") == "second"

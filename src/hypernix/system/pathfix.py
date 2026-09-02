@@ -436,7 +436,13 @@ def ensure_on_path(
     if BLOCK_START in existing:
         # Already configured. If it points somewhere else (a different
         # Python), replace it rather than adding a second block.
-        if str(directory) in existing:
+        #
+        # Compared against the snippet rather than str(directory): the
+        # line in the file is spelled the way that shell needs it, which
+        # on Windows is not how this platform writes a path. Comparing
+        # the raw string there finds no match, and the block is rewritten
+        # on every single run instead of being recognised as already ours.
+        if snippet_for_shell(directory, shell) in existing:
             return PathSetupResult(
                 "already-configured",
                 f"{target} already has the hypernix PATH block for {directory}.\n"

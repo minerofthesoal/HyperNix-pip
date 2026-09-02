@@ -22,7 +22,7 @@ import pytest
 
 from hypernix.security.gkey_cli import main as gkey
 from hypernix.security.keymaster import Keymaster, KeyScope, KeyType
-from hypernix.t1api.version import T1_VERSION
+from hypernix.t1api.version import T1_VERSION, T1Version
 
 # The server needs the [t1api] extra; the key store does not. Skipping the
 # whole module when fastapi is absent would take the server-ID and
@@ -81,15 +81,22 @@ def field(text: str, label: str) -> str:
 
 
 class TestTheVersion:
-    def test_this_is_the_fix_release(self):
-        assert T1_VERSION.short == "1.0.26.8.1.1"
-        assert T1_VERSION.long == "1.0.2026.8.1.1"
+    def test_this_release_is_still_in_the_build(self):
+        """At least 8.1.1, not exactly it.
 
-    def test_it_is_a_fix_bump_not_a_feature_one(self):
-        """Same generation and feature line: no client needs to change."""
-        assert (T1_VERSION.api, T1_VERSION.major) == (1, 0)
-        assert T1_VERSION.feature == 1
-        assert T1_VERSION.fix == 1
+        This file covers what 1.0.2026.8.1.1 shipped, and those
+        guarantees have to survive every later release. Asserting the
+        build *is* 8.1.1 made that a test of the calendar: it went red on
+        the next bump while every behaviour it names still worked.
+        """
+        shipped_in = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=1)
+        assert T1_VERSION >= shipped_in
+
+    def test_no_client_from_that_release_needs_to_change(self):
+        """Generation is the compatibility boundary; it has not moved."""
+        shipped_in = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=1)
+        assert (T1_VERSION.api, T1_VERSION.major) == (shipped_in.api, shipped_in.major)
+        assert T1_VERSION.compatible_with(shipped_in)
 
     def test_every_shipped_component_derives_from_it(self):
         """Four packages carried the number as a literal and drifted.

@@ -209,15 +209,23 @@ def test_ensure_on_path_check_mode_writes_nothing(tmp_path, monkeypatch):
     assert not profile.exists()
 
 
-def test_ensure_on_path_is_idempotent(tmp_path, monkeypatch):
+@pytest.mark.parametrize("shell", ["bash", "zsh", "fish", "powershell", "sh"])
+def test_ensure_on_path_is_idempotent(tmp_path, monkeypatch, shell):
+    """Every shell, because recognising our own block is per-shell.
+
+    The line in the file is spelled the way that shell needs it. A
+    recogniser that looks for the platform's own spelling of the path
+    instead misses the block it just wrote, and rewrites it on every
+    run -- which on Windows was every ``hypernix`` invocation.
+    """
     scripts = tmp_path / "bin"
     scripts.mkdir()
     monkeypatch.setenv("PATH", "/usr/bin")
     profile = tmp_path / "rc"
 
-    pathfix.ensure_on_path(directory=scripts, shell="bash", profile=profile)
+    pathfix.ensure_on_path(directory=scripts, shell=shell, profile=profile)
     first = profile.read_text()
-    second_result = pathfix.ensure_on_path(directory=scripts, shell="bash", profile=profile)
+    second_result = pathfix.ensure_on_path(directory=scripts, shell=shell, profile=profile)
 
     assert second_result.status == "already-configured"
     assert not second_result.changed
@@ -267,8 +275,10 @@ def test_ensure_on_path_reports_unwritable_profile(tmp_path, monkeypatch):
 
     assert result.status in ("unwritable", "unreadable")
     assert not result.changed
-    # The message still tells the person what to do by hand.
-    assert str(scripts) in result.message
+    # The message still tells the person what to do by hand -- and the line
+    # it hands them is the bash one, so the path in it is spelled the way
+    # bash needs rather than the way this platform writes paths.
+    assert pathfix.snippet_for_shell(scripts, "bash") in result.message
 
 
 def test_ensure_on_path_force_writes_even_when_on_path(tmp_path, monkeypatch):
@@ -291,7 +301,10 @@ def test_ensure_on_path_unknown_shell_explains_instead_of_writing(tmp_path, monk
     result = pathfix.ensure_on_path(directory=scripts, shell="nushell")
     assert result.status == "no-profile"
     assert not result.changed
-    assert str(scripts) in result.message
+    # The message has to carry the line the person is being asked to add,
+    # spelled the way that shell needs it -- which on Windows is not
+    # ``str(scripts)``, because a POSIX-ish shell wants forward slashes.
+    assert pathfix.snippet_for_shell(scripts, "nushell") in result.message
 
 
 def test_remove_from_path_strips_only_the_block(tmp_path, monkeypatch):
@@ -436,7 +449,11 @@ def test_autoconfigure_writes_once_and_announces_it(fake_home, not_isolated, mon
     result = pathfix.maybe_autoconfigure(echo=said.append)
 
     assert result.changed and result.status == "written"
-    assert scripts.as_posix() in _expected_profile().read_text()
+    # Which spelling of the directory lands in the file depends on the shell
+    # this platform detects -- forward slashes for a POSIX shell, native
+    # separators for PowerShell -- so ask the module rather than guessing.
+    written = _expected_profile().read_text()
+    assert pathfix.snippet_for_shell(scripts, pathfix.detect_shell()) in written
     # It must say what it did, and how to opt out.
     joined = "\n".join(said)
     assert str(scripts) in joined

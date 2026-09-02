@@ -402,11 +402,20 @@ class Steamroller:
         quantize_binary: str | Path | None = None,
         workdir: str | Path | None = None,
         keep_intermediates: bool = False,
+        hnx_only: bool = False,
         progress: Any = None,
     ) -> None:
         self.quantize_binary = str(quantize_binary) if quantize_binary else None
         self.workdir = Path(workdir) if workdir else None
         self.keep_intermediates = keep_intermediates
+        #: Route every step through hyprslug instead of llama-quantize.
+        #:
+        #: The sub-bit tiers were always going to need this — they are
+        #: HyperNix types llama-quantize has never heard of — but with it
+        #: on, no llama.cpp binary is looked for, downloaded or built at
+        #: any point, so a machine that has never had llama.cpp can still
+        #: produce an IQ0.x model.
+        self.hnx_only = bool(hnx_only)
         #: Called as ``progress(event: dict)`` after each step. Used by the
         #: live-stream TUI; ``None`` disables it.
         self.progress = progress
@@ -479,7 +488,11 @@ class Steamroller:
 
         workdir = self.workdir or output_path.parent
         workdir.mkdir(parents=True, exist_ok=True)
-        binary = self.resolve_binary()
+        # Not looked up in hnx mode. resolve_binary() will download a
+        # llama.cpp build if it cannot find one, and "no llama.cpp, ever"
+        # has to mean the lookup does not happen — not that it happens and
+        # the result goes unused.
+        binary = None if self.hnx_only else self.resolve_binary()
 
         current = source_path
         intermediates: list[Path] = []
@@ -491,8 +504,25 @@ class Steamroller:
             started = time.monotonic()
             self._emit({"event": "step_start", "step": step.to_dict(), "output": str(destination)})
 
-            if step.kind == "quantize":
+            if step.kind == "quantize" and not self.hnx_only:
                 self._run_llama_quantize(binary, current, destination, step.llama_type, imatrix)
+            elif step.kind == "quantize" and last:
+                # The target itself is an upstream quant type, and
+                # hyprslug can write those now. Skipping this step because
+                # "hnx mode does not run llama-quantize" would produce no
+                # output at all for `steamroller model.gguf Q4_K_M -hnx`.
+                self.quantize_hnx(current, destination, step.llama_type, imatrix=imatrix)
+            elif step.kind == "quantize":
+                # A staging pass, and hnx mode has none to run: the sub-bit
+                # packer reads the source directly, and passing it through
+                # Q3_K_L first would only throw away precision it is about
+                # to use.
+                self._emit({
+                    "event": "step_skipped",
+                    "step": step.to_dict(),
+                    "reason": "hnx mode packs from the source; no staging needed",
+                })
+                continue
             else:
                 self.pack_sub_bit(current, destination, packing=step.packing, imatrix=imatrix)
 
@@ -559,6 +589,38 @@ class Steamroller:
                 code="quantize_failed",
             )
 
+    def quantize_hnx(
+        self,
+        source: Path,
+        destination: Path,
+        llama_type: str,
+        *,
+        imatrix: str | Path | None = None,
+    ) -> None:
+        """Write an upstream quant type with hyprslug, no binary involved.
+
+        The ``-hnx`` promise is "no llama.cpp is looked for, downloaded or
+        built at any point" — not "only the HyperNix tiers work". A
+        machine that cannot build llama.cpp is exactly the machine that
+        needs a Q4_K_M.
+        """
+        from .hyprslug import HyprslugError, all_targets, quantize_gguf, resolve_recipe
+
+        if resolve_recipe(llama_type) is None:
+            raise SteamrollerError(
+                f"-hnx cannot write {llama_type}: hyprslug has no encoder for it.",
+                code="pack_failed",
+                hint=f"Without -hnx this tier uses llama-quantize. hyprslug writes: "
+                     f"{', '.join(all_targets())}",
+            )
+        try:
+            report = quantize_gguf(
+                source, destination, llama_type, imatrix=imatrix, progress=self.progress
+            )
+        except HyprslugError as exc:
+            raise SteamrollerError(str(exc), code="pack_failed") from exc
+        self._emit({"event": "quantized", "report": report.to_dict()})
+
     def pack_sub_bit(
         self,
         source: Path,
@@ -567,16 +629,16 @@ class Steamroller:
         packing: str,
         imatrix: str | Path | None = None,
     ) -> None:
-        """Apply HyperNix sub-bit packing to a staged Q3_K_L model.
+        """Actually quantise *source* to the sub-bit tier *packing* names.
 
-        Overridable on purpose: this is the part of steamroller most
-        likely to be replaced, and a subclass should be able to swap the
-        packing without touching the staging logic above.
+        This used to copy the staged file and write a sidecar JSON naming
+        a tier. So a "0.5-bit model" was byte-identical to the 3-bit model
+        it came from, the same size, and no more quantised — the tier was
+        a label on an unchanged file. It now runs the packing.
 
-        The base implementation writes a HyperNix sub-bit container: the
-        staged tensor data plus a sidecar header naming the packing, so a
-        loader that does not recognise the type can refuse it by name
-        rather than reading it as ordinary GGUF and producing noise.
+        Overridable still: this is the part of steamroller most likely to
+        be replaced, and a subclass should be able to swap the packing
+        without touching the staging logic above.
         """
         if not source.exists():
             raise SteamrollerError(f"Staged model missing: {source}", code="pack_failed")
@@ -584,29 +646,43 @@ class Steamroller:
         if tier is None:
             raise SteamrollerError(f"Unknown packing {packing!r}", code="pack_failed")
 
+        from .hyprslug import HyprslugError, quantize_gguf
+
+        try:
+            report = quantize_gguf(
+                source,
+                destination,
+                tier.name,
+                imatrix=imatrix,
+                progress=self.progress,
+            )
+        except HyprslugError as exc:
+            raise SteamrollerError(str(exc), code="pack_failed") from exc
+
+        self._emit({"event": "packed", "report": report.to_dict()})
+
+        # The sidecar stays, but it is now a description of a file that
+        # really is what it says rather than the only thing that made the
+        # claim. The same facts are in the GGUF metadata, which a copy
+        # cannot lose.
         header = {
             "hypernix.sub_bit": True,
             "hypernix.packing": packing,
             "hypernix.tier": tier.name,
             "hypernix.bits_per_weight": tier.bits_per_weight,
-            "hypernix.staged_from": STAGING_TIER,
             "hypernix.imatrix": bool(imatrix),
             "hypernix.warning": tier.honest_warning,
             "hypernix.created": time.time(),
+            "hypernix.report": report.to_dict(),
         }
         try:
-            # The sidecar sits next to the model rather than inside the
-            # GGUF header: writing a non-standard key into the GGUF
-            # metadata block is what makes stock llama.cpp read it as a
-            # corrupt file rather than an unknown one.
-            destination.write_bytes(source.read_bytes())
             destination.with_suffix(destination.suffix + ".hypernix.json").write_text(
                 json.dumps(header, indent=2), encoding="utf-8"
             )
         except OSError as exc:
-            raise SteamrollerError(
-                f"Could not write packed model to {destination}: {exc}", code="pack_failed"
-            ) from exc
+            # The model is written and valid; a missing sidecar is a
+            # description, not the artefact.
+            logger.warning("steamroller: could not write sidecar for %s: %s", destination, exc)
 
     def _emit(self, event: dict[str, Any]) -> None:
         if self.progress is None:

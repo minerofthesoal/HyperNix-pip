@@ -70,6 +70,7 @@ __all__ = [
     "T1_VERSION_LONG",
     "MIN_CLIENT_VERSION",
     "T2_AWARE_VERSION",
+    "INFERENCE_VERSION",
     "parse_version",
 ]
 
@@ -268,13 +269,15 @@ def parse_version(text: str) -> T1Version:
 
 #: The version this build of the T1 API implements.
 #:
-#: 1.0.2026.8.1.1 is a fix bump inside the 1.0.2026.8.1 feature release:
-#: auth undo/redo now actually functions. It shipped with the history
-#: never being written to and the Keymaster missing every method the
-#: inverse needed, so the endpoints existed and could not work.
-T1_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=1)
-T1_VERSION_SHORT = T1_VERSION.short   # "1.0.26.8.1.1"
-T1_VERSION_LONG = T1_VERSION.long     # "1.0.2026.8.1.1"
+#: 1.0.2026.9.2.1 moves the month to September and takes feature 2: the
+#: governed inference surface (``/inference/*``), which puts generation
+#: behind the registry, the plan cascade, the quota and the cost ledger
+#: that ``/bridge/lmstudio/*`` passes straight through. Also in this
+#: release: the SSPKID stops being carried in memory alongside the key,
+#: and ``gkey create -Con`` takes identity from a configuration source.
+T1_VERSION = T1Version(api=1, major=0, year=2026, month=9, feature=2, fix=1)
+T1_VERSION_SHORT = T1_VERSION.short   # "1.0.26.9.2.1"
+T1_VERSION_LONG = T1_VERSION.long     # "1.0.2026.9.2.1"
 
 #: Oldest client this server still answers without a compatibility
 #: warning. Same generation, first release of it — everything from the
@@ -287,3 +290,8 @@ MIN_CLIENT_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=0, fi
 #: check for it by comparison rather than by probing an endpoint and
 #: catching the 404.
 T2_AWARE_VERSION = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=0)
+
+#: The release that added ``/inference/*``. A client that wants the
+#: governed path rather than the raw bridge can check for it by
+#: comparison instead of probing and catching the 404.
+INFERENCE_VERSION = T1Version(api=1, major=0, year=2026, month=9, feature=2, fix=0)

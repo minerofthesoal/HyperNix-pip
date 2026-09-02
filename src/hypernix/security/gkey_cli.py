@@ -112,6 +112,32 @@ def _strip_markup(text: str) -> str:
     return _MARKUP.sub("", text)
 
 
+def _literal(value: object) -> str:
+    """A value that must reach the terminal exactly as it is.
+
+    Every panel and table below is rendered with rich markup on, because
+    this module writes markup into them. A *key* is not markup — but the
+    T1/T2 special-character set includes ``[`` and ``]``, so roughly one
+    key in three thousand carries a bracket pair that rich reads as a
+    style tag, eats, and prints without.
+
+    That is not a cosmetic bug. `gkey create` shows the operator a
+    credential missing characters, they paste it, and it authenticates as
+    nothing — with no error anywhere that says why. So anything that is
+    data rather than markup goes through here first.
+
+    Narrowing the key alphabet instead would be the wrong fix: the T2
+    special set is deliberately identical to T1's so that T1 -> T2 -> T1
+    is exact, and dropping two characters from it would break that.
+    """
+    text = str(value)
+    if not _HAS_RICH:
+        return text
+    from rich.markup import escape
+
+    return escape(text)
+
+
 def _print_rich(text: str, style: str = "", plain: str | None = None) -> None:
     """Print *text*, which may carry rich markup.
 
@@ -134,7 +160,7 @@ def _print_table(headers: list[str], rows: list[list[str]], title: str = "") -> 
         for h in headers:
             t.add_column(h, overflow="fold")
         for row in rows:
-            t.add_row(*row)
+            t.add_row(*[_literal(cell) for cell in row])
         Console().print(t)
     else:
         if title:
@@ -279,7 +305,28 @@ def _cmd_create(args: list[str]) -> int:
     p.add_argument("--word", dest="include_word", action="store_true",
                    help="Embed a six-letter word in a generated admin password "
                         "(memorability, not entropy)")
+    p.add_argument("-Con", "--config-source", dest="config_source", default=None,
+                   metavar="ADDR|URL|PATH",
+                   help="Take the V1 Server ID and/or SSPKID from a JSONL "
+                        "config. A bare IP or host becomes "
+                        "http://<host>/gkey.jsonl; a URL or path is used as "
+                        "given. Sets identity only — never scopes, type or "
+                        "expiry.")
     ns = p.parse_args(args)
+
+    # Read the config before minting. A key created and then found to have
+    # an unusable identity would still be in the store, valid, and known
+    # to nobody but the operator who saw an error — the same reasoning as
+    # every other precondition in this function.
+    key_config = None
+    if ns.config_source:
+        from hypernix.security.keyconfig import KeyConfigError, load_key_config
+
+        try:
+            key_config = load_key_config(ns.config_source)
+        except KeyConfigError as exc:
+            print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+            return 2
 
     try:
         version = resolve_key_version(ns.key_version)
@@ -367,6 +414,47 @@ def _cmd_create(args: list[str]) -> int:
         note=ns.note,
         body_length=body_length,
     )
+    # Identity from the config source, applied to the key that now
+    # exists. Failing here does not leave a key with a half-applied
+    # identity: the server ID is validated before it is written, and an
+    # SSPKID collision leaves the key on its default identity with the
+    # reason printed, rather than silently taking an identifier that
+    # belongs to a different key.
+    config_applied: list[str] = []
+    if key_config is not None:
+        if key_config.server_id:
+            try:
+                meta = km.set_server_id(meta.key_id, key_config.server_id)
+                config_applied.append(f"server_id={key_config.server_id}")
+            except ValueError as exc:
+                km.stop()
+                print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+                return 2
+
+        sspkid_text = key_config.sspkid
+        if not sspkid_text and key_config.sspkid_index is not None:
+            sspkid_text = f"{meta.server_id}#{key_config.sspkid_index}"
+        if sspkid_text:
+            from hypernix.security.t2keys import (
+                SSPKID,
+                ServerKeyRegistry,
+                SSPKIDCollision,
+            )
+
+            try:
+                parsed_sspkid = SSPKID.parse(sspkid_text)
+            except ValueError as exc:
+                km.stop()
+                print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+                return 2
+            try:
+                ServerKeyRegistry().assign(meta.key_id, parsed_sspkid)
+            except SSPKIDCollision as exc:
+                km.stop()
+                print(f"[gkey create] -Con: {exc}", file=sys.stderr)
+                return 2
+            config_applied.append(f"sspkid={parsed_sspkid}")
+
     km.stop()
 
     # Present the minted key in the requested format.
@@ -409,15 +497,15 @@ def _cmd_create(args: list[str]) -> int:
     content_lines = [
         "[bold green]Key created successfully![/bold green]",
         "",
-        f"[bold]Key ID:[/bold]     {meta.key_id}",
-        f"[bold]Key:[/bold]        [yellow]{issued_key}[/yellow]",
+        f"[bold]Key ID:[/bold]     {_literal(meta.key_id)}",
+        f"[bold]Key:[/bold]        [yellow]{_literal(issued_key)}[/yellow]",
         f"[bold]Format:[/bold]     {version.name} ({version.family})",
         f"[bold]Type:[/bold]       {meta.key_type.value}",
         f"[bold]Scopes:[/bold]     {', '.join(s.value for s in sorted(meta.scopes, key=lambda x: x.value))}",
         f"[bold]Expires:[/bold]    {_fmt_ts(meta.expires_at)}",
-        f"[bold]Server ID:[/bold]  {meta.server_id}",
-        f"[bold]Prefix:[/bold]     {meta.prefix or '—'}",
-        f"[bold]Note:[/bold]       {meta.note or '—'}",
+        f"[bold]Server ID:[/bold]  {_literal(meta.server_id)}",
+        f"[bold]Prefix:[/bold]     {_literal(meta.prefix or '—')}",
+        f"[bold]Note:[/bold]       {_literal(meta.note or '—')}",
     ]
     if version.supports_access_level:
         content_lines.insert(
@@ -425,10 +513,15 @@ def _cmd_create(args: list[str]) -> int:
         )
     if admin_password:
         content_lines.append(
-            f"[bold]Password:[/bold]   [yellow]{admin_password}[/yellow]"
+            f"[bold]Password:[/bold]   [yellow]{_literal(admin_password)}[/yellow]"
         )
+    if config_applied:
+        content_lines.append(
+            f"[bold]Config:[/bold]     {', '.join(config_applied)}"
+        )
+        content_lines.append(f"[dim]             from {key_config.source}[/dim]")
     if tags:
-        content_lines.append(f"[bold]Tags:[/bold]       {json.dumps(tags)}")
+        content_lines.append(f"[bold]Tags:[/bold]       {_literal(json.dumps(tags))}")
     if version is not DEFAULT_KEY_VERSION:
         content_lines.append("")
         content_lines.append(
@@ -436,7 +529,7 @@ def _cmd_create(args: list[str]) -> int:
             f"key store.\nThe server converts it back on every request, so the "
             f"{DEFAULT_KEY_VERSION.name} form below works too:[/dim]"
         )
-        content_lines.append(f"[dim]  {meta.key}[/dim]")
+        content_lines.append(f"[dim]  {_literal(meta.key)}[/dim]")
 
     if _HAS_RICH:
         _print_panel("\n".join(content_lines), title="gkey create")
@@ -574,7 +667,7 @@ def _print_detail(meta: Any) -> None:
     """Print full key metadata."""
     lines = [
         f"Key ID:          {meta.key_id}",
-        f"Key:             {meta.key}",
+        f"Key:             {_literal(meta.key)}",
         f"Type:            {meta.key_type.value}",
         f"Scopes:          {', '.join(s.value for s in sorted(meta.scopes, key=lambda x: x.value))}",
         f"Created:         {_fmt_ts(meta.created_at)}",
@@ -585,10 +678,10 @@ def _print_detail(meta: Any) -> None:
         f"Usage count:     {meta.usage_count}",
         f"Request count:   {meta.request_count}",
         f"Server ID:       {meta.server_id}",
-        f"Prefix:          {meta.prefix or '—'}",
+        f"Prefix:          {_literal(meta.prefix or '—')}",
         f"Tags:            {json.dumps(meta.tags) if meta.tags else '—'}",
         f"Active:          {meta.active}",
-        f"Note:            {meta.note or '—'}",
+        f"Note:            {_literal(meta.note or '—')}",
     ]
     if meta.rotated_from:
         lines.append(f"Rotated from:    {meta.rotated_from}")
@@ -846,8 +939,8 @@ def _cmd_rotate(args: list[str]) -> int:
         _print_rich(
             f"[green]✓[/green] Key rotated.\n"
             f"  Old: [red]{ns.key_id[:8]}…[/red]\n"
-            f"  New: [green]{new_meta.key_id}[/green]\n"
-            f"  Key: [yellow]{new_meta.key}[/yellow]"
+            f"  New: [green]{_literal(new_meta.key_id)}[/green]\n"
+            f"  Key: [yellow]{_literal(new_meta.key)}[/yellow]"
         )
         return 0
     except KeyError as exc:

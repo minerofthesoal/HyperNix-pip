@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from shell_support import BASH, NO_BASH_REASON
+from shell_support import BASH, NO_BASH_REASON, shell_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "install-t1.sh"
@@ -595,8 +595,11 @@ for arg in "$@"; do
   esac
 done
 '''
+        # shell_path, not str(): sys.executable on Windows is full of
+        # backslashes, and a shell reads every one of them as an escape,
+        # so the exec line names a path that does not exist.
         path.write_text(
-            "#!/usr/bin/env bash\n" + reject + f'exec {sys.executable} "$@"\n',
+            "#!/bin/sh\n" + reject + f'exec "{shell_path(sys.executable)}" "$@"\n',
             encoding="utf-8",
         )
         path.chmod(0o755)

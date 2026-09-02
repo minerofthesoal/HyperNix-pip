@@ -44,3 +44,98 @@ BASH: str | None = _probe()
 
 #: Reason string for a skip marker, so every gated module says the same thing.
 NO_BASH_REASON = "no working bash on this machine (a WSL stub does not count)"
+
+
+def shell_path(path, *, style: str = "auto") -> str:
+    """Spell *path* the way the shell in these tests resolves it.
+
+    Three spellings are possible on Windows and only one of them works,
+    which one depending on the bash. ``C:/x`` inside a colon-separated
+    ``PATH`` is ambiguous -- the drive letter's colon is also the
+    separator -- so Git Bash may split it into ``C`` and ``/x`` and find
+    neither. ``/c/x`` is the mount Git Bash actually publishes. On POSIX
+    all three are the same string.
+
+    ``style="auto"`` asks :func:`python3_path_entry` which one this
+    machine answered to.
+    """
+    import os
+    from pathlib import Path
+
+    text = Path(path).as_posix()
+    if os.name != "nt":
+        return text
+    if style == "auto":
+        style = python3_path_entry()[1]
+    if style == "native":
+        return str(Path(path))
+    if style == "mount" and len(text) > 2 and text[1] == ":":
+        return f"/{text[0].lower()}{text[2:]}"
+    return text
+
+
+def _write_shim(bindir, style: str) -> None:
+    """A ``python3`` that is this interpreter, for a shell that has none."""
+    import sys
+
+    interpreter = shell_path(sys.executable, style=style)
+    shim = bindir / "python3"
+    shim.write_text(f'#!/bin/sh\nexec "{interpreter}" "$@"\n')
+    shim.chmod(0o755)
+
+
+def _python3_works(entry: str) -> bool:
+    marker = "hypernix-python3-ok"
+    try:
+        result = subprocess.run(
+            [BASH, "-c", f'PATH="{entry}:/usr/bin:/bin"; exec python3 -c '
+                         f'"print(\'{marker}\')"'],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return marker in (result.stdout or "")
+
+
+def _probe_python3() -> tuple[str | None, str]:
+    """``(PATH entry, spelling)`` for a directory whose python3 bash can run.
+
+    Both halves are unknown on Windows and guessing at either produces a
+    test that fails for a reason unrelated to what it is about: there is
+    no ``python3`` on any PATH there -- the interpreter is ``python.exe``
+    in the tool cache -- and which spelling of a Windows directory
+    survives a colon-separated ``PATH`` depends on the bash. So the shim
+    is built and then bash is *asked*, rather than told.
+    """
+    import atexit
+    import shutil as _shutil
+    import tempfile
+    from pathlib import Path
+
+    if BASH is None:
+        return None, "posix"
+    bindir = Path(tempfile.mkdtemp(prefix="hypernix-python3-shim-"))
+    atexit.register(_shutil.rmtree, bindir, True)
+    for style in ("posix", "mount", "native"):
+        _write_shim(bindir, style)
+        entry = shell_path(bindir, style=style)
+        if _python3_works(entry):
+            return entry, style
+    return None, "posix"
+
+
+_PYTHON3: tuple[str | None, str] | None = None
+
+
+def python3_path_entry() -> tuple[str | None, str]:
+    """Cached :func:`_probe_python3`. ``(None, ...)`` when nothing worked."""
+    global _PYTHON3
+    if _PYTHON3 is None:
+        _PYTHON3 = _probe_python3()
+    return _PYTHON3
+
+
+#: Reason string for skipping a test that needs the scripts to run python3.
+NO_PYTHON3_REASON = (
+    "no python3 the test shell can run (and no shim spelling it resolves)"
+)

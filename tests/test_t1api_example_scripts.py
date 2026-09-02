@@ -13,7 +13,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from shell_support import BASH, NO_BASH_REASON
+from shell_support import (
+    BASH,
+    NO_BASH_REASON,
+    NO_PYTHON3_REASON,
+    python3_path_entry,
+    shell_path,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples" / "t1api"
@@ -71,10 +77,23 @@ def run_script(
     stubs: Path | None = None,
     **env,
 ):
-    path = f"{bindir}:/usr/bin:/bin" if bindir else "/usr/bin:/bin"
-    environ = {"PATH": path, "HOME": str(home), **env}
+    entries = ["/usr/bin", "/bin"]
+    python3_entry, _style = python3_path_entry()
+    if python3_entry:
+        # The scripts call python3 -- to generate a secret, and for the
+        # [t1api] preflight -- and the PATH here is deliberately minimal
+        # so only the stubs below are visible. On Windows there is no
+        # python3 on any PATH, so a shim stands in for it.
+        entries.insert(0, python3_entry)
+    if bindir:
+        entries.insert(0, shell_path(bindir))
+    # bash splits PATH on ":" even on Windows, where it is running under
+    # MSYS rather than cmd.
+    environ = {"PATH": ":".join(entries), "HOME": shell_path(home), **env}
     report = home / "resolved-secret"
     if stubs is not None:
+        # PYTHONPATH and the report path are read by the interpreter, not
+        # by the shell, so those stay in the platform's own spelling.
         environ["PYTHONPATH"] = str(stubs)
         environ["T1_TEST_REPORT"] = str(report)
         if report.exists():
@@ -190,8 +209,16 @@ class TestTheErrorMessageIsPasteable:
         )
 
 
+@pytest.mark.skipif(python3_path_entry()[0] is None, reason=NO_PYTHON3_REASON)
 class TestSecretResolution:
-    """Environment, then the installer's .env, then generate-or-fail."""
+    """Environment, then the installer's .env, then generate-or-fail.
+
+    Every test here reads what the script exported at the [t1api]
+    preflight, which means the script has to get as far as running
+    python3. Skipped rather than failed where it cannot: "the secret was
+    None" is a true statement about a run that never happened, and it
+    reads as a bug in the secret resolution it is not about.
+    """
 
     @staticmethod
     def _write_env(home: Path, value: str) -> None:

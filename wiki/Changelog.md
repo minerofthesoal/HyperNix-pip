@@ -20,6 +20,190 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3 pt 3 — hyprslug grows up
+
+✨ **hyprslug writes the llama.cpp quant types.** "Quantises without
+llama.cpp" was only true of the tiers nobody was asking for. The sub-bit
+tiers *needed* their own quantiser — `llama-quantize` has never heard of
+them — but `Q4_K_M` did not, so the one quantisation everybody actually
+wants still needed a binary the machine might not be able to build.
+
+`hypernix.quant.llamaquants` adds `Q4_0`, `Q4_1`, `Q5_0`, `Q5_1`, `Q8_0`
+and `Q2_K` through `Q6_K`, encoded and decoded in Python. The layouts are
+exact — every struct matches `ggml-common.h` field for field, and the
+byte counts are asserted against the table `gguf.py` sizes tensors from,
+since a block that drifts by one byte turns every later tensor into
+noise. The scale searches are ports of `make_qx_quants` and
+`make_qkx2_quants` including the 19- and 21-step searches that do most of
+the quality work, vectorised over blocks so a 7B model is minutes rather
+than hours.
+
+🔁 hyprslug then separates what llama.cpp's names conflate. `Q4_K` is a
+block format; `Q4_K_M` is a **mix** — most tensors at `Q4_K`, `attn_v`
+and `ffn_down` a step wider, the head at `Q6_K`. A table of recipes over
+the formats, rather than ten more encoders. The mixes are our reading of
+upstream's policy and say so: llama.cpp picks per layer index as well as
+per tensor role. What is exact is the encoding of every tensor.
+
+✨ **Requantising.** A `Q8_0` GGUF is the only copy of the model most
+people have, and "quantise from the unquantised weights" is advice they
+cannot take. An already-quantised source is read back through the
+decoders, and the report names the type it came from — requantising
+compounds whatever the first pass lost, and that is the operator's call.
+
+𖢥 **`steamroller -hnx Q3_K_L` produced no file at all.** A `quantize`
+step in hnx mode was skipped outright, because "hnx mode does not run
+llama-quantize" had been implemented as "hnx mode does not quantise". It
+writes the file with hyprslug now.
+
+✨ **`hnx-imatrix` — the importance matrix, measured.** hyprslug took an
+imatrix and had no way to produce one, which made the argument advice
+rather than a feature. Forward hooks on every linear layer accumulating
+`sum(x²)` per input feature over calibration text — what llama.cpp's
+tool does, so the numbers mean the same thing. Both formats read and
+written, decided by content rather than by suffix, so an imatrix from
+here works in `llama-quantize` and one from the community works in
+hyprslug. Deriving one from the weights is *not* offered: it is a
+statistic of the activations, and a weight-derived number is a different
+quantity wearing its name.
+
+𖢥 **Every real imatrix was being discarded as mismatched.** An imatrix
+carries one number per input *channel*; hyprslug wanted one per weight
+and compared the two lengths. It tiles across the tensor's rows now, and
+still refuses the ones that genuinely do not divide.
+
+✨ **Dflash2 — a draft model inside the model it drafts for.**
+Speculative decoding is a free speed-up almost nobody gets, and the
+reason is logistics: two files that share a tokenizer, and the small one
+has to come from somewhere. `dflash2 attach` derives one from the base
+(layers dropped and requantised, first and last always kept) and writes
+it into the same GGUF under a namespaced prefix. One file, one download.
+The tokens out are **identical** to the base model's own — a proposal
+survives only where the base independently chose the same token — so a
+bad draft costs time and cannot cost correctness. `extract` materialises
+it for a runtime that wants `--model-draft`; `strip` reproduces the
+original byte for byte.
+
+𖢥 **gkey printed about one key in three thousand wrong.** The T1/T2
+special set contains `[` and `]`, and gkey's panels render with rich
+markup on — so a key whose specials landed on a bracket pair had
+characters eaten on the way to the screen. The store held the right key,
+the operator pasted the wrong one, and nothing anywhere said why. Every
+value that is data rather than markup is escaped now.
+
+𖢥 **Windows: a path is a path, not a URL scheme or a shell escape.**
+`urlparse` read the drive letter of `C:\keys\gkey.jsonl` as a scheme
+named `c`, so every local `-Con` config was refused for a file sitting
+right there. `pathfix` recognised its own PATH block by the platform's
+spelling rather than the shell's, and rewrote it on every single run.
+Four test suites were asserting against failures they were not about.
+
+📚 [HyprSlug](HyprSlug.md) rewritten for the upstream types, plus new
+[Imatrix](Imatrix.md) and [Dflash2](Dflash2.md) pages.
+
+## 0.72.3 pt 2 — T1 v1.0.2026.9.2.1
+
+𖢥 **The IQ0.x tiers never quantised anything.** steamroller has
+advertised `IQ0.9_L`, `IQ0.75_M` and `IQ0.5_XXXL` for several releases.
+What `pack_sub_bit` did was copy the Q3_K_L staging file and write a
+sidecar JSON naming a tier — so a "0.5-bit model" was byte-identical to
+the 3-bit model it came from, the same size on disk, and no more
+quantised than its input. The tier was a label on an unchanged file, and
+nothing tested that it was not.
+
+Three new modules make it real. `hypernix.quant.gguf` reads and writes
+GGUF with no llama.cpp and no llama-cpp-python — alignment and unknown
+metadata handled carefully, because getting the first wrong produces a
+file that opens and returns garbage, and getting the second wrong strips
+a model's chat template on every round trip. `hypernix.quant.subbit` is
+the arithmetic: 7 signs kept of every 8 (0.938 bpw), 3 of every 4
+(0.812), or 2 of every 4 (0.562), plus one FP16 scale per 256-weight
+block. `hypernix.quant.hyprslug` — also **doomslug**,
+**doomslugthedestroyer** and **dstd** — is the quantiser, and it writes a
+real GGUF whose tensors carry HyperNix type ids at 200 and above so a
+stock loader refuses the file by name instead of reading a 0.5-bit tensor
+as Q4_K.
+
+Choosing which signs to keep by magnitude was tried first and is wrong:
+the decoder has no bits telling it which positions were stored, so it
+fills left to right regardless, and a cleverer encoder only lands the
+signs on the wrong weights. It showed up as the widest tier having the
+*worst* error. A test now pins that error is monotonic in bit rate.
+
+✨ **`steamroller -hnx` and `hnx quantize -hnx`.** Route every step
+through hyprslug and never look for llama-quantize — not "look and ignore
+the result": `resolve_binary()` downloads a build when it cannot find
+one, so a lookup that happens still leaves llama.cpp on the machine. A
+test replaces it with an assertion. Full llama-type parity in hyprslug is
+not here yet; asking for an upstream type with `-hnx` says so.
+
+✨ **`/inference/*` — the governed generation surface.** `/bridge/lmstudio/*`
+hands the caller's model string straight to LM Studio, so the registry,
+the plan's cascade, the quota and the cost ledger never see the request.
+Correct for a window onto someone else's server, and it left the one path
+that spends money outside every rule the rest of the API enforces. Six
+endpoints — chat, completions, chat/stream, embeddings, tokens, backends
+— apply all of them. Fallback is opt-in and the response says which model
+really ran; the estimate sizes a request and the backend's reported usage
+bills it; streaming runs every gate before the first byte because a 429
+cannot be sent once the response has begun.
+
+𖢥 **SSPKID assignments did not survive the process that made them.**
+`ServerKeyRegistry` said so in its own docstring: "In-memory and
+deliberately small". Same defect as the server-ID counter — each `gkey`
+run is its own process, the server is another, and a fresh registry hands
+`#1` to a second key while an audit trail still names the first. It
+persists now, in a subdirectory of the key store rather than beside the
+keys, because the Keymaster globs `*.json` there and CI counts `*.json`
+to prove no keys leaked: a registry file at the top level was read as a
+malformed key on every start and counted as a leaked key at teardown.
+
+A bare `ServerKeyRegistry()` reaches the operator's real store, which is
+right for `gkey` and wrong for anything constructed incidentally —
+`create_app()` did, so every test that built an app wrote assignments
+into `~/.hypernix`. It takes the directory from the Keymaster it was
+given now, because `cfg.keymaster_dir` is None whenever
+`T1_KEYMASTER_DIR` is unset and `store_dir=None` means *ephemeral*.
+
+✨ **`gkey create -Con`** takes a key's V1 Server ID and/or SSPKID from a
+JSONL config — a URL, a path, or a bare IP. JSONL because a fleet config
+is an append-only log: lines apply in order, later wins, and a malformed
+line is skipped rather than breaking every key minted after it. It sets
+identity only, never scopes or expiry: a config source is somewhere else,
+and possibly someone else.
+
+✨ **`hypernix wakeup`** — what openWakeWord does, without using it. A
+phrase you choose, examples from your own voice, a folder of recordings
+(WAV, MP3, FLAC, and fragmented MP3 joined in natural order so `part10`
+does not land before `part2`), or one to four TTS voices generating
+overnight — and they mix, because a model trained only on TTS learns what
+synthesised speech sounds like, which is not the task. Log-mel frames
+into a small conv+GRU classifier, then a streaming detector with a
+refractory period so one utterance does not fire six times. The dataset
+says what is wrong with itself before training: no negatives, a thin
+negative ratio, too few positives.
+
+✨ **`generate` and `chat` read a GGUF.** Both took a snapshot directory,
+so the one format this package spends most of its time producing was the
+one its own inference commands could not read. A sub-bit GGUF is refused
+with the reason and the remedy — the answer to "why will this model not
+load" should come from the thing that made it.
+
+𖢥 **integration-ios started the fake model and never waited for it.** The
+ubuntu job had the readiness loop; the macOS one did not, because whether
+to wait was a per-job decision written out by hand four times. A macOS
+runner is slow enough starting Python that the probe reached the bridge
+first and the build failed with `MODEL_UNAVAILABLE`, which reads as a
+broken bridge and is a race. `scripts/ci/wait_for_http.py` is that
+decision made once, and a test fails if any job starts a server without
+waiting.
+
+✨ **`skip_integration`** on the public release: skips both live-server
+jobs, for a runner outage and not for getting past a red test. The subtle
+half is downstream — a job that `needs` a skipped job is itself skipped,
+so the publish jobs run under `always()` and accept the integration jobs
+at success or skipped, never at failure.
+
 ## 0.72.3 — T1 v1.0.2026.8.1.1
 
 🛡️ **The AI agent no longer runs code without being asked.** hyped-pro
