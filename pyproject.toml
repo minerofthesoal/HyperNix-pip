@@ -143,6 +143,7 @@ hyprslug = "hypernix.quant.hyprslug_cli:cli_main"
 doomslug = "hypernix.quant.hyprslug_cli:cli_main"
 doomslugthedestroyer = "hypernix.quant.hyprslug_cli:cli_main"
 dstd = "hypernix.quant.hyprslug_cli:cli_main"
+hnx-imatrix = "hypernix.quant.imatrix_cli:cli_main"
 # v0.71.5b1: HyperNix T1 API's official client TUI/CLI. Zero-extra-deps
 # client (stdlib urllib) — does NOT require `pip install hypernix[t1api]`,
 # that extra is only for running the server (hypernix.t1api.create_app()).

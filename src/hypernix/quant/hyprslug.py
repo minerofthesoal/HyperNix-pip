@@ -46,6 +46,7 @@ from typing import Any
 
 from . import llamaquants
 from .gguf import GGMLType, GGUFError, GGUFFile, GGUFTensor, GGUFWriter
+from .imatrix import expand_for_tensor
 from .subbit import BLOCK_SIZE, PACKINGS, SubBitError, quantize_tensor
 
 logger = logging.getLogger(__name__)
@@ -359,21 +360,16 @@ class QuantizeReport:
 def load_imatrix(path: str | Path) -> dict[str, list[float]]:
     """Read an importance matrix, keyed by tensor name.
 
-    Accepts the simple JSON shape ``{"tensor.name": [floats]}``. The
-    llama.cpp binary imatrix format is not read here; converting it is a
-    separate concern and pretending to support it would mean silently
-    ignoring one.
+    Both formats: llama.cpp's binary ``.imatrix`` — the one people share
+    — and JSON. :mod:`hypernix.quant.imatrix` decides which by content
+    rather than by suffix, because people rename these files.
     """
-    import json
+    from .imatrix import Imatrix, ImatrixError
 
-    path = Path(path)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        return Imatrix.load(path).to_simple_dict()
+    except ImatrixError as exc:
         raise HyprslugError(f"Could not read imatrix {path}: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise HyprslugError(f"{path} is not a mapping of tensor name to weights.")
-    return {str(k): [float(x) for x in v] for k, v in raw.items()}
 
 
 def quantize_gguf(
@@ -520,15 +516,21 @@ def quantize_gguf(
             return raw
         values = _decode_floats(raw, original.ggml_type)
         importance = weights_by_tensor.get(declared.name)
-        if importance is not None and len(importance) != len(values):
-            # A mismatched imatrix is a different model's, and applying it
-            # would weight the wrong positions. Ignore it for this tensor
-            # and say so, rather than silently misweighting.
-            logger.warning(
-                "hyprslug: imatrix for %s has %d entries, tensor has %d; ignoring it",
-                declared.name, len(importance), len(values),
-            )
-            importance = None
+        if importance is not None:
+            # An imatrix carries one number per *input channel*; a
+            # quantiser wants one per weight, and a GGUF weight tensor is
+            # rows of n_input elements, so the vector tiles. Where the two
+            # cannot be reconciled the imatrix is a different model's, and
+            # applying it would weight the wrong positions -- worse than
+            # not applying it, so say so and carry on without it.
+            expanded = expand_for_tensor(importance, len(values))
+            if expanded is None:
+                logger.warning(
+                    "hyprslug: imatrix for %s has %d entries, which does not divide "
+                    "the tensor's %d; ignoring it",
+                    declared.name, len(importance), len(values),
+                )
+            importance = expanded
         if fmt == "sub-bit":
             try:
                 return quantize_tensor(values, packing, importance)
