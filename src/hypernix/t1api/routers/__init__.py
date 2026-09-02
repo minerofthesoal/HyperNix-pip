@@ -13,6 +13,10 @@ written.
 T1 v1.0.26.8.1.0 adds: authundo (``/t1/auth/undo`` and ``/t1/auth/redo``,
 aliased under ``/auth/t1/``) and backup (``/backup/list``,
 ``/backup/restore``).
+T1 v1.0.26.9.2.1 adds: inference — the governed generation surface.
+``/bridge/lmstudio/*`` is a pass-through that never consults the
+registry, the cascade or the quota; ``/inference/*`` is the same
+capability with every one of those applied.
 
 Three routers expose endpoints beyond the spec's literal list, each for
 a stated reason rather than by accident:
@@ -38,6 +42,7 @@ from . import (
     events,
     health,
     hyperlink,
+    inference,
     jobs,
     keys,
     models,
@@ -68,6 +73,8 @@ ALL_ROUTERS = (
     authundo.router,
     authundo.alias_router,
     backup.router,
+    # T1 v1.0.26.9.2.1
+    inference.router,
 )
 
 __all__ = [
@@ -82,6 +89,7 @@ __all__ = [
     "events",
     "health",
     "hyperlink",
+    "inference",
     "jobs",
     "keys",
     "models",

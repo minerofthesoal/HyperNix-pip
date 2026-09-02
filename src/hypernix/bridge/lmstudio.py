@@ -517,6 +517,24 @@ class LMStudioBridge:
         )
         return self._request("POST", "/v1/chat/completions", body=body, timeout=timeout)
 
+    def embeddings(
+        self,
+        inputs: Sequence[str],
+        *,
+        model: str | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Embeddings for a batch of strings. Returns the OpenAI envelope.
+
+        Sent as a batch in one request rather than one request per string:
+        an embedding backend batches internally, and N round trips for N
+        short strings is almost entirely latency.
+        """
+        body: dict[str, Any] = {"input": list(inputs)}
+        if model:
+            body["model"] = model
+        return self._request("POST", "/v1/embeddings", body=body, timeout=timeout)
+
     def chat_stream(
         self,
         messages: Sequence[dict[str, Any]],

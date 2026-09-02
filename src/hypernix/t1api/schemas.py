@@ -1358,3 +1358,111 @@ class DownloadedModelsResponse(BaseModel):
     count: int = 0
     directory: str = ""
     request_id: str
+
+
+# ---------------------------------------------------------------------------
+# Inference (T1 v1.0.26.9.2.1)
+#
+# The governed inference surface. /bridge/lmstudio/* is a pass-through: it
+# hands the caller's model string straight to LM Studio, so the registry,
+# the routing cascade and the quota never see the request. These do the
+# opposite — the server resolves the model, applies the plan's cascade,
+# refuses an exhausted key before any work happens, and meters what was
+# actually spent — which is the design principle the rest of the API is
+# built on, applied to the one path that had escaped it.
+# ---------------------------------------------------------------------------
+
+
+class InferenceMessage(BaseModel):
+    role: str
+    content: str
+
+
+class InferenceChatRequest(BaseModel):
+    model: str
+    messages: list[InferenceMessage]
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+    stop: list[str] | None = None
+    #: Let the routing engine substitute when the named model is
+    #: exhausted or unavailable. Off by default: a silent substitution is
+    #: the thing the spec forbids, so asking for it has to be explicit.
+    allow_fallback: bool = False
+
+
+class InferenceCompletionRequest(BaseModel):
+    model: str
+    prompt: str
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+    stop: list[str] | None = None
+    allow_fallback: bool = False
+
+
+class InferenceResponse(BaseModel):
+    #: What actually ran. Differs from the requested model when the
+    #: cascade substituted, which is why it is reported rather than
+    #: echoed back.
+    model: str
+    requested_model: str
+    content: str
+    finish_reason: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float = 0.0
+    currency: str = "USD"
+    backend: str = ""
+    substituted: bool = False
+    raw: dict[str, Any] = Field(default_factory=dict)
+    request_id: str
+
+
+class InferenceEmbeddingsRequest(BaseModel):
+    model: str
+    input: list[str]
+
+
+class InferenceEmbeddingsResponse(BaseModel):
+    model: str
+    embeddings: list[list[float]] = Field(default_factory=list)
+    dimensions: int = 0
+    input_tokens: int = 0
+    backend: str = ""
+    request_id: str
+
+
+class InferenceTokenCountRequest(BaseModel):
+    model: str
+    #: Exactly one of these. Counting what you are about to send is the
+    #: point, so both shapes a caller might send are accepted.
+    text: str | None = None
+    messages: list[InferenceMessage] | None = None
+
+
+class InferenceTokenCountResponse(BaseModel):
+    model: str
+    tokens: int
+    #: What this many input tokens would cost on this model, before the
+    #: reply. A caller sizing a prompt against a spend cap needs this
+    #: before it commits, not after.
+    estimated_input_cost: float = 0.0
+    currency: str = "USD"
+    remaining_input_tokens: int | None = None
+    method: str = ""
+    request_id: str
+
+
+class InferenceBackend(BaseModel):
+    name: str
+    kind: str
+    reachable: bool
+    detail: str = ""
+    address: str = ""
+
+
+class InferenceBackendsResponse(BaseModel):
+    backends: list[InferenceBackend] = Field(default_factory=list)
+    default: str = ""
+    request_id: str

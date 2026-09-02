@@ -60,18 +60,18 @@ def backend(tmp_path: Path) -> SQLiteBackend:
 
 class TestT1Version:
     def test_this_build_is_the_documented_version(self):
-        # 0.72.1 shipped feature 1 (T2 recognition, undo/redo, backups);
-        # fix 1 made undo/redo actually function — it shipped with the
-        # history never written and the Keymaster missing every method the
-        # inverse needed.
+        # 1.0.2026.9.2.1 takes feature 2 in September: the governed
+        # inference surface (/inference/*), which puts generation behind
+        # the registry, the plan cascade, the quota and the cost ledger
+        # that /bridge/lmstudio/* passes straight through.
         #
         # Deliberately a literal. This is the tripwire that makes a
         # version bump a decision rather than a side effect.
-        assert T1_VERSION.short == "1.0.26.8.1.1"
-        assert T1_VERSION.long == "1.0.2026.8.1.1"
-        assert T1_VERSION.display == "t1 v1.0.26.8.1.1"
+        assert T1_VERSION.short == "1.0.26.9.2.1"
+        assert T1_VERSION.long == "1.0.2026.9.2.1"
+        assert T1_VERSION.display == "t1 v1.0.26.9.2.1"
         assert T1_VERSION.generation == "1.0"
-        assert T1_VERSION.release == "2026-08"
+        assert T1_VERSION.release == "2026-09"
 
     @pytest.mark.parametrize(
         "template",
@@ -142,16 +142,25 @@ class TestT1Version:
         # that feature. Every caller today passes the components it wants
         # explicitly, so nothing relies on the zeroing; the assertion below
         # records the behaviour as it is rather than as it might be.
-        assert T1_VERSION.bump(fix=2).short == "1.0.26.8.1.2"
-        assert T1_VERSION.bump(month=9, feature=2, fix=0).short == "1.0.26.9.2.0"
-        assert T1_VERSION.bump(month=9, feature=2).short == "1.0.26.9.2.1"
+        #
+        # A fixed base, not T1_VERSION: this tests bump(), and pinning it
+        # to whatever is shipping means every release edits a test about
+        # arithmetic.
+        base = T1Version(api=1, major=0, year=2026, month=8, feature=1, fix=1)
+        assert base.bump(fix=2).short == "1.0.26.8.1.2"
+        assert base.bump(month=9, feature=2, fix=0).short == "1.0.26.9.2.0"
+        assert base.bump(month=9, feature=2).short == "1.0.26.9.2.1"
 
     def test_to_dict_carries_both_spellings(self):
         data = T1_VERSION.to_dict()
         assert data["short"] == T1_VERSION.short
         assert data["long"] == T1_VERSION.long
         assert data["short"] != data["long"], "the two spellings must differ"
-        assert data["year"] == 2026 and data["month"] == 8
+        # The structure, not the shipping date — a to_dict test should not
+        # need editing because a month passed.
+        assert data["year"] == T1_VERSION.year
+        assert data["month"] == T1_VERSION.month
+        assert 1 <= data["month"] <= 12
 
     def test_every_shipped_component_agrees(self):
         from hypernix.hyperlink import __hyperlink_version__
