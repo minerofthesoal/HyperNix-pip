@@ -6,18 +6,20 @@ silent or misleading rather than loud.
 """
 from __future__ import annotations
 
-import atexit
-import functools
 import os
 import re
 import shutil
 import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 import pytest
-from shell_support import BASH, NO_BASH_REASON
+from shell_support import (
+    BASH,
+    NO_BASH_REASON,
+    NO_PYTHON3_REASON,
+    python3_path_entry,
+    shell_path,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples" / "t1api"
@@ -67,38 +69,6 @@ def no_fastapi(tmp_path_factory) -> Path:
     return stub
 
 
-def _for_the_shell(path: Path) -> str:
-    """A path spelling the shell in these tests can actually use.
-
-    The scripts run under bash, which on Windows means Git Bash, whose
-    ``sed``/``[ -r ]``/``mkdir`` read ``C:\\a\\b`` as a name full of
-    escapes rather than as a directory. ``C:/a/b`` is understood by every
-    MSYS tool, and ``as_posix()`` is identical to ``str()`` on POSIX.
-    """
-    return Path(path).as_posix()
-
-
-@functools.lru_cache(maxsize=1)
-def _python3_shim() -> str:
-    """A directory containing a ``python3`` that is *this* interpreter.
-
-    Both scripts call ``python3`` — to generate a secret, and for the
-    ``[t1api]`` preflight — and the PATH these tests construct is
-    deliberately minimal so that only the stubs below are visible. On
-    Windows there is no ``python3`` on any PATH: the interpreter is
-    ``python.exe`` in the tool cache. Without this the preflight fails
-    because the command does not exist, the script exits before it can
-    record anything, and every assertion about the resolved secret sees
-    ``None`` — a real-looking failure with an unrelated cause.
-    """
-    bindir = Path(tempfile.mkdtemp(prefix="hypernix-python3-shim-"))
-    atexit.register(shutil.rmtree, bindir, True)
-    shim = bindir / "python3"
-    shim.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n')
-    shim.chmod(0o755)
-    return _for_the_shell(bindir)
-
-
 def run_script(
     script: Path,
     home: Path,
@@ -107,12 +77,19 @@ def run_script(
     stubs: Path | None = None,
     **env,
 ):
-    entries = [_python3_shim(), "/usr/bin", "/bin"]
+    entries = ["/usr/bin", "/bin"]
+    python3_entry, _style = python3_path_entry()
+    if python3_entry:
+        # The scripts call python3 -- to generate a secret, and for the
+        # [t1api] preflight -- and the PATH here is deliberately minimal
+        # so only the stubs below are visible. On Windows there is no
+        # python3 on any PATH, so a shim stands in for it.
+        entries.insert(0, python3_entry)
     if bindir:
-        entries.insert(0, _for_the_shell(bindir))
-    # bash uses ":" for PATH even on Windows, where it is running under
+        entries.insert(0, shell_path(bindir))
+    # bash splits PATH on ":" even on Windows, where it is running under
     # MSYS rather than cmd.
-    environ = {"PATH": ":".join(entries), "HOME": _for_the_shell(home), **env}
+    environ = {"PATH": ":".join(entries), "HOME": shell_path(home), **env}
     report = home / "resolved-secret"
     if stubs is not None:
         # PYTHONPATH and the report path are read by the interpreter, not
@@ -232,8 +209,16 @@ class TestTheErrorMessageIsPasteable:
         )
 
 
+@pytest.mark.skipif(python3_path_entry()[0] is None, reason=NO_PYTHON3_REASON)
 class TestSecretResolution:
-    """Environment, then the installer's .env, then generate-or-fail."""
+    """Environment, then the installer's .env, then generate-or-fail.
+
+    Every test here reads what the script exported at the [t1api]
+    preflight, which means the script has to get as far as running
+    python3. Skipped rather than failed where it cannot: "the secret was
+    None" is a true statement about a run that never happened, and it
+    reads as a bug in the secret resolution it is not about.
+    """
 
     @staticmethod
     def _write_env(home: Path, value: str) -> None:
