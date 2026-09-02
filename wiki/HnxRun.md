@@ -8,8 +8,9 @@ hypernix chat     --model model.iq05.gguf
 ```python
 from hypernix.models import hnxrun
 
-model = hnxrun.load_model("model.iq05.gguf")
+model = hnxrun.load_model("model.iq05.gguf")   # weights stay packed
 print(model.describe())
+print(model.resident_bits_per_weight)          # 0.657
 tokens = hnxrun.generate_tokens(model, [1, 5, 9], max_new_tokens=32)
 text   = hnxrun.generate_text("model.iq05.gguf", "hello", max_new_tokens=32)
 ```
@@ -39,9 +40,10 @@ it.
 A reference implementation of the llama-family graph, in torch, that
 reads every type this package writes: F32/F16/BF16, the llama.cpp block
 types through [llamaquants](HyprSlug.md), and the HyperNix sub-bit types
-through `subbit`. It dequantises to float32, then runs RMSNorm →
-RoPE → grouped-query causal attention with a KV cache → SwiGLU → output
-head.
+through `subbit`. Quantised weights stay packed in memory and are
+unpacked a slice at a time inside each matmul (see below); the graph is
+RMSNorm → RoPE → grouped-query causal attention with a KV cache →
+SwiGLU → output head.
 
 Correctness first. No kernels, no fused anything, and it will not beat
 llama.cpp — **it is not trying to.** For an upstream quant type
@@ -49,9 +51,48 @@ llama.cpp — **it is not trying to.** For an upstream quant type
 `Q4_K_M` than this ever will be. The point is that a 0.5-bit model has
 somewhere to run at all.
 
-A consequence worth stating plainly: everything is materialised in
-float32 in memory, so a 0.5-bit model on disk is a float32 model
-resident. This loads models that *fit*.
+## Sub-bit in memory too, not just on disk
+
+The obvious way to write this runtime is to dequantise everything to
+float32 at load time. That turns 0.56 bits into 32 — *larger* than the
+F16 model the quantisation was made from — and hands back every byte the
+tier existed to save. The file would still be small and the tier would
+be pointless, which is the failure that is easy to ship because
+everything still works.
+
+So the packed bytes are what is held. Rows are unpacked a group at a
+time inside each matmul, into a buffer that is thrown away:
+
+| Tier | On disk | Resident | bits/weight resident |
+|---|---|---|---|
+| `IQ0.5_XXXL` | 10,816 | 8,768 | **0.657** |
+| `IQ0.75_M` | 14,112 | 12,096 | **0.906** |
+| `IQ0.9_L` | 15,776 | 13,760 | 1.031 |
+| `Q4_K_M` | 72,672 | 70,688 | 5.294 |
+| `Q8_0` | 116,384 | 114,432 | 8.570 |
+| *(materialised)* | — | 427,264 | 32.0 |
+
+Slightly above each packing's own rate because the norms are
+one-dimensional and stay in float32. They are a rounding error of a real
+model's size and most of the gap on a toy one — which is why `IQ0.9_L`
+reads 1.031 here and would read about 0.94 on anything real.
+
+`load_model(path, materialize=True)` takes the other trade: float32 up
+front, roughly 16× faster per token, and the memory profile of the model
+it was made from. Both paths produce **bit-identical** logits — they
+unpack the same bytes with the same decoder — so this is purely a
+memory-for-time dial, not a quality one.
+
+### Slicing granularity
+
+The packed stream is blocks over the *flattened* tensor, so a slice has
+to land on a block boundary. One row is not always a whole number of
+blocks: a 64-wide layer packed in 256-element blocks puts four rows in
+one block. The unit is therefore the smallest run of rows that is whole,
+`block // gcd(block, columns)` — one row for any real model, a handful
+for a narrow one. Getting this wrong reads the wrong bytes and gives a
+plausible, wrong model rather than an error, so it is tested against the
+materialised weights row by row.
 
 ## The RoPE convention, which is where this goes wrong
 

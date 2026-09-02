@@ -55,6 +55,7 @@ __all__ = [
     "HnxRunError",
     "ModelConfig",
     "LoadedModel",
+    "PackedWeight",
     "load_model",
     "generate_tokens",
     "generate_text",
@@ -167,6 +168,8 @@ def read_config(metadata: dict, tensors: dict) -> ModelConfig:
         config.vocab_size = int(embd.shape[0])
         if not config.embedding_length:
             config.embedding_length = int(embd.shape[1])
+    # Everything below reads .shape, which a PackedWeight has too -- the
+    # config must not depend on whether the weights were materialised.
     if not config.block_count:
         config.block_count = 1 + max(
             (
@@ -240,6 +243,179 @@ def _dequantize(raw: bytes, ggml_type: int, elements: int):
     )
 
 
+#: HNX sub-bit GGML type -> the packing name subbit.py knows it by.
+_SUB_BIT_PACKINGS = {200: "sign_scale_l", 201: "pair_code_m", 202: "quad_code_xxxl"}
+
+
+def _block_geometry(ggml_type: int) -> tuple[int, int]:
+    """``(elements per block, bytes per block)`` for a quantised type."""
+    from ..quant import llamaquants
+    from ..quant.subbit import BLOCK_SIZE, packed_block_bytes
+
+    kind = int(ggml_type)
+    if kind in _SUB_BIT_PACKINGS:
+        return BLOCK_SIZE, packed_block_bytes(_SUB_BIT_PACKINGS[kind])
+    fmt = llamaquants.BY_TYPE.get(kind)
+    if fmt is None:
+        raise HnxRunError(f"GGML type {kind} has no block geometry here.")
+    return fmt.block, fmt.block_bytes
+
+
+class PackedWeight:
+    """A quantised weight that stays packed in memory.
+
+    The whole point of a 0.5-bit model is that it is small. Dequantising
+    it to float32 at load time gives that away entirely -- 0.56 bits on
+    disk becomes 32 bits resident, which is *larger* than the F16 model
+    it was made from and makes the tier pointless for the machines it
+    exists to serve.
+
+    So the packed bytes are what is held, and rows are unpacked a group
+    at a time into a small buffer that is thrown away. Resident cost is
+    the file's own size plus one group; the arithmetic is done in float32
+    as it must be, but only ever on a slice.
+
+    Slicing granularity
+    -------------------
+    The packed stream is blocks over the *flattened* tensor, so a slice
+    has to land on a block boundary. One row is not always a whole number
+    of blocks -- a 64-wide layer packed in 256-element blocks puts four
+    rows in one block -- so the unit is the smallest run of rows that is:
+    ``block // gcd(block, columns)``. For any real model that is one row;
+    for a narrow one it is a handful, and either way the arithmetic is
+    exact rather than approximately aligned.
+
+    The cost is time: every forward pass re-unpacks. That is the trade a
+    reference runtime should make by default, and :func:`load_model`
+    takes ``materialize=True`` for anyone who would rather spend the
+    memory.
+    """
+
+    __slots__ = ("raw", "ggml_type", "shape", "device", "_block", "_block_bytes",
+                 "_rows_per_group", "_group_bytes")
+
+    def __init__(self, raw: bytes, ggml_type: int, shape: tuple[int, ...], device: str):
+        from math import gcd
+
+        self.raw = raw
+        self.ggml_type = int(ggml_type)
+        self.shape = tuple(int(d) for d in shape)
+        self.device = device
+        self._block, self._block_bytes = _block_geometry(ggml_type)
+
+        columns = self.shape[-1]
+        rows = self.shape[0]
+        if (rows * columns) % self._block:
+            raise HnxRunError(
+                f"A tensor of {rows * columns} elements is not a whole number of "
+                f"{self._block}-element blocks, so it cannot have been packed."
+            )
+        self._rows_per_group = self._block // gcd(self._block, columns)
+        self._group_bytes = (
+            self._rows_per_group * columns // self._block
+        ) * self._block_bytes
+
+    @property
+    def nbytes(self) -> int:
+        return len(self.raw)
+
+    @property
+    def rows(self) -> int:
+        return self.shape[0]
+
+    @property
+    def columns(self) -> int:
+        return self.shape[-1]
+
+    def _decode_groups(self, first_group: int, last_group: int):
+        """Rows from whole groups ``[first_group, last_group)``, as float32."""
+        import torch
+
+        chunk = self.raw[first_group * self._group_bytes:last_group * self._group_bytes]
+        count = (last_group - first_group) * self._rows_per_group * self.columns
+        flat = _dequantize(chunk, self.ggml_type, count)
+        array = flat.reshape(-1, self.columns)
+        return torch.from_numpy(array.copy()).to(self.device)
+
+    def rows_slice(self, start: int, stop: int):
+        """Rows ``[start, stop)``, unpacking only the groups they touch."""
+        first = start // self._rows_per_group
+        last = -(-stop // self._rows_per_group)  # ceiling division
+        decoded = self._decode_groups(first, last)
+        offset = start - first * self._rows_per_group
+        return decoded[offset:offset + (stop - start)]
+
+    def select(self, indices):
+        """The rows *indices* names, unpacked and nothing else.
+
+        This is what makes an embedding lookup affordable: the table is
+        usually the largest tensor in the file, and a prompt touches a
+        handful of its rows.
+        """
+        import torch
+
+        wanted = [int(i) for i in indices]
+        decoded = {row: self.rows_slice(row, row + 1)[0] for row in sorted(set(wanted))}
+        return torch.stack([decoded[row] for row in wanted])
+
+    def to_dense(self):
+        """The whole tensor as float32, for a caller that wants it.
+
+        Defeats the point of holding it packed, so it is a request rather
+        than the default: inspection, comparison, a debugger.
+        """
+        return self.rows_slice(0, self.rows)
+
+    def matmul_t(self, x, *, chunk_rows: int = 0):
+        """``x @ self.T``, unpacking the weight a chunk of rows at a time."""
+        import torch
+
+        if chunk_rows <= 0:
+            # Keep the transient buffer near a megabyte whatever the
+            # model's width, so peak memory is a property of this runtime
+            # rather than of how wide someone's FFN happens to be.
+            chunk_rows = max(1, (1 << 20) // (max(self.columns, 1) * 4))
+        step = max(self._rows_per_group, chunk_rows - chunk_rows % self._rows_per_group)
+
+        out = torch.empty(
+            (*x.shape[:-1], self.rows), dtype=torch.float32, device=self.device
+        )
+        for start in range(0, self.rows, step):
+            stop = min(start + step, self.rows)
+            out[..., start:stop] = x @ self.rows_slice(start, stop).T
+        return out
+
+
+def _linear(x, weight, *, chunk_rows: int = 0):
+    """``x @ weight.T`` whether the weight is packed or materialised."""
+    if isinstance(weight, PackedWeight):
+        return weight.matmul_t(x, chunk_rows=chunk_rows)
+    return x @ weight.T
+
+
+def _embed(weight, ids):
+    if isinstance(weight, PackedWeight):
+        return weight.select(ids)
+    return weight[ids]
+
+
+def _weight_shape(weight) -> tuple[int, ...]:
+    return tuple(weight.shape)
+
+
+def _weight_bytes(weight) -> int:
+    if isinstance(weight, PackedWeight):
+        return weight.nbytes
+    return weight.numel() * weight.element_size()
+
+
+def _weight_elements(weight) -> int:
+    total = 1
+    for dim in _weight_shape(weight):
+        total *= int(dim)
+    return total
+
+
 @dataclass
 class LoadedModel:
     """A GGUF, dequantised and ready to run."""
@@ -251,29 +427,81 @@ class LoadedModel:
     #: ``{ggml type name: tensor count}`` — what the file was packed as.
     packed_as: dict = field(default_factory=dict)
     tokenizer: Any = None
+    #: Bytes on disk, for comparison with what the load actually cost.
+    file_bytes: int = 0
 
     @property
     def sub_bit(self) -> bool:
         return any(name.startswith("HNX_") for name in self.packed_as)
 
+    @property
+    def resident_bytes(self) -> int:
+        """What the weights occupy in memory, packed or not."""
+        return sum(_weight_bytes(w) for w in self.tensors.values())
+
+    @property
+    def weight_count(self) -> int:
+        return sum(_weight_elements(w) for w in self.tensors.values())
+
+    @property
+    def resident_bits_per_weight(self) -> float:
+        """The number that says whether this is still a sub-bit model.
+
+        On disk is the easy half. A runtime that dequantises to float32
+        at load time turns 0.56 bits into 32 and hands back none of the
+        saving that made the tier worth having.
+        """
+        count = self.weight_count
+        return (self.resident_bytes * 8 / count) if count else 0.0
+
+    @property
+    def packed_in_memory(self) -> int:
+        """How many tensors are still in their on-disk form."""
+        return sum(1 for w in self.tensors.values() if isinstance(w, PackedWeight))
+
     def describe(self) -> str:
         mix = ", ".join(f"{k} x{v}" for k, v in sorted(self.packed_as.items()))
-        return (
+        lines = [
             f"{self.config.architecture}: {self.config.block_count} blocks, "
             f"{self.config.embedding_length} wide, "
             f"{self.config.head_count} heads "
-            f"({self.config.head_count_kv} kv), vocab {self.config.vocab_size}\n"
-            f"  packed as: {mix}"
-        )
+            f"({self.config.head_count_kv} kv), vocab {self.config.vocab_size}",
+            f"  packed as: {mix}",
+            f"  resident : {self.resident_bytes / 1e6:.2f} MB "
+            f"({self.resident_bits_per_weight:.3f} bits/weight), "
+            f"{self.packed_in_memory}/{len(self.tensors)} tensors still packed",
+        ]
+        if self.file_bytes:
+            lines.append(
+                f"  on disk  : {self.file_bytes / 1e6:.2f} MB "
+                f"({self.resident_bytes / self.file_bytes:.2f}x resident)"
+            )
+        return "\n".join(lines)
 
 
-def load_model(path: str | Path, *, device: str = "cpu") -> LoadedModel:
-    """Read a GGUF and dequantise every tensor into torch.
+#: Types that are already float and have nothing to unpack.
+_FLOAT_TYPES = (0, 1, 28, 30)  # F32, F16, F64, BF16
 
-    Everything is materialised in float32. That is the honest cost of a
-    reference runtime: a 0.5-bit model on disk is a float32 model in
-    memory, so this loads models that *fit*, and says so rather than
-    pretending the on-disk size is the resident size.
+
+def load_model(
+    path: str | Path,
+    *,
+    device: str = "cpu",
+    materialize: bool = False,
+) -> LoadedModel:
+    """Read a GGUF, keeping quantised tensors packed in memory.
+
+    A quantised tensor stays in its on-disk form and is unpacked a chunk
+    of rows at a time inside each matmul, so a 0.5-bit model costs about
+    what the file costs. That is the whole point of the tier: dequantising
+    at load time would turn 0.56 bits into 32 and hand back every byte
+    the quantisation saved.
+
+    ``materialize=True`` dequantises everything to float32 up front
+    instead — faster per token, and the memory profile of the model it
+    was made from. Float tensors and one-dimensional weights (norms) are
+    always materialised; they are a rounding error of the size either
+    way.
     """
     import numpy as np
     import torch
@@ -292,18 +520,33 @@ def load_model(path: str | Path, *, device: str = "cpu") -> LoadedModel:
     packed: dict[str, int] = {}
     for tensor in gguf_file.tensors:
         raw = gguf_file.tensor_bytes(tensor)
-        flat = _dequantize(raw, tensor.ggml_type, tensor.elements)
         # GGUF stores shape fastest-dimension-first: (n_input, n_output)
         # for a weight matrix. Reversing gives the (out, in) that a
         # linear layer wants, and getting it backwards produces a model
         # that loads cleanly and multiplies the wrong way round.
         shape = tuple(int(d) for d in reversed(tensor.shape))
-        array = np.asarray(flat, dtype=np.float32).reshape(shape)
-        tensors[tensor.name] = torch.from_numpy(array.copy()).to(device)
+        kind = int(tensor.ggml_type)
+
+        keep_packed = (
+            not materialize and kind not in _FLOAT_TYPES and len(shape) > 1
+        )
+        if keep_packed:
+            try:
+                tensors[tensor.name] = PackedWeight(raw, kind, shape, device)
+            except HnxRunError:
+                # A tensor whose rows are not whole blocks cannot be
+                # sliced; materialise that one rather than refusing the
+                # model over a shape no real converter produces.
+                keep_packed = False
+        if not keep_packed:
+            flat = _dequantize(raw, kind, tensor.elements)
+            array = np.asarray(flat, dtype=np.float32).reshape(shape)
+            tensors[tensor.name] = torch.from_numpy(array.copy()).to(device)
+
         try:
-            name = GGMLType(int(tensor.ggml_type)).name
+            name = GGMLType(kind).name
         except ValueError:  # pragma: no cover - guarded by _dequantize
-            name = str(int(tensor.ggml_type))
+            name = str(kind)
         packed[name] = packed.get(name, 0) + 1
 
     config = read_config(gguf_file.metadata, tensors)
@@ -335,6 +578,7 @@ def load_model(path: str | Path, *, device: str = "cpu") -> LoadedModel:
         path=str(model_path),
         packed_as=packed,
         tokenizer=tokenizer_from_metadata(gguf_file.metadata),
+        file_bytes=model_path.stat().st_size,
     )
 
 
@@ -347,6 +591,10 @@ def describe(path: str | Path) -> dict[str, Any]:
         "packed_as": dict(sorted(loaded.packed_as.items())),
         "sub_bit": loaded.sub_bit,
         "has_tokenizer": loaded.tokenizer is not None,
+        "file_bytes": loaded.file_bytes,
+        "resident_bytes": loaded.resident_bytes,
+        "resident_bits_per_weight": round(loaded.resident_bits_per_weight, 4),
+        "tensors_still_packed": loaded.packed_in_memory,
     }
 
 
@@ -431,7 +679,8 @@ def forward(
 
     config = model.config
     weights = model.tensors
-    device = weights["token_embd.weight"].device
+    embedding = weights["token_embd.weight"]
+    device = getattr(embedding, "device", "cpu")
 
     ids = torch.as_tensor(token_ids, dtype=torch.long, device=device).reshape(-1)
     if ids.numel() == 0:
@@ -441,7 +690,7 @@ def forward(
             f"Token id out of range: this model's vocabulary is 0..{config.vocab_size - 1}."
         )
 
-    hidden = weights["token_embd.weight"][ids]
+    hidden = _embed(weights["token_embd.weight"], ids)
     seq = ids.shape[0]
     positions = torch.arange(start_position, start_position + seq, device=device)
     if cache is None:
@@ -460,9 +709,9 @@ def forward(
         prefix = f"blk.{layer}."
         normed = _rms_norm(hidden, need(prefix + "attn_norm.weight"), config.rms_eps)
 
-        q = normed @ need(prefix + "attn_q.weight").T
-        k = normed @ need(prefix + "attn_k.weight").T
-        v = normed @ need(prefix + "attn_v.weight").T
+        q = _linear(normed, need(prefix + "attn_q.weight"))
+        k = _linear(normed, need(prefix + "attn_k.weight"))
+        v = _linear(normed, need(prefix + "attn_v.weight"))
 
         q = q.view(seq, config.head_count, head_dim).transpose(0, 1)
         k = k.view(seq, config.head_count_kv, head_dim).transpose(0, 1)
@@ -491,17 +740,17 @@ def forward(
         attention = torch.softmax(scores, dim=-1)
         context = (attention @ values).transpose(0, 1).reshape(seq, -1)
 
-        hidden = hidden + context @ need(prefix + "attn_output.weight").T
+        hidden = hidden + _linear(context, need(prefix + "attn_output.weight"))
 
         ffn_norm = weights.get(prefix + "ffn_norm.weight")
         normed = (
             _rms_norm(hidden, ffn_norm, config.rms_eps) if ffn_norm is not None else hidden
         )
-        gate = normed @ need(prefix + "ffn_gate.weight").T
-        up = normed @ need(prefix + "ffn_up.weight").T
-        hidden = hidden + (
-            torch.nn.functional.silu(gate) * up
-        ) @ need(prefix + "ffn_down.weight").T
+        gate = _linear(normed, need(prefix + "ffn_gate.weight"))
+        up = _linear(normed, need(prefix + "ffn_up.weight"))
+        hidden = hidden + _linear(
+            torch.nn.functional.silu(gate) * up, need(prefix + "ffn_down.weight")
+        )
 
     output_norm = weights.get("output_norm.weight")
     if output_norm is not None:
@@ -510,7 +759,7 @@ def forward(
     # A model with no output head ties it to the embedding, which is the
     # common arrangement for small models and not an error.
     head = weights.get("output.weight", weights["token_embd.weight"])
-    return hidden @ head.T, cache
+    return _linear(hidden, head), cache
 
 
 # ---------------------------------------------------------------------------

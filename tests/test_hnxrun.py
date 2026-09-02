@@ -153,7 +153,7 @@ class TestItLoadsWhatNothingElseCan:
     def test_every_tensor_came_back_finite(self, quantised, tier):
         """A dequantiser that divides by a zero scale produces NaN, and a
         model of NaN loads perfectly and generates nothing."""
-        model = hnxrun.load_model(quantised[tier])
+        model = hnxrun.load_model(quantised[tier], materialize=True)
         for name, tensor in model.tensors.items():
             assert torch.isfinite(tensor).all(), name
 
@@ -174,6 +174,15 @@ class TestItLoadsWhatNothingElseCan:
         gguf = pytest.importorskip("gguf")
         reader = gguf.GGUFReader(str(quantised["Q8_0"]))
         assert len(reader.tensors) > 0
+
+    def test_a_packed_weight_dequantises_to_the_same_thing(self, quantised):
+        """to_dense() and materialize=True must not disagree, or the
+        chunked path is quietly returning different weights."""
+        packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        dense = hnxrun.load_model(quantised["IQ0.5_XXXL"], materialize=True)
+        for name, weight in packed.tensors.items():
+            got = weight.to_dense() if hasattr(weight, "to_dense") else weight
+            assert torch.equal(got, dense.tensors[name]), name
 
     def test_the_shape_is_read_the_right_way_round(self, base_model):
         """GGUF stores the fastest dimension first, so a weight is
@@ -199,7 +208,9 @@ class TestTheQuantiserItself:
         and fatal to the model.
         """
         original = hnxrun.load_model(base_model).tensors["blk.0.ffn_up.weight"]
-        restored = hnxrun.load_model(quantised[tier]).tensors["blk.0.ffn_up.weight"]
+        restored = hnxrun.load_model(
+            quantised[tier], materialize=True
+        ).tensors["blk.0.ffn_up.weight"]
         accuracy = float((torch.sign(original) == torch.sign(restored)).float().mean())
         expected = EXPECTED_SIGN_ACCURACY[tier]
         assert accuracy == pytest.approx(expected, abs=0.06), (
@@ -210,7 +221,9 @@ class TestTheQuantiserItself:
         original = hnxrun.load_model(base_model).tensors["blk.0.ffn_up.weight"]
 
         def _accuracy(tier):
-            restored = hnxrun.load_model(quantised[tier]).tensors["blk.0.ffn_up.weight"]
+            restored = hnxrun.load_model(
+                quantised[tier], materialize=True
+            ).tensors["blk.0.ffn_up.weight"]
             return float((torch.sign(original) == torch.sign(restored)).float().mean())
 
         assert _accuracy("IQ0.9_L") > _accuracy("IQ0.75_M") > _accuracy("IQ0.5_XXXL")
@@ -219,6 +232,112 @@ class TestTheQuantiserItself:
         sizes = {t: quantised[t].stat().st_size for t in SUB_BIT_TIERS}
         assert base_model.stat().st_size > sizes["IQ0.9_L"] * 10
         assert sizes["IQ0.9_L"] > sizes["IQ0.75_M"] > sizes["IQ0.5_XXXL"]
+
+
+class TestItStaysSubBitInMemory:
+    """The half that a runtime is most likely to quietly give away.
+
+    Dequantising to float32 at load time turns 0.56 bits into 32 --
+    *larger* than the F16 model the quantisation was made from. The file
+    would still be small and the tier would be pointless, which is the
+    failure that is easy to ship because everything still works.
+    """
+
+    @pytest.mark.parametrize("tier", SUB_BIT_TIERS)
+    def test_the_weights_stay_packed(self, quantised, tier):
+        model = hnxrun.load_model(quantised[tier])
+        assert model.packed_in_memory > 0
+        packed = [
+            name
+            for name, weight in model.tensors.items()
+            if isinstance(weight, hnxrun.PackedWeight)
+        ]
+        assert "token_embd.weight" in packed
+        assert "blk.0.ffn_up.weight" in packed
+
+    @pytest.mark.parametrize(
+        ("tier", "ceiling"),
+        [("IQ0.5_XXXL", 1.0), ("IQ0.75_M", 1.0), ("IQ0.9_L", 1.1)],
+    )
+    def test_resident_cost_is_about_a_bit_per_weight(self, quantised, tier, ceiling):
+        """The claim, as a number.
+
+        Slightly above the packing's own rate, because the norms are
+        one-dimensional and stay in float32 -- they are a rounding error
+        of a real model's size and most of the gap on a toy one.
+        """
+        model = hnxrun.load_model(quantised[tier])
+        assert model.resident_bits_per_weight < ceiling, model.describe()
+
+    @pytest.mark.parametrize("tier", SUB_BIT_TIERS)
+    def test_memory_tracks_the_file_rather_than_the_original(self, quantised, tier):
+        model = hnxrun.load_model(quantised[tier])
+        assert model.resident_bytes < model.file_bytes
+
+    @pytest.mark.parametrize("tier", SUB_BIT_TIERS)
+    def test_materialising_costs_what_it_says(self, quantised, tier):
+        """The opt-out is real, and expensive, and the report says so."""
+        packed = hnxrun.load_model(quantised[tier])
+        dense = hnxrun.load_model(quantised[tier], materialize=True)
+        assert dense.resident_bits_per_weight == pytest.approx(32.0)
+        assert dense.resident_bytes > packed.resident_bytes * 20
+        assert dense.packed_in_memory == 0
+
+    def test_a_narrower_tier_costs_less_memory(self, quantised):
+        def _resident(tier):
+            return hnxrun.load_model(quantised[tier]).resident_bytes
+
+        assert _resident("Q8_0") > _resident("Q4_K_M") > _resident("IQ0.9_L")
+        assert _resident("IQ0.9_L") > _resident("IQ0.75_M") > _resident("IQ0.5_XXXL")
+
+    def test_packed_and_materialised_agree_exactly(self, quantised):
+        """Not approximately. The chunked path unpacks the same bytes
+        with the same decoder, so any difference at all is a bug in the
+        slicing rather than a rounding question."""
+        packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        dense = hnxrun.load_model(quantised["IQ0.5_XXXL"], materialize=True)
+        prompt = [1, 5, 9, 13]
+        first, _ = hnxrun.forward(packed, prompt)
+        second, _ = hnxrun.forward(dense, prompt)
+        assert torch.equal(first, second)
+
+    def test_generation_is_the_same_either_way(self, quantised):
+        packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        dense = hnxrun.load_model(quantised["IQ0.5_XXXL"], materialize=True)
+        assert hnxrun.generate_tokens(
+            packed, [1, 5, 9], max_new_tokens=6
+        ) == hnxrun.generate_tokens(dense, [1, 5, 9], max_new_tokens=6)
+
+    def test_row_groups_handle_a_row_narrower_than_a_block(self, quantised):
+        """A 64-wide layer packed in 256-element blocks puts four rows in
+        one block, so a row is not sliceable on its own. Getting this
+        wrong reads the wrong bytes and produces a plausible, wrong
+        model rather than an error."""
+        model = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        weight = model.tensors["blk.0.ffn_up.weight"]
+        assert isinstance(weight, hnxrun.PackedWeight)
+        assert weight.columns == N_EMBD  # 64, narrower than the 256 block
+        dense = hnxrun.load_model(
+            quantised["IQ0.5_XXXL"], materialize=True
+        ).tensors["blk.0.ffn_up.weight"]
+        for start in (0, 1, 3, 7):
+            assert torch.equal(weight.rows_slice(start, start + 2), dense[start:start + 2])
+
+    def test_an_embedding_lookup_unpacks_only_what_it_needs(self, quantised):
+        """The table is usually the largest tensor in the file and a
+        prompt touches a handful of its rows."""
+        model = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        table = model.tensors["token_embd.weight"]
+        dense = hnxrun.load_model(
+            quantised["IQ0.5_XXXL"], materialize=True
+        ).tensors["token_embd.weight"]
+        ids = [7, 3, 7, 100]
+        assert torch.equal(table.select(ids), dense[ids])
+
+    def test_describe_reports_the_resident_cost(self, quantised):
+        text = hnxrun.load_model(quantised["IQ0.5_XXXL"]).describe()
+        assert "bits/weight" in text
+        assert "still packed" in text
 
 
 class TestItRuns:
