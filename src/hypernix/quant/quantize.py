@@ -468,6 +468,8 @@ def quantize_gguf(
     extra_args: list[str] | None = None,
     auto_fetch: bool = True,
     auto: bool = False,
+    backend: str = "auto",
+    imatrix: str | Path | None = None,
 ) -> Path:
     """Run llama-quantize to produce ``output_gguf`` from ``source_gguf``.
 
@@ -484,6 +486,42 @@ def quantize_gguf(
     source = Path(source_gguf)
     output = Path(output_gguf)
     output.parent.mkdir(parents=True, exist_ok=True)
+
+    # HyperNix sub-bit tiers before anything else. These are extension
+    # types that llama-quantize has never heard of and llama-cpp-python
+    # cannot produce, so trying either first would mean downloading a
+    # binary in order to fail with an unknown-type error.
+    #
+    # `backend` forces the choice: "hnx" refuses to touch llama.cpp at
+    # all, "llama" refuses to use hyprslug, "auto" (the default) picks by
+    # target type. On a machine without llama.cpp the sub-bit tiers now
+    # work with nothing installed.
+    from .hyprslug import TIER_TYPES as _HNX_TIERS
+
+    requested = str(quant_type).strip()
+    hnx_tier = next(
+        (name for name in _HNX_TIERS if name.lower() == requested.lower()), None
+    )
+    if backend == "hnx" or (backend == "auto" and hnx_tier):
+        if hnx_tier is None:
+            raise ValueError(
+                f"backend='hnx' quantises the HyperNix sub-bit tiers "
+                f"({', '.join(_HNX_TIERS)}); {requested!r} is a llama.cpp type. "
+                "Full llama-type support in hyprslug is not here yet — use "
+                "backend='llama' for those."
+            )
+        from .hyprslug import quantize_gguf as _hnx_quantize
+
+        print(
+            f"[hypernix] quantizing with hyprslug → {hnx_tier} (no llama.cpp)",
+            file=sys.stderr,
+        )
+        _hnx_quantize(source, output, hnx_tier, imatrix=imatrix)
+        return output
+    if backend not in ("auto", "llama"):
+        raise ValueError(
+            f"Unknown backend {backend!r}; expected 'auto', 'hnx' or 'llama'."
+        )
 
     target = resolve_spec(quant_type).name
 
