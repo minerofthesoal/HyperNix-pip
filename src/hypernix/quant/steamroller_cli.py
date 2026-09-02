@@ -5,7 +5,14 @@ import argparse
 import json
 import sys
 
-from .steamroller import SOURCE_FORMATS, TIERS, Steamroller, SteamrollerError, plan
+from .steamroller import (
+    SOURCE_FORMATS,
+    STAGING_TIER,
+    TIERS,
+    Steamroller,
+    SteamrollerError,
+    plan,
+)
 
 __all__ = ["main", "cli_main"]
 
@@ -49,9 +56,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.list_tiers:
+        # --json applies here too. This branch used to return before ever
+        # looking at it, so `steamroller --list-tiers --json` printed a
+        # human table -- which a script asking for JSON then tried to
+        # parse. Silently ignoring a flag is worse than rejecting it.
+        if args.as_json:
+            print(json.dumps({
+                "tiers": [tier.to_dict() for tier in TIERS.values()],
+                "sources": list(SOURCE_FORMATS),
+                "staging_tier": STAGING_TIER,
+            }, indent=2))
+            return 0
         for tier in TIERS.values():
             mark = "upstream" if tier.upstream else "HyperNix extension"
             print(f"  {tier.name:12} {tier.bits_per_weight:5.2f} bits  {mark:18} {tier.summary}")
+        print()
+        print(f"  sources: {', '.join(SOURCE_FORMATS)}")
+        print(f"  staging: {STAGING_TIER}")
         return 0
 
     if not args.source or not args.target:
