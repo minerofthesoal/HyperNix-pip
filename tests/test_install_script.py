@@ -659,10 +659,29 @@ done
         assert result.returncode != 0
         assert "/definitely/not/a/python" in result.stderr
 
-    def test_skip_with_no_installation_says_what_to_do(self, tmp_path):
-        """Not "install failed" — nothing was installed, and that is the point."""
+    def _searched_names(self, source: str) -> list[str]:
+        """Every interpreter name the script will try, read from the script.
+
+        Hard-coding the list here would rot the moment someone adds
+        python3.15 to the search: the test would keep passing while no
+        longer covering the name that was added.
+        """
+        match = re.search(r'local search="([^"]+)"', source)
+        assert match, "install-t1.sh no longer declares its search list"
+        return match.group(1).split()
+
+    def test_skip_with_no_installation_says_what_to_do(self, tmp_path, source):
+        """Not "install failed" — nothing was installed, and that is the point.
+
+        Every name in the search list has to be shadowed, not just
+        `python3`. Shadowing one only worked here, where the other names
+        do not resolve; on a CI runner `python3.14` is setup-python's
+        interpreter with hypernix installed, so the search found it, the
+        import succeeded, and the script correctly did not fail.
+        """
         bin_dir = tmp_path / "bin"
-        self._fake_python(bin_dir, "python3", has_hypernix=False)
+        for name in self._searched_names(source):
+            self._fake_python(bin_dir, name, has_hypernix=False)
 
         result = subprocess.run(
             [BASH, str(SCRIPT), "--non-interactive", "--install", "skip",
