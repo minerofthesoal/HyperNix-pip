@@ -30,6 +30,7 @@ reachable if you already knew the filename. Fixed.)
 | [Download](Download.md) | `download_model`, short-name resolution, offline cache, gated repos. |
 | [Convert](Convert.md) | Safetensors/PyTorch checkpoint → GGUF (fp32/fp16), architecture-agnostic tensor naming. |
 | [Quantization](Quantization.md) | GGUF pipeline, k-quants, `HyperNixQuantizer`, `pressure_cooker_v3` QAT. |
+| [HyprSlug](HyprSlug.md) | Quantise a GGUF with no llama.cpp at all — the sub-bit tiers (`IQ0.9_L`, `IQ0.75_M`, `IQ0.5_XXXL`), which `llama-quantize` cannot produce. |
 | [PipelineMechanics](PipelineMechanics.md) | The small support modules gluing download → convert → quantize together. |
 
 **Training core**
@@ -71,6 +72,13 @@ reachable if you already knew the filename. Fixed.)
 | [Fridges](Fridges.md) | `old_fridge` (memory housekeeping), `mediocre_fridge` (judge-data synthesis), `new_fridge` (graphing). |
 | [Dashboards](Dashboards.md) | The three live btop++-style terminal training dashboards (`tvtop`/`cctvtop`/`tvtop++`). |
 | [HyperLog](HyperLog.md) | Premium training TUI logger, compatible with tvtop. |
+
+**Audio**
+
+| Guide | Covers |
+|---|---|
+| [WakeUp](WakeUp.md) | Train a wake word on your voice, a folder of recordings, or TTS overnight — then listen for it. What openWakeWord does, without using it. |
+| [Quantization](Quantization.md) | …and see [HyprSlug](HyprSlug.md) for quantising without llama.cpp. |
 
 **Inference, chat, and serving**
 

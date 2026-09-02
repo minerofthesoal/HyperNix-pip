@@ -10,6 +10,7 @@ from the library and returns a non-zero exit code on failure.
     download            fetch a HuggingFace snapshot
     convert             produce fp32 / fp16 GGUF from a snapshot
     quantize            run llama-quantize on an fp16/fp32 GGUF
+    wakeup              train a wake word, then listen for it
     verify              read-check a GGUF and print its headers
     info                show package + GGUF header info
     upload              push files to a HuggingFace repo
@@ -62,6 +63,7 @@ _SUBCOMMANDS = {
     "download",
     "convert",
     "quantize",
+    "wakeup",
     "verify",
     "info",
     "upload",
@@ -954,6 +956,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_convert(rest)
     if cmd == "quantize":
         return _run_quantize(rest)
+    if cmd == "wakeup":
+        from hypernix.audio.wakeup_cli import main as _wakeup_main
+
+        return _wakeup_main(rest)
     if cmd == "verify":
         return _run_verify(rest)
     if cmd == "info":

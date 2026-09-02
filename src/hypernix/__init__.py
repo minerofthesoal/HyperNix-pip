@@ -227,6 +227,7 @@ __all__ = [
     "upload_gguf",
     "verify_snapshot",
     "vram",
+    "wakeup",
     "whisk",
     "workshop",
     "fizzle",
@@ -582,6 +583,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str | None]] = {
     'utils': ('system.utils', None),
     'verify_snapshot': ('models.download', 'verify_snapshot'),
     'vram': ('system.vram', None),
+    'wakeup': ('audio.wakeup', None),
     'whisk': ('models.whisk', None),
     'workshop': ('models.workshop', None),
     # v0.71.0 — security & usage management
