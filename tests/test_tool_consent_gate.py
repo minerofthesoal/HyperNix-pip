@@ -47,7 +47,7 @@ class TestTheGateStopsTheInjectionPath:
         marker = tmp_path / "executed"
         result = registry.execute_tool("run_command", {"command": f"touch {marker}"})
         assert not marker.exists(), "the command ran despite being refused"
-        assert "was not run" in result
+        assert result.startswith("Tool 'run_command' was not run")
 
     def test_the_refusal_tells_the_model_why(self, registry, monkeypatch):
         """It goes back into the conversation, so it has to be useful.
@@ -110,8 +110,17 @@ class TestWhatIsGated:
         monkeypatch.setenv("HYPERNIX_TOOL_POLICY", "deny")
         if name not in registry.tools:
             pytest.skip(f"{name} is not registered in this build")
-        result = registry.execute_tool(name, {"path": "src"} if "file" in name or "dir" in name else {})
-        assert "was not run" not in result
+        result = registry.execute_tool(
+            name, {"path": "src"} if "file" in name or "dir" in name else {}
+        )
+        # `startswith`, not `in`. A read tool returns arbitrary text — and
+        # `git_diff` returns this repository's uncommitted diff, so an
+        # edit to a test that mentions the refusal string puts that string
+        # in the tool's own output and fails this assertion. Which is
+        # exactly what happened. The refusal is a whole-result prefix
+        # (`execute_tool` returns it and nothing else), so anchoring to
+        # position 0 tests the gate instead of the working tree.
+        assert not result.startswith(f"Tool '{name}' was not run")
 
     def test_every_gated_name_is_a_real_tool(self, registry):
         """A typo in the set silently un-gates the tool it meant to cover."""
@@ -163,7 +172,9 @@ class TestTheGateHasNoBypass:
         if name not in registry.tools:
             pytest.skip(f"{name} is not registered in this build")
         monkeypatch.setenv("HYPERNIX_TOOL_POLICY", "deny")
-        assert "was not run" in registry.execute_tool(name, {})
+        assert registry.execute_tool(name, {}).startswith(
+            f"Tool '{name}' was not run"
+        )
 
     def test_a_skill_cannot_be_written_and_run_without_consent(
         self, registry, tmp_path, monkeypatch
