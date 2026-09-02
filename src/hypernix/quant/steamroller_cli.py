@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> int:
             "The IQ0.x tiers are HyperNix extension types, not upstream llama.cpp quant\n"
             "types: stock llama.cpp will refuse the resulting GGUF. Below ~1.5 bits a model\n"
             "stops being a worse version of itself — evaluate before shipping one.\n"
+            "\n"
+            "-hnx quantises with hyprslug and never touches llama.cpp. The IQ0.x tiers\n"
+            "need it; the upstream tiers still use llama-quantize unless you pass it.\n"
         ),
     )
     parser.add_argument("source", nargs="?", help="Input GGUF")
@@ -34,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Skip the Q3_K_L staging pass (worse output; ignored for "
                              "extension tiers, which are packed from it)")
     parser.add_argument("--keep-intermediates", action="store_true")
+    parser.add_argument("-hnx", "--hnx", dest="hnx", action="store_true",
+                        help="Quantise with hyprslug only. No llama.cpp binary is "
+                             "looked for, downloaded or built at any point — so this "
+                             "works on a machine that has never had llama.cpp. "
+                             "Required in practice for the IQ0.x tiers, which "
+                             "llama-quantize has never heard of.")
     parser.add_argument("--plan", action="store_true", help="Show the plan and stop")
     parser.add_argument("--list-tiers", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
@@ -67,7 +76,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         output = args.output or f"{args.source.rsplit('.', 1)[0]}.{args.target}.gguf"
-        result = Steamroller(keep_intermediates=args.keep_intermediates).run(
+        result = Steamroller(
+            keep_intermediates=args.keep_intermediates,
+            hnx_only=args.hnx,
+        ).run(
             args.source, args.target, output,
             source_format=args.source_format,
             imatrix=args.imatrix,
@@ -94,3 +106,10 @@ def main(argv: list[str] | None = None) -> int:
 
 def cli_main() -> None:
     raise SystemExit(main())
+
+
+if __name__ == "__main__":
+    # Without this, `python -m hypernix.quant.steamroller_cli` imports the
+    # module, runs nothing and exits 0 — which looks exactly like a
+    # successful quantisation that wrote no file.
+    cli_main()

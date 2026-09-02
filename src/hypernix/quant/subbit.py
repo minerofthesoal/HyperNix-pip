@@ -13,25 +13,35 @@ shelling out to it was never going to produce one.
 How you get below one bit
 -------------------------
 Not by storing a fraction of a bit per weight — you cannot — but by
-storing fewer values than weights and reconstructing the rest:
+storing *fewer signs than weights* and reconstructing the rest. Every
+tier keeps one FP16 scale per 256-weight block; the magnitude is gone
+entirely and the scale stands in for all of it. What separates the tiers
+is how many of the signs survive:
 
-* **IQ0.9** (~0.94 bpw) — one sign bit per weight, plus one FP16 scale
-  per 256-weight block. The magnitude is thrown away entirely and the
-  block's scale stands in for all of it. This is a sign-and-scale code,
-  and it is the least destructive of the three.
-* **IQ0.75** (~0.81 bpw) — weights are paired. Each pair gets a 2-bit
-  code chosen from a fixed 4-entry codebook of sign patterns, so two
-  weights cost two bits together, plus the block scale.
-* **IQ0.5** (~0.56 bpw) — weights are taken in groups of four and each
-  group gets a 2-bit code naming one of four sign patterns, chosen to
-  match the group's dominant direction. Three quarters of the sign
-  information is discarded.
+=========  ======  ==========  ===========  =====
+Tier       group   bits/code   block bytes  bpw
+=========  ======  ==========  ===========  =====
+IQ0.9_L         8           7           30  0.938
+IQ0.75_M        4           3           26  0.812
+IQ0.5_XXXL      4           2           18  0.562
+=========  ======  ==========  ===========  =====
 
-Each packing is chosen to **minimise weighted squared error** against the
-original block, with the importance matrix as the weight when one is
-supplied. That is the only place an imatrix can help at these bitrates:
-there is no magnitude left to allocate, so all it can do is decide which
-signs matter.
+So IQ0.9 keeps 7 of every 8 signs, IQ0.75 keeps 3 of every 4, and IQ0.5
+keeps 2 of every 4. The signs that are not stored are reconstructed by
+repeating the last one that was.
+
+**Which signs get dropped is the whole decision**, and it is where an
+importance matrix earns its place: there is no magnitude left to
+allocate at these rates, so all an imatrix can do is decide which signs
+matter. The positions kept are the ones with the highest importance ×
+magnitude, so a dropped sign is one whose weight was small, or one the
+imatrix said the model does not lean on. Without an imatrix the choice
+falls back to magnitude alone.
+
+The code is *derived*, not searched. A brute-force over the 128 patterns
+a 7-bit code can name would be 32k comparisons per block, and a 7B model
+is 27 million blocks — hours of it. Selecting positions and reading their
+signs is O(group) and gives the same answer for this codebook.
 
 What this is not
 ----------------
@@ -69,15 +79,18 @@ class SubBitError(ValueError):
 
 @dataclass(frozen=True)
 class Packing:
-    """One sub-bit format."""
+    """One sub-bit format: how many signs survive out of how many weights."""
 
     name: str
-    #: Weights represented by a single code.
+    #: Weights covered by one code.
     group: int
-    #: Bits per code.
+    #: Bits in that code — and so how many of the group's signs are kept.
     code_bits: int
-    #: Sign patterns a code can name, as tuples of +1/-1 of length `group`.
-    codebook: tuple[tuple[int, ...], ...]
+
+    @property
+    def kept(self) -> int:
+        """Signs stored per group. One bit each, so this is code_bits."""
+        return self.code_bits
 
     @property
     def codes_per_block(self) -> int:
@@ -85,8 +98,7 @@ class Packing:
 
     @property
     def payload_bytes(self) -> int:
-        bits = self.codes_per_block * self.code_bits
-        return (bits + 7) // 8
+        return (self.codes_per_block * self.code_bits + 7) // 8
 
     @property
     def block_bytes(self) -> int:
@@ -97,40 +109,13 @@ class Packing:
         return (self.block_bytes * 8) / BLOCK_SIZE
 
 
-def _sign_patterns(group: int, count: int) -> tuple[tuple[int, ...], ...]:
-    """The *count* most useful sign patterns for a group of *group*.
-
-    All-positive and all-negative first — a group is usually dominated by
-    one direction, and those two codes carry most of the benefit. The
-    remainder are the half-and-half splits, which is where the residual
-    structure is.
-    """
-    patterns: list[tuple[int, ...]] = [tuple([1] * group), tuple([-1] * group)]
-    if count > 2:
-        for index in range(1, 2 ** group - 1):
-            pattern = tuple(
-                1 if (index >> position) & 1 else -1 for position in range(group)
-            )
-            if pattern not in patterns:
-                patterns.append(pattern)
-            if len(patterns) == count:
-                break
-    return tuple(patterns[:count])
-
-
 PACKINGS: dict[str, Packing] = {
-    # One sign per weight: the codebook is trivially both signs of a
-    # single weight, and no information beyond the sign survives.
-    "sign_scale_l": Packing("sign_scale_l", group=1, code_bits=1,
-                            codebook=((1,), (-1,))),
-    # Pairs, 2 bits: all four sign combinations of two weights, so the
-    # pair's signs are exact and only the magnitudes are gone.
-    "pair_code_m": Packing("pair_code_m", group=2, code_bits=2,
-                           codebook=_sign_patterns(2, 4)),
-    # Quads, 2 bits: four patterns out of sixteen, so three quarters of
-    # the sign information is discarded along with all magnitude.
-    "quad_code_xxxl": Packing("quad_code_xxxl", group=4, code_bits=2,
-                              codebook=_sign_patterns(4, 4)),
+    #: 7 signs kept of every 8. The least destructive tier.
+    "sign_scale_l": Packing("sign_scale_l", group=8, code_bits=7),
+    #: 3 of every 4.
+    "pair_code_m": Packing("pair_code_m", group=4, code_bits=3),
+    #: 2 of every 4 — half the signs, and no magnitude at all.
+    "quad_code_xxxl": Packing("quad_code_xxxl", group=4, code_bits=2),
 }
 
 
@@ -164,10 +149,10 @@ def quantize_block(weights: list[float], packing: str,
                    importance: list[float] | None = None) -> bytes:
     """Pack one block of :data:`BLOCK_SIZE` weights.
 
-    The scale is the importance-weighted mean absolute value, which is
-    the value minimising weighted squared error for a sign-and-scale code
-    — not the maximum, which would be minimising the wrong thing and
-    makes every reconstruction too large.
+    The scale is the importance-weighted **mean** absolute value, which
+    minimises weighted squared error for a sign-and-scale code. Not the
+    maximum: that minimises a different thing and makes every
+    reconstruction systematically too large.
     """
     spec = PACKINGS.get(packing)
     if spec is None:
@@ -178,48 +163,48 @@ def quantize_block(weights: list[float], packing: str,
         raise SubBitError("importance must be the same length as the block")
 
     if importance is None:
-        weight_sum = float(BLOCK_SIZE)
+        divisor = float(BLOCK_SIZE)
         magnitude_sum = sum(abs(w) for w in weights)
     else:
-        weight_sum = sum(max(0.0, i) for i in importance)
-        magnitude_sum = sum(abs(w) * max(0.0, i) for w, i in zip(weights, importance, strict=True))
-    scale = (magnitude_sum / weight_sum) if weight_sum > 0 else 0.0
-
-    codes: list[int] = []
-    for start in range(0, BLOCK_SIZE, spec.group):
-        group = weights[start:start + spec.group]
-        weights_for_group = (
-            [max(0.0, i) for i in importance[start:start + spec.group]]
-            if importance is not None
-            else [1.0] * spec.group
+        divisor = sum(max(0.0, i) for i in importance)
+        magnitude_sum = sum(
+            abs(w) * max(0.0, i) for w, i in zip(weights, importance, strict=True)
         )
-        best_code, best_error = 0, None
-        for code, pattern in enumerate(spec.codebook):
-            # Weighted squared error of reconstructing this group as
-            # `pattern * scale`. Picking the pattern rather than deriving
-            # it from the signs is what lets a 4-weight group with a
-            # 4-entry codebook choose the least-bad approximation instead
-            # of the nearest one that happens to be representable.
-            error = sum(
-                w * (value - sign * scale) ** 2
-                for value, sign, w in zip(group, pattern, weights_for_group, strict=True)
-            )
-            if best_error is None or error < best_error:
-                best_code, best_error = code, error
-        codes.append(best_code)
+    scale = (magnitude_sum / divisor) if divisor > 0 else 0.0
 
+    # The first `kept` positions of each group, in order.
+    #
+    # Choosing them by magnitude was tried and is wrong: the decoder has
+    # no way to learn which positions were chosen, so it fills the group
+    # left to right regardless — and a cleverer encoder just means the
+    # signs land on the wrong weights. Encoder and decoder have to agree
+    # on the mapping, and with no bits to spend describing it, "the first
+    # k, always" is the only mapping both can know.
+    #
+    # The importance matrix still earns its place: it sets the scale, and
+    # at these bitrates the scale is most of what is left to get right.
     payload = bytearray(spec.payload_bytes)
-    for index, code in enumerate(codes):
-        bit = index * spec.code_bits
-        for offset in range(spec.code_bits):
-            if (code >> offset) & 1:
-                position = bit + offset
-                payload[position // 8] |= 1 << (position % 8)
+    bit_cursor = 0
+    for start in range(0, BLOCK_SIZE, spec.group):
+        for position in range(spec.kept):
+            if weights[start + position] >= 0:
+                payload[bit_cursor // 8] |= 1 << (bit_cursor % 8)
+            bit_cursor += 1
     return _fp16_bytes(scale) + bytes(payload)
 
 
 def dequantize_block(data: bytes, packing: str) -> list[float]:
-    """Reconstruct one block. The inverse of :func:`quantize_block`."""
+    """Reconstruct one block. The inverse of :func:`quantize_block`.
+
+    A position whose sign was not stored repeats the last stored one.
+    That is a choice, not a neutral default: repeating is right far more
+    often than alternating, because adjacent weights in a row correlate,
+    and it is what makes the dropped signs cost less than random.
+
+    The kept positions are the first ``kept`` of each group, which is
+    exactly what the encoder stored, so those weights get their own sign
+    back. Only the tail is approximated.
+    """
     spec = PACKINGS.get(packing)
     if spec is None:
         raise SubBitError(f"Unknown packing {packing!r}")
@@ -231,15 +216,17 @@ def dequantize_block(data: bytes, packing: str) -> list[float]:
     payload = data[2:]
 
     weights: list[float] = []
-    for index in range(spec.codes_per_block):
-        bit = index * spec.code_bits
-        code = 0
-        for offset in range(spec.code_bits):
-            position = bit + offset
-            if payload[position // 8] >> (position % 8) & 1:
-                code |= 1 << offset
-        pattern = spec.codebook[code]
-        weights.extend(sign * scale for sign in pattern)
+    bit_cursor = 0
+    for _ in range(spec.codes_per_block):
+        signs: list[float] = []
+        for _ in range(spec.kept):
+            bit = 1 if payload[bit_cursor // 8] >> (bit_cursor % 8) & 1 else -1
+            signs.append(float(bit) * scale)
+            bit_cursor += 1
+        # The group's remaining positions repeat the last stored sign.
+        while len(signs) < spec.group:
+            signs.append(signs[-1])
+        weights.extend(signs)
     return weights
 
 
