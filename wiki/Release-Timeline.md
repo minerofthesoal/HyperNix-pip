@@ -449,3 +449,26 @@ timeline
         : 8af94c4 - T2S keys- fix the refusal, and let the phone actually enter one
 ```
 
+## Release v0.72.3 (2026-09-02)
+
+```mermaid
+timeline
+    title Release v0.72.3 Commits
+    0.72.3
+        : 78582ae - Fix both CI failures- a version-dependent lint bar and a half-shadowed PATH
+        : 56a179a - Fix two real test failures the missing-torch diagnosis was hiding
+        : 3f872ce - chore- update JSON stats (scheduled)
+        : 3245138 - 0.72.3- ship hypernix-t1, and make create work without a checkout
+        : bcb0fa9 - Fix the CI failures- interpreter choice, a bash that is not one, backslashes in POSIX profiles
+        : a7aeaff - VRAM optimizations- hypernix.system.vram
+        : 1eb8121 - Import Callable from collections.abc, not typing
+        : 4dbd9e2 - Docs modernization, billing-binding lifecycle, and 348 untracked .pyc
+        : 4538dad - hypernix-t1- manage a T1 API server as a service, not an incantation
+        : dc3de5b - Add Codacy security scan workflow
+        : 4c25a42 - CI- gate the release on a live server, a real key and a fake model
+        : 55378e1 - T2P billing keys, and a server's right to refuse them
+        : e392ac0 - HyperLink- fix the three separate reasons it could not reach a server
+        : 5d51695 - A new server issues itself a local, three-day admin key
+        : a82c166 - Security- require consent before the AI agent runs code or touches credentials
+```
+
