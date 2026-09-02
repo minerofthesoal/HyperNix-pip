@@ -65,6 +65,42 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.list_tiers:
+        # --json applies here too; this branch used to return before ever
+        # looking at it, so a script that asked for JSON got a human
+        # table and a parse error.
+        if args.as_json:
+            print(json.dumps({
+                "recipes": [
+                    {
+                        "name": name,
+                        "base": recipe.base,
+                        "bits_per_weight": round(recipe.bits_per_weight, 3),
+                        "overrides": {frag: fmt for frag, fmt in recipe.overrides},
+                        "output": recipe.output,
+                        "upstream": True,
+                        "summary": recipe.summary,
+                    }
+                    for name, recipe in sorted(
+                        RECIPES.items(), key=lambda kv: -kv[1].bits_per_weight
+                    )
+                ],
+                "sub_bit_tiers": [
+                    {
+                        "name": tier,
+                        "ggml_type": type_id,
+                        "packing": packing,
+                        "bits_per_weight": PACKINGS[packing].bits_per_weight,
+                        "signs_kept": PACKINGS[packing].kept,
+                        "group": PACKINGS[packing].group,
+                        "upstream": False,
+                        "summary": (
+                            "HyperNix extension type; stock llama.cpp refuses it by name."
+                        ),
+                    }
+                    for tier, (type_id, packing) in TIER_TYPES.items()
+                ],
+            }, indent=2))
+            return 0
         print("llama.cpp quant types (any llama.cpp reads the result):")
         for name, recipe in sorted(
             RECIPES.items(), key=lambda kv: -kv[1].bits_per_weight
