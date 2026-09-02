@@ -86,21 +86,48 @@ def test_skill_manager():
         assert len(sm.list_skills()) == 0
 
 
-def test_tool_registry():
+def test_tool_registry(monkeypatch):
+    """The file tools do what they say — with the consent gate opened.
+
+    `write_file` and `replace_file_content` are side-effecting, so
+    `execute_tool` gates them on HYPERNIX_TOOL_POLICY, which defaults to
+    "ask" and degrades to **deny** with no terminal — which is exactly
+    what a test run is. Without opting in here, the writes are refused
+    and the failure surfaces two lines later as "file does not exist",
+    naming neither the gate nor the tool that was actually stopped.
+
+    The gate itself is covered in tests/test_tool_consent_gate.py; this
+    asserts the refusal once, so a test that opts in cannot also hide the
+    gate disappearing.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         sm = SkillManager(storage_dir=Path(tmpdir))
         tr = ToolRegistry(sm)
         assert len(tr.tools) >= 34
 
-        # Test view_file & write_file
         file_path = os.path.join(tmpdir, "sample.txt")
-        tr.execute_tool("write_file", {"path": file_path, "content": "Line 1\nLine 2\nLine 3"})
+
+        # Default policy, no terminal: refused, and it says so rather than
+        # returning something that reads like success.
+        monkeypatch.delenv("HYPERNIX_TOOL_POLICY", raising=False)
+        refused = tr.execute_tool(
+            "write_file", {"path": file_path, "content": "nope"}
+        )
+        assert refused.startswith("Tool 'write_file' was not run")
+        assert not Path(file_path).exists()
+
+        monkeypatch.setenv("HYPERNIX_TOOL_POLICY", "allow")
+
+        # Test view_file & write_file
+        wrote = tr.execute_tool("write_file", {"path": file_path, "content": "Line 1\nLine 2\nLine 3"})
+        assert "Successfully wrote" in wrote
         view_out = tr.execute_tool("view_file", {"path": file_path, "start_line": 1, "end_line": 2})
         assert "Line 1" in view_out
         assert "Line 2" in view_out
 
         # Test replace_file_content
-        tr.execute_tool("replace_file_content", {"path": file_path, "target": "Line 2", "replacement": "Line Two"})
+        replaced = tr.execute_tool("replace_file_content", {"path": file_path, "target": "Line 2", "replacement": "Line Two"})
+        assert "Successfully replaced" in replaced
         view_after = tr.execute_tool("view_file", {"path": file_path, "start_line": 1, "end_line": 3})
         assert "Line Two" in view_after
 
