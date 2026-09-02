@@ -97,6 +97,17 @@ class KeyConfig:
         return ", ".join(parts) or "nothing"
 
 
+def _is_windows_path(source: str) -> bool:
+    """``C:\\keys\\gkey.jsonl`` or ``C:/keys/gkey.jsonl``.
+
+    A drive letter is the one local path that reads as something else to
+    both halves of this module: as ``host:port`` to the bare-host guess
+    below, and as the URL scheme ``c`` to :func:`urlparse`. Neither is
+    recoverable after the fact, so it is settled here once.
+    """
+    return len(source) > 1 and source[0].isalpha() and source[1] == ":"
+
+
 def _looks_like_bare_host(source: str) -> bool:
     """An IP or host with no scheme and no path.
 
@@ -106,7 +117,7 @@ def _looks_like_bare_host(source: str) -> bool:
     """
     if "://" in source or source.startswith((".", "/", "~")):
         return False
-    if len(source) > 1 and source[1] == ":":     # C:\... — a path, not a port
+    if _is_windows_path(source):
         return False
     host = source.split("/", 1)[0].split(":", 1)[0]
     if not host:
@@ -138,7 +149,11 @@ def resolve_config_source(source: str) -> str:
 
 def _read_source(resolved: str) -> str:
     parsed = urlparse(resolved)
-    if parsed.scheme in ("http", "https"):
+    # urlparse calls the drive letter of ``C:\\keys\\gkey.jsonl`` a scheme
+    # named "c", so on Windows every local path would be rejected as an
+    # unsupported scheme rather than read.
+    scheme = "" if _is_windows_path(resolved) else parsed.scheme
+    if scheme in ("http", "https"):
         # Private and loopback addresses are the *point* here — this is a
         # fleet tool for a tailnet — so the SSRF guard runs with
         # allow_private, which still blocks the cloud-metadata endpoints
@@ -163,8 +178,8 @@ def _read_source(resolved: str) -> str:
                 raw = response.read(MAX_CONFIG_BYTES + 1)
         except Exception as exc:
             raise KeyConfigError(f"Could not fetch {resolved}: {exc}") from exc
-    elif parsed.scheme in ("", "file"):
-        path = Path(parsed.path if parsed.scheme == "file" else resolved).expanduser()
+    elif scheme in ("", "file"):
+        path = Path(parsed.path if scheme == "file" else resolved).expanduser()
         if not path.exists():
             raise KeyConfigError(f"No config at {path}")
         try:
@@ -173,7 +188,7 @@ def _read_source(resolved: str) -> str:
             raise KeyConfigError(f"Could not read {path}: {exc}") from exc
     else:
         raise KeyConfigError(
-            f"Unsupported source scheme {parsed.scheme!r}; use http, https, or a path."
+            f"Unsupported source scheme {scheme!r}; use http, https, or a path."
         )
 
     if len(raw) > MAX_CONFIG_BYTES:

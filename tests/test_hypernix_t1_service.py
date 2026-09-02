@@ -310,7 +310,12 @@ class TestCreateWithoutACheckout:
         self._run(copied, "create", home=home, config=config)
 
         env_file = config / ".env"
-        assert oct(env_file.stat().st_mode)[-3:] == "600"
+        if os.name != "nt":
+            # Windows has no owner/group/other permission bits to set;
+            # chmod there moves the read-only flag and nothing else, so
+            # st_mode reads 666 however the file was created. Asserting
+            # 600 on Windows tests the platform, not this script.
+            assert oct(env_file.stat().st_mode)[-3:] == "600"
         secret = next(
             line.split("=", 1)[1]
             for line in env_file.read_text().splitlines()

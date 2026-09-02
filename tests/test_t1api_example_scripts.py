@@ -6,10 +6,14 @@ silent or misleading rather than loud.
 """
 from __future__ import annotations
 
+import atexit
+import functools
 import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -63,6 +67,38 @@ def no_fastapi(tmp_path_factory) -> Path:
     return stub
 
 
+def _for_the_shell(path: Path) -> str:
+    """A path spelling the shell in these tests can actually use.
+
+    The scripts run under bash, which on Windows means Git Bash, whose
+    ``sed``/``[ -r ]``/``mkdir`` read ``C:\\a\\b`` as a name full of
+    escapes rather than as a directory. ``C:/a/b`` is understood by every
+    MSYS tool, and ``as_posix()`` is identical to ``str()`` on POSIX.
+    """
+    return Path(path).as_posix()
+
+
+@functools.lru_cache(maxsize=1)
+def _python3_shim() -> str:
+    """A directory containing a ``python3`` that is *this* interpreter.
+
+    Both scripts call ``python3`` — to generate a secret, and for the
+    ``[t1api]`` preflight — and the PATH these tests construct is
+    deliberately minimal so that only the stubs below are visible. On
+    Windows there is no ``python3`` on any PATH: the interpreter is
+    ``python.exe`` in the tool cache. Without this the preflight fails
+    because the command does not exist, the script exits before it can
+    record anything, and every assertion about the resolved secret sees
+    ``None`` — a real-looking failure with an unrelated cause.
+    """
+    bindir = Path(tempfile.mkdtemp(prefix="hypernix-python3-shim-"))
+    atexit.register(shutil.rmtree, bindir, True)
+    shim = bindir / "python3"
+    shim.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n')
+    shim.chmod(0o755)
+    return _for_the_shell(bindir)
+
+
 def run_script(
     script: Path,
     home: Path,
@@ -71,10 +107,16 @@ def run_script(
     stubs: Path | None = None,
     **env,
 ):
-    path = f"{bindir}:/usr/bin:/bin" if bindir else "/usr/bin:/bin"
-    environ = {"PATH": path, "HOME": str(home), **env}
+    entries = [_python3_shim(), "/usr/bin", "/bin"]
+    if bindir:
+        entries.insert(0, _for_the_shell(bindir))
+    # bash uses ":" for PATH even on Windows, where it is running under
+    # MSYS rather than cmd.
+    environ = {"PATH": ":".join(entries), "HOME": _for_the_shell(home), **env}
     report = home / "resolved-secret"
     if stubs is not None:
+        # PYTHONPATH and the report path are read by the interpreter, not
+        # by the shell, so those stay in the platform's own spelling.
         environ["PYTHONPATH"] = str(stubs)
         environ["T1_TEST_REPORT"] = str(report)
         if report.exists():

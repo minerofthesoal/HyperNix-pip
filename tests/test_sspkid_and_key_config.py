@@ -210,6 +210,20 @@ class TestReadingTheConfig:
         with pytest.raises(KeyConfigError, match="Unsupported source scheme"):
             load_key_config("ftp://example.com/keys.jsonl")
 
+    @pytest.mark.parametrize("source", [r"C:\keys\fleet.jsonl", "C:/keys/fleet.jsonl"])
+    def test_a_windows_path_is_a_path_not_a_scheme(self, source):
+        """``urlparse`` calls the drive letter a scheme named ``c``.
+
+        Left alone that turns every local config on Windows into
+        "Unsupported source scheme 'c'" -- a refusal that names nothing
+        the operator can act on, for a file that is sitting right there.
+        This runs everywhere because the bug is in the parsing, not in
+        the filesystem: the path need not exist for the wrong branch to
+        be taken.
+        """
+        with pytest.raises(KeyConfigError, match="No config at"):
+            load_key_config(source)
+
 
 class TestResolvingWhatWasTyped:
     @pytest.mark.parametrize("source", ["10.0.0.5", "10.0.0.5:8080", "config.example"])
