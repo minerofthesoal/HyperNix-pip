@@ -23,6 +23,17 @@ SCRIPT = REPO_ROOT / "bin" / "hypernix-t1"
 pytestmark = pytest.mark.skipif(BASH is None, reason=NO_BASH_REASON)
 
 
+def _function_body(source: str, name: str) -> str:
+    """The body of a shell function, from its `name()` to the closing brace.
+
+    A fixed character window would instead measure how much comment the
+    function carries, and go red when someone explains themselves.
+    """
+    start = source.index(f"{name}()")
+    end = source.index("\n}", start)
+    return source[start:end]
+
+
 def run(*argv: str, home: Path, config: Path, timeout: int = 60):
     """Run the script. `.output` is stdout+stderr.
 
@@ -73,8 +84,15 @@ class TestShape:
     def test_shellcheck_is_clean_if_available(self):
         if shutil.which("shellcheck") is None:
             pytest.skip("shellcheck not installed")
+        # warning, not style, and matching the other two shell tests. The
+        # info and style tiers are advisory and their contents move between
+        # shellcheck releases: 0.8.0 raises SC2009 on `ps -p "$pid" | grep`,
+        # 0.9.0 through 0.11.0 do not, because -p already scopes it to one
+        # process. Gating CI on those tiers makes the build depend on which
+        # shellcheck the runner happens to ship, which is how a commit that
+        # touched nothing turns red.
         result = subprocess.run(
-            ["shellcheck", "--severity=style", str(SCRIPT)],
+            ["shellcheck", "--severity=warning", str(SCRIPT)],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr
@@ -118,8 +136,16 @@ class TestProcessIdentity:
             victim.wait(timeout=10)
 
     def test_it_checks_the_command_line_not_just_the_pid(self):
-        source = SCRIPT.read_text()
-        assert "hypernix.t1api" in source.split("server_pid()")[1][:600]
+        """Both checks, and read from the function, not from a byte window.
+
+        This used to slice the first 600 characters after `server_pid()`,
+        which made it a test of how much comment the function carries: a
+        four-line note pushed the `ps` line past the window and the test
+        failed while the code was correct.
+        """
+        body = _function_body(SCRIPT.read_text(), "server_pid")
+        assert "kill -0" in body, "does not check the PID is alive"
+        assert "hypernix.t1api" in body, "does not check the command line"
 
 
 class TestConfig:
@@ -168,7 +194,7 @@ class TestTheSystemdUnit:
         """No PID file and no backgrounding: systemd supervises."""
         source = SCRIPT.read_text()
         assert "start-foreground" in source
-        foreground = source.split("cmd_start_foreground()")[1][:500]
+        foreground = _function_body(source, "cmd_start_foreground")
         assert "exec " in foreground
         assert "PID_FILE" not in foreground
 
@@ -179,12 +205,12 @@ class TestRemoveKeepsTheKeys:
 
         Everything else in the config directory can be rebuilt.
         """
-        body = SCRIPT.read_text().split("cmd_remove()")[1][:1200]
+        body = _function_body(SCRIPT.read_text(), "cmd_remove")
         assert "! -name keymaster" in body
         assert "Keeping the key store" in body
 
     def test_it_requires_typing_the_word(self):
-        body = SCRIPT.read_text().split("cmd_remove()")[1][:800]
+        body = _function_body(SCRIPT.read_text(), "cmd_remove")
         assert "'remove'" in body or '"remove"' in body
 
 

@@ -101,6 +101,11 @@ server_pid() {
   # worse, before killing it.
   kill -0 "$pid" 2>/dev/null || return 1
   if command -v ps >/dev/null 2>&1; then
+    # pgrep searches for a process by pattern. This asks a different
+    # question — "is the process already identified by $pid one of ours?"
+    # — and pgrep cannot be scoped to a known PID. The fragility SC2009
+    # warns about, matching some other process, is what -p rules out.
+    # shellcheck disable=SC2009
     ps -p "$pid" -o args= 2>/dev/null | grep -q "hypernix.t1api" || return 1
   fi
   printf '%s' "$pid"
