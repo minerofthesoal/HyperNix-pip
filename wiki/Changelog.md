@@ -20,6 +20,87 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3 pt 3 — hyprslug grows up
+
+✨ **hyprslug writes the llama.cpp quant types.** "Quantises without
+llama.cpp" was only true of the tiers nobody was asking for. The sub-bit
+tiers *needed* their own quantiser — `llama-quantize` has never heard of
+them — but `Q4_K_M` did not, so the one quantisation everybody actually
+wants still needed a binary the machine might not be able to build.
+
+`hypernix.quant.llamaquants` adds `Q4_0`, `Q4_1`, `Q5_0`, `Q5_1`, `Q8_0`
+and `Q2_K` through `Q6_K`, encoded and decoded in Python. The layouts are
+exact — every struct matches `ggml-common.h` field for field, and the
+byte counts are asserted against the table `gguf.py` sizes tensors from,
+since a block that drifts by one byte turns every later tensor into
+noise. The scale searches are ports of `make_qx_quants` and
+`make_qkx2_quants` including the 19- and 21-step searches that do most of
+the quality work, vectorised over blocks so a 7B model is minutes rather
+than hours.
+
+🔁 hyprslug then separates what llama.cpp's names conflate. `Q4_K` is a
+block format; `Q4_K_M` is a **mix** — most tensors at `Q4_K`, `attn_v`
+and `ffn_down` a step wider, the head at `Q6_K`. A table of recipes over
+the formats, rather than ten more encoders. The mixes are our reading of
+upstream's policy and say so: llama.cpp picks per layer index as well as
+per tensor role. What is exact is the encoding of every tensor.
+
+✨ **Requantising.** A `Q8_0` GGUF is the only copy of the model most
+people have, and "quantise from the unquantised weights" is advice they
+cannot take. An already-quantised source is read back through the
+decoders, and the report names the type it came from — requantising
+compounds whatever the first pass lost, and that is the operator's call.
+
+𖢥 **`steamroller -hnx Q3_K_L` produced no file at all.** A `quantize`
+step in hnx mode was skipped outright, because "hnx mode does not run
+llama-quantize" had been implemented as "hnx mode does not quantise". It
+writes the file with hyprslug now.
+
+✨ **`hnx-imatrix` — the importance matrix, measured.** hyprslug took an
+imatrix and had no way to produce one, which made the argument advice
+rather than a feature. Forward hooks on every linear layer accumulating
+`sum(x²)` per input feature over calibration text — what llama.cpp's
+tool does, so the numbers mean the same thing. Both formats read and
+written, decided by content rather than by suffix, so an imatrix from
+here works in `llama-quantize` and one from the community works in
+hyprslug. Deriving one from the weights is *not* offered: it is a
+statistic of the activations, and a weight-derived number is a different
+quantity wearing its name.
+
+𖢥 **Every real imatrix was being discarded as mismatched.** An imatrix
+carries one number per input *channel*; hyprslug wanted one per weight
+and compared the two lengths. It tiles across the tensor's rows now, and
+still refuses the ones that genuinely do not divide.
+
+✨ **Dflash2 — a draft model inside the model it drafts for.**
+Speculative decoding is a free speed-up almost nobody gets, and the
+reason is logistics: two files that share a tokenizer, and the small one
+has to come from somewhere. `dflash2 attach` derives one from the base
+(layers dropped and requantised, first and last always kept) and writes
+it into the same GGUF under a namespaced prefix. One file, one download.
+The tokens out are **identical** to the base model's own — a proposal
+survives only where the base independently chose the same token — so a
+bad draft costs time and cannot cost correctness. `extract` materialises
+it for a runtime that wants `--model-draft`; `strip` reproduces the
+original byte for byte.
+
+𖢥 **gkey printed about one key in three thousand wrong.** The T1/T2
+special set contains `[` and `]`, and gkey's panels render with rich
+markup on — so a key whose specials landed on a bracket pair had
+characters eaten on the way to the screen. The store held the right key,
+the operator pasted the wrong one, and nothing anywhere said why. Every
+value that is data rather than markup is escaped now.
+
+𖢥 **Windows: a path is a path, not a URL scheme or a shell escape.**
+`urlparse` read the drive letter of `C:\keys\gkey.jsonl` as a scheme
+named `c`, so every local `-Con` config was refused for a file sitting
+right there. `pathfix` recognised its own PATH block by the platform's
+spelling rather than the shell's, and rewrote it on every single run.
+Four test suites were asserting against failures they were not about.
+
+📚 [HyprSlug](HyprSlug.md) rewritten for the upstream types, plus new
+[Imatrix](Imatrix.md) and [Dflash2](Dflash2.md) pages.
+
 ## 0.72.3 pt 2 — T1 v1.0.2026.9.2.1
 
 𖢥 **The IQ0.x tiers never quantised anything.** steamroller has
