@@ -30,7 +30,9 @@ reachable if you already knew the filename. Fixed.)
 | [Download](Download.md) | `download_model`, short-name resolution, offline cache, gated repos. |
 | [Convert](Convert.md) | Safetensors/PyTorch checkpoint → GGUF (fp32/fp16), architecture-agnostic tensor naming. |
 | [Quantization](Quantization.md) | GGUF pipeline, k-quants, `HyperNixQuantizer`, `pressure_cooker_v3` QAT. |
-| [HyprSlug](HyprSlug.md) | Quantise a GGUF with no llama.cpp at all — the sub-bit tiers (`IQ0.9_L`, `IQ0.75_M`, `IQ0.5_XXXL`), which `llama-quantize` cannot produce. |
+| [HyprSlug](HyprSlug.md) | Quantise a GGUF with no llama.cpp at all — the upstream types (`Q4_K_M` and friends) *and* the sub-bit tiers (`IQ0.9_L`, `IQ0.75_M`, `IQ0.5_XXXL`), which `llama-quantize` cannot produce. |
+| [Imatrix](Imatrix.md) | Measure an importance matrix from activations, and read anyone else's — both llama.cpp's binary format and JSON. |
+| [Dflash2](Dflash2.md) | A draft model carried inside the model it drafts for. Speculative decoding from one file, with the same tokens out. |
 | [PipelineMechanics](PipelineMechanics.md) | The small support modules gluing download → convert → quantize together. |
 
 **Training core**

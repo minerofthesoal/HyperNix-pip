@@ -35,6 +35,7 @@ __all__ = [
     "GGUFRunError",
     "is_gguf",
     "describe_gguf",
+    "materialize_draft",
     "load_gguf",
     "generate_with_gguf",
     "chat_with_gguf",
@@ -71,6 +72,15 @@ def describe_gguf(path: str | Path) -> dict[str, Any]:
     except GGUFError as exc:
         raise GGUFRunError(str(exc)) from exc
 
+    from ..quant.dflash2 import Dflash2Error, _info_from
+
+    try:
+        draft = _info_from(model)
+    except Dflash2Error as exc:
+        # A file whose metadata claims a draft it does not carry. Say so
+        # here rather than letting a runtime fail on a missing tensor.
+        draft = {"present": False, "error": str(exc)}
+
     return {
         "path": str(path),
         "architecture": model.metadata.get("general.architecture", ""),
@@ -79,7 +89,39 @@ def describe_gguf(path: str | Path) -> dict[str, Any]:
         "tier": model.metadata.get("hypernix.tier", ""),
         "quantiser": model.metadata.get("hypernix.quantiser", ""),
         "tensors": len(model.tensors),
+        "dflash2": draft,
     }
+
+
+def materialize_draft(path: str | Path, cache_dir: str | Path | None = None) -> Path | None:
+    """Write this model's embedded Dflash2 draft out, for a runtime that
+    wants it as a separate file, and return where it went.
+
+    ``None`` when there is no draft. Every llama.cpp that supports
+    speculative decoding takes the draft as a second *path*
+    (``--model-draft``), so a draft carried inside the model has to be
+    handed over as a file at some point; doing it here means the person
+    still only ever downloads and passes around one.
+
+    Idempotent: a draft already sitting beside the model is reused rather
+    than rewritten, since it cannot have changed without the model
+    changing too.
+    """
+    from ..quant.dflash2 import Dflash2Error, extract, has_draft
+
+    model_path = Path(path)
+    if not has_draft(model_path):
+        return None
+    directory = Path(cache_dir) if cache_dir else model_path.parent
+    target = directory / f"{model_path.stem}.dflash2-draft.gguf"
+    if target.exists() and target.stat().st_mtime >= model_path.stat().st_mtime:
+        return target
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        extract(model_path, target)
+    except (Dflash2Error, OSError) as exc:
+        raise GGUFRunError(f"Could not write the draft to {target}: {exc}") from exc
+    return target
 
 
 def _refuse_sub_bit(info: dict[str, Any]) -> None:
