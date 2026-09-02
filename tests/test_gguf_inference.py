@@ -5,11 +5,12 @@ loaded through torch — so the one format this package spends most of its
 time *producing* was the one format its own inference commands could not
 read.
 
-The interesting case is the refusal. The sub-bit tiers hyprslug writes
+The interesting case is the routing. The sub-bit tiers hyprslug writes
 use GGML type ids at 200 and above, which no llama.cpp knows; handing one
 to a runtime that does not know them gets either a refusal in someone
-else's words or, worse, tensors read as the wrong type. The answer to
-"why will this model not load" should come from the thing that made it.
+else's words or, worse, tensors read as the wrong type. So they go to
+HyperNix's own runtime instead, and the upstream types still go to
+llama.cpp, which is better at them than anything here will be.
 """
 from __future__ import annotations
 
@@ -83,39 +84,63 @@ class TestDescribing:
             describe_gguf(bad)
 
 
-class TestTheSubBitRefusal:
-    """No llama.cpp can read type 200+. Say so, and say what to do."""
+class TestTheSubBitRouting:
+    """Type 200+ has nowhere to go in llama.cpp, and somewhere here."""
 
     @pytest.mark.parametrize("tier", ["IQ0.9_L", "IQ0.75_M", "IQ0.5_XXXL"])
-    def test_it_refuses_before_touching_a_runtime(self, tmp_path, tier):
+    def test_a_sub_bit_model_is_not_sent_to_llama_cpp(self, tmp_path, tier, monkeypatch):
+        """The routing decision, checked without needing a whole model.
+
+        multilama would either refuse in someone else's words or read a
+        0.5-bit tensor as Q4_K and return noise, so it must not be
+        reached at all.
+        """
+        from hypernix.models import multilama
+
+        def _never(*_args, **_kwargs):
+            raise AssertionError("a sub-bit GGUF was handed to llama.cpp")
+
+        monkeypatch.setattr(multilama, "load", _never)
+
         source = _plain_gguf(tmp_path / "src.gguf")
         out = tmp_path / f"{tier}.gguf"
         quantize_gguf(source, out, tier)
 
+        # This fragment is not a runnable model -- it has one tensor --
+        # so loading fails, but on the *model's* terms rather than on
+        # "no llama.cpp can read this".
         with pytest.raises(GGUFRunError) as caught:
             load_gguf(out)
-        message = str(caught.value)
-        assert tier in message
-        assert "HyperNix extension type" in message
+        assert "token_embd" in str(caught.value)
 
-    def test_the_refusal_says_what_to_do_instead(self, tmp_path):
+    def test_an_upstream_quant_still_goes_to_llama_cpp(self, tmp_path, monkeypatch):
+        """The other half of the routing. llama.cpp is better at Q4_K_M
+        than a reference implementation in torch will ever be."""
+        from hypernix.models import multilama
+
+        seen = {}
+
+        def _record(*args, **kwargs):
+            seen["called"] = True
+            raise multilama.MultiLlamaError("ML-TEST", "stopped here on purpose")
+
+        monkeypatch.setattr(multilama, "load", _record)
+
+        source = _plain_gguf(tmp_path / "src.gguf")
+        out = tmp_path / "q4.gguf"
+        quantize_gguf(source, out, "Q4_0")
+
+        with pytest.raises(GGUFRunError):
+            load_gguf(out)
+        assert seen.get("called"), "an upstream quant did not reach llama.cpp"
+
+    def test_describe_still_names_the_tier(self, tmp_path):
         source = _plain_gguf(tmp_path / "src.gguf")
         out = tmp_path / "sub.gguf"
         quantize_gguf(source, out, "IQ0.5_XXXL")
-
-        with pytest.raises(GGUFRunError) as caught:
-            load_gguf(out)
-        assert "quantize" in str(caught.value)
-
-    def test_the_reason_names_the_type_ids(self, tmp_path):
-        """Someone reading this should learn why, not just that."""
-        source = _plain_gguf(tmp_path / "src.gguf")
-        out = tmp_path / "sub.gguf"
-        quantize_gguf(source, out, "IQ0.9_L")
-
-        with pytest.raises(GGUFRunError) as caught:
-            load_gguf(out)
-        assert "type ids" in str(caught.value)
+        info = describe_gguf(out)
+        assert info["sub_bit"] is True
+        assert info["tier"] == "IQ0.5_XXXL"
 
 
 class TestLoadingRefusals:

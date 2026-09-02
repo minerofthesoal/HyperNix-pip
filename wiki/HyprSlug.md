@@ -60,17 +60,19 @@ hits an unknown type id and refuses the file **by name** instead of
 reading a 0.5-bit tensor as Q4_K and producing noise. Refusing loudly is
 the whole point of picking a number that cannot collide.
 
-`hypernix chat` and `hypernix generate` check for this before handing a
-file to any runtime, and say so:
+Even the reference `gguf` Python reader refuses one:
 
 ```
-model.iq05.gguf is IQ0.5_XXXL, a HyperNix extension type. No llama.cpp
-build can read it — the type ids are deliberately above anything upstream
-has allocated so a stock loader refuses the file instead of reading its
-tensors as the wrong type.
-  Run the model it was quantised from, or quantise to an upstream tier:
-  hypernix quantize --type Q4_K_M
+ValueError: np.uint32(202) is not a valid GGMLQuantizationType
 ```
+
+That is the design working. It also used to mean the file had nowhere to
+run, which made a correct 0.5-bit quantisation useless — see
+[HnxRun](HnxRun.md), which is the runtime that reads them.
+
+`hypernix chat` and `hypernix generate` route on this automatically: an
+upstream tier goes to llama.cpp, which is better at `Q4_K_M` than
+anything here will be, and a sub-bit tier goes to HyperNix's own runtime.
 
 ## What it will and will not touch
 
@@ -178,6 +180,7 @@ with a warning rather than stretched to fit.
 
 ## See also
 
+- [HnxRun](HnxRun.md) — running what llama.cpp cannot
 - [Imatrix](Imatrix.md) — measuring importance, and reading anyone else's
 - [Dflash2](Dflash2.md) — a draft model inside the model, for speculative decoding
 - [Quantization](Quantization.md) — the GGUF pipeline and the upstream quant ladder

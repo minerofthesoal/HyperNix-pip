@@ -124,18 +124,17 @@ def materialize_draft(path: str | Path, cache_dir: str | Path | None = None) -> 
     return target
 
 
-def _refuse_sub_bit(info: dict[str, Any]) -> None:
-    if not info["sub_bit"]:
-        return
-    tier = info.get("tier") or "a HyperNix sub-bit tier"
-    raise GGUFRunError(
-        f"{info['path']} is {tier}, a HyperNix extension type. No llama.cpp "
-        "build can read it — the type ids are deliberately above anything "
-        "upstream has allocated so a stock loader refuses the file instead of "
-        "reading its tensors as the wrong type.\n"
-        "  Run the model it was quantised from, or quantise to an upstream "
-        "tier: hypernix quantize --type Q4_K_M"
-    )
+def _uses_hnx_runtime(info: dict[str, Any]) -> bool:
+    """True when this file needs HyperNix's own runtime rather than llama.cpp.
+
+    The sub-bit tiers carry GGML type ids at 200 and above. No llama.cpp
+    build knows them -- the ids are deliberately out of upstream's range
+    so a stock loader refuses the file by name instead of reading a
+    0.5-bit tensor as Q4_K -- and even the reference ``gguf`` Python
+    reader rejects them. Which used to mean the file had nowhere to run.
+    It has somewhere now: :mod:`hypernix.models.hnxrun`.
+    """
+    return bool(info.get("sub_bit"))
 
 
 def load_gguf(
@@ -153,7 +152,15 @@ def load_gguf(
     if not is_gguf(model_path):
         raise GGUFRunError(f"{model_path} is not a GGUF file (bad magic).")
 
-    _refuse_sub_bit(describe_gguf(model_path))
+    info = describe_gguf(model_path)
+    if _uses_hnx_runtime(info):
+        # llama.cpp cannot read these; HyperNix's own runtime can.
+        from . import hnxrun
+
+        try:
+            return hnxrun.load_model(model_path)
+        except hnxrun.HnxRunError as exc:
+            raise GGUFRunError(str(exc)) from exc
 
     from . import multilama
 
@@ -184,6 +191,11 @@ def chat_with_gguf(
     n_ctx: int = 8192,
 ) -> str:
     """One chat turn against a local GGUF."""
+    if _uses_hnx_runtime(describe_gguf(path)):
+        return _chat_with_hnx_runtime(
+            path, messages, system=system, max_tokens=max_tokens,
+            temperature=temperature,
+        )
     model = load_gguf(path, backend=backend, n_ctx=n_ctx)
     try:
         return model.chat(
@@ -196,6 +208,40 @@ def chat_with_gguf(
                 close()
             except Exception:  # noqa: BLE001 - a failed teardown is not a failed turn
                 logger.debug("ggufrun: close() raised", exc_info=True)
+
+
+def _chat_with_hnx_runtime(
+    path: str | Path,
+    messages: list[dict[str, str]],
+    *,
+    system: str | None = None,
+    max_tokens: int = 512,
+    temperature: float = 0.7,
+) -> str:
+    """A chat turn through HyperNix's own runtime, for the sub-bit tiers.
+
+    Flattened to a plain prompt rather than run through a chat template:
+    a model quantised to half a bit is not going to be following a
+    template faithfully, and pretending otherwise would dress up its
+    output as more structured than it is.
+    """
+    from . import hnxrun
+
+    parts = []
+    if system:
+        parts.append(system)
+    for message in messages:
+        content = str(message.get("content", "")).strip()
+        if content:
+            parts.append(content)
+    prompt = "\n".join(parts)
+
+    try:
+        return hnxrun.generate_text(
+            path, prompt, max_new_tokens=max_tokens, temperature=temperature
+        )
+    except hnxrun.HnxRunError as exc:
+        raise GGUFRunError(str(exc)) from exc
 
 
 def generate_with_gguf(
