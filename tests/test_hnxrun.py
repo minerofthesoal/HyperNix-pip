@@ -290,16 +290,34 @@ class TestItStaysSubBitInMemory:
         assert _resident("Q8_0") > _resident("Q4_K_M") > _resident("IQ0.9_L")
         assert _resident("IQ0.9_L") > _resident("IQ0.75_M") > _resident("IQ0.5_XXXL")
 
-    def test_packed_and_materialised_agree_exactly(self, quantised):
-        """Not approximately. The chunked path unpacks the same bytes
-        with the same decoder, so any difference at all is a bug in the
-        slicing rather than a rounding question."""
+    @pytest.mark.parametrize("tier", SUB_BIT_TIERS)
+    def test_the_weights_themselves_are_bit_identical(self, quantised, tier):
+        """The two paths decode the same bytes with the same decoder, so
+        at the weights the answer is exact. Any difference here is a bug
+        in the slicing rather than a rounding question -- and it would be
+        invisible, because a mis-sliced weight gives a plausible model."""
+        packed = hnxrun.load_model(quantised[tier])
+        dense = hnxrun.load_model(quantised[tier], materialize=True)
+        for name, weight in packed.tensors.items():
+            if isinstance(weight, hnxrun.PackedWeight):
+                assert torch.equal(weight.to_dense(), dense.tensors[name]), name
+
+    def test_the_logits_agree_to_float32_rounding_not_exactly(self, quantised):
+        """And the distinction is the honest one.
+
+        The packed path folds the input and sums the weight a chunk at a
+        time, so the same terms are added in a different order. Float32
+        addition is not associative, so the logits differ in the last
+        bits. Claiming "bit-identical" here would be a claim that breaks
+        the first time anyone runs a model wide enough for two chunks --
+        which is every real model.
+        """
         packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
         dense = hnxrun.load_model(quantised["IQ0.5_XXXL"], materialize=True)
         prompt = [1, 5, 9, 13]
         first, _ = hnxrun.forward(packed, prompt)
         second, _ = hnxrun.forward(dense, prompt)
-        assert torch.equal(first, second)
+        assert torch.allclose(first, second, rtol=1e-4, atol=1e-4)
 
     def test_generation_is_the_same_either_way(self, quantised):
         packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
@@ -338,6 +356,177 @@ class TestItStaysSubBitInMemory:
         text = hnxrun.load_model(quantised["IQ0.5_XXXL"]).describe()
         assert "bits/weight" in text
         assert "still packed" in text
+
+
+class TestTheFoldedMatmul:
+    """The packed path never widens a weight to one float per element.
+
+    A dropped sign repeats its group's last stored one, so the group's
+    contribution factors: fold the input to match and the dot product
+    runs against the stored signs alone. It is the difference between
+    holding the model at half a bit and *running* it at half a bit, and
+    it is the kind of algebra that is easy to get subtly wrong -- an
+    off-by-one in which position absorbs the tail produces a model that
+    loads, runs, and is quietly not the model in the file.
+
+    So every case here is checked against the dense product: the same
+    signs expanded the obvious way and multiplied the obvious way, which
+    is precisely what the fold claims to be equivalent to. The sign
+    decode is shared -- what is under test is the algebra on top of it.
+    """
+
+    SHAPES = [(8, 256), (17, 512), (64, 64), (5, 1024), (256, 32)]
+    PACKINGS = {200: "sign_scale_l", 201: "pair_code_m", 202: "quad_code_xxxl"}
+
+    def _packed(self, kind, rows, columns, seed=0):
+        from hypernix.quant import subbit
+
+        rng = np.random.default_rng(seed)
+        weights = rng.standard_normal(rows * columns).astype(np.float32)
+        raw = subbit.quantize_tensor(weights.tolist(), self.PACKINGS[kind])
+        return hnxrun.PackedWeight(raw, kind, (rows, columns), "cpu")
+
+    @pytest.mark.parametrize("kind", sorted(PACKINGS))
+    @pytest.mark.parametrize(("rows", "columns"), SHAPES)
+    def test_it_agrees_with_the_dense_product(self, kind, rows, columns):
+        weight = self._packed(kind, rows, columns)
+        dense = weight.to_dense()
+        for shape in [(columns,), (3, columns), (2, 4, columns)]:
+            x = torch.randn(*shape, dtype=torch.float32)
+            got = weight.matmul_t(x)
+            want = x @ dense.T
+            assert got.shape == want.shape
+            assert torch.allclose(got, want, rtol=2e-5, atol=2e-5)
+
+    @pytest.mark.parametrize("kind", sorted(PACKINGS))
+    def test_it_agrees_when_the_rows_need_several_chunks(self, kind):
+        """One chunk hides every slicing bug there is."""
+        weight = self._packed(kind, 64, 256)
+        dense = weight.to_dense()
+        x = torch.randn(3, 256, dtype=torch.float32)
+        want = x @ dense.T
+        for chunk_rows in (1, 2, 7, 16, 1000):
+            got = weight.matmul_t(x, chunk_rows=chunk_rows)
+            assert torch.allclose(got, want, rtol=2e-5, atol=2e-5), chunk_rows
+
+    @pytest.mark.parametrize("kind", sorted(PACKINGS))
+    def test_the_fold_is_actually_taken(self, kind):
+        """Otherwise every assertion above passes on the slow path and
+        the optimisation is untested."""
+        assert self._packed(kind, 8, 256)._packing == self.PACKINGS[kind]
+
+    def test_an_upstream_quant_does_not_fold(self):
+        """There are no dropped signs to reconstruct in a Q4_K block, so
+        there is nothing to fold and the general path has to stay."""
+        from hypernix.quant import llamaquants
+
+        rng = np.random.default_rng(0)
+        raw = llamaquants.quantize_array(
+            rng.standard_normal(256 * 4).astype(np.float32), "Q4_K"
+        )
+        weight = hnxrun.PackedWeight(
+            raw, llamaquants.FORMATS["Q4_K"].ggml_type, (4, 256), "cpu"
+        )
+        assert weight._packing is None
+
+    def test_a_row_that_splits_a_sign_group_does_not_fold(self):
+        """The fold rewrites ``x`` per group, so a group straddling two
+        rows would mix two rows' inputs -- silently, and wrongly. No real
+        model is shaped like this; the guard is for the one that is."""
+        from hypernix.quant import subbit
+
+        rng = np.random.default_rng(0)
+        raw = subbit.quantize_tensor(
+            rng.standard_normal(1024).astype(np.float32).tolist(), "sign_scale_l"
+        )
+        weight = hnxrun.PackedWeight(raw, 200, (256, 4), "cpu")
+        assert weight._packing is None
+        x = torch.randn(2, 4, dtype=torch.float32)
+        assert torch.allclose(weight.matmul_t(x), x @ weight.to_dense().T)
+
+    @pytest.mark.parametrize("tier", SUB_BIT_TIERS)
+    def test_it_never_allocates_a_float_per_weight(self, quantised, tier):
+        """The claim the fold exists to make, measured where it counts.
+
+        ``ffn_down`` is the widest weight in the model; decoding it the
+        old way meant one float32 per element, which for a 0.5-bit tensor
+        is 57x what the tensor costs. The folded decode is ``kept/group``
+        of that and nothing else is materialised.
+        """
+        from hypernix.quant import subbit
+
+        model = hnxrun.load_model(quantised[tier])
+        weight = model.tensors["blk.0.ffn_down.weight"]
+        spec = subbit.PACKINGS[weight._packing]
+        signs = weight._folded_signs(0, weight.rows)
+        assert signs.numel() == weight.rows * weight.columns * spec.kept // spec.group
+        assert signs.numel() < weight.rows * weight.columns
+
+
+class TestTheCacheBudget:
+    """Between "costs what the file costs" and "runs at float32 speed".
+
+    Neither end suits every machine, and the interesting question for one
+    in between is not *whether* it pinned something but *what it now
+    costs* -- so the report has to move with the budget rather than
+    describing the packed case forever.
+    """
+
+    #: Enough for the two embedding-sized tensors and not the rest, so
+    #: the budget is genuinely partial on a model this small.
+    PARTIAL_BUDGET = 100_000
+
+    def test_no_budget_pins_nothing(self, quantised):
+        model = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        assert model.pinned_in_memory == 0
+
+    def test_a_budget_pins_the_largest_first(self, quantised):
+        """Every forward pass touches every tensor exactly once, so there
+        is no locality to exploit: the only question is how much decode
+        work a byte of budget buys, and the biggest tensor buys most."""
+        model = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        packed = {
+            name: weight.dense_bytes
+            for name, weight in model.tensors.items()
+            if isinstance(weight, hnxrun.PackedWeight)
+        }
+        largest = max(packed, key=lambda name: packed[name])
+        budget = hnxrun.load_model(
+            quantised["IQ0.5_XXXL"], cache_bytes=packed[largest]
+        )
+        assert budget.tensors[largest].pinned
+        assert budget.pinned_in_memory >= 1
+
+    def test_the_reported_cost_moves_with_the_budget(self, quantised):
+        packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        cached = hnxrun.load_model(quantised["IQ0.5_XXXL"], cache_bytes=self.PARTIAL_BUDGET)
+        assert cached.resident_bytes > packed.resident_bytes
+        assert cached.resident_bits_per_weight > packed.resident_bits_per_weight
+        assert "pinned" in cached.describe()
+
+    def test_a_generous_budget_still_beats_materialising(self, quantised):
+        """Norms and any tensor the budget could not afford stay as they
+        were, so this is a dial and not a second switch."""
+        cached = hnxrun.load_model(quantised["IQ0.5_XXXL"], cache_bytes=self.PARTIAL_BUDGET)
+        dense = hnxrun.load_model(quantised["IQ0.5_XXXL"], materialize=True)
+        assert cached.resident_bytes < dense.resident_bytes
+
+    def test_pinning_does_not_change_the_answer(self, quantised):
+        """The whole dial is worthless if the two ends disagree."""
+        packed = hnxrun.load_model(quantised["IQ0.5_XXXL"])
+        cached = hnxrun.load_model(quantised["IQ0.5_XXXL"], cache_bytes=self.PARTIAL_BUDGET)
+        first, _ = hnxrun.forward(packed, [1, 5, 9, 13])
+        second, _ = hnxrun.forward(cached, [1, 5, 9, 13])
+        assert torch.allclose(first, second, rtol=1e-4, atol=1e-4)
+
+    def test_unpinning_gives_the_memory_back(self, quantised):
+        model = hnxrun.load_model(quantised["IQ0.5_XXXL"], cache_bytes=self.PARTIAL_BUDGET)
+        before = model.resident_bytes
+        for weight in model.tensors.values():
+            if isinstance(weight, hnxrun.PackedWeight):
+                weight.unpin()
+        assert model.resident_bytes < before
+        assert model.pinned_in_memory == 0
 
 
 class TestItRuns:

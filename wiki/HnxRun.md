@@ -10,9 +10,12 @@ from hypernix.models import hnxrun
 
 model = hnxrun.load_model("model.iq05.gguf")   # weights stay packed
 print(model.describe())
-print(model.resident_bits_per_weight)          # 0.657
+print(model.resident_bits_per_weight)          # 0.572
 tokens = hnxrun.generate_tokens(model, [1, 5, 9], max_new_tokens=32)
 text   = hnxrun.generate_text("model.iq05.gguf", "hello", max_new_tokens=32)
+
+# Spend memory on speed only where there is memory to spend.
+faster = hnxrun.load_model("model.iq05.gguf", cache_bytes=2 << 30)
 ```
 
 ## The gap this closes
@@ -61,7 +64,8 @@ be pointless, which is the failure that is easy to ship because
 everything still works.
 
 So the packed bytes are what is held. Rows are unpacked a group at a
-time inside each matmul, into a buffer that is thrown away:
+time inside each matmul, into a buffer that is thrown away — bytes, on
+the small model the tests build, so the whole ladder fits on one page:
 
 | Tier | On disk | Resident | bits/weight resident |
 |---|---|---|---|
@@ -78,10 +82,61 @@ model's size and most of the gap on a toy one — which is why `IQ0.9_L`
 reads 1.031 here and would read about 0.94 on anything real.
 
 `load_model(path, materialize=True)` takes the other trade: float32 up
-front, roughly 16× faster per token, and the memory profile of the model
-it was made from. Both paths produce **bit-identical** logits — they
-unpack the same bytes with the same decoder — so this is purely a
-memory-for-time dial, not a quality one.
+front and the memory profile of the model it was made from.
+`cache_bytes` is the dial between the two — weights are pinned
+largest-first until the budget is spent, because every forward pass
+touches every tensor exactly once, so there is no locality to exploit
+and the only question is how much decode work a byte of budget buys.
+
+### And it has to be fast enough to be worth running
+
+Sub-bit memory that costs 30× the time is a different way of not
+shipping the tier. Measured on a 15.8M-parameter llama (4 layers, 512
+wide), best of eight interleaved runs, against the same file loaded
+`materialize=True`:
+
+| Tier | On disk | Resident | bits/weight | ms/token | vs float32 |
+|---|---|---|---|---|---|
+| float32 | — | 63.2 MB | 32.0 | 2.7 | 1.0× |
+| `IQ0.9_L` | 1.87 MB | 1.87 MB | 0.947 | 16.4 | 6.2× |
+| `IQ0.75_M` | 1.63 MB | 1.62 MB | 0.822 | 15.6 | 5.9× |
+| `IQ0.5_XXXL` | 1.13 MB | 1.13 MB | **0.572** | 10.6 | **4.0×** |
+
+56× the memory for 4× the time, and the tier that saves the most memory
+is also the fastest — because the fold below makes the arithmetic
+proportional to the signs actually stored.
+
+### The fold: never widen the weight
+
+The obvious packed matmul unpacks a chunk of rows to one float32 per
+weight and multiplies. That expansion is the single largest thing on the
+hot path — for a 0.5-bit tensor it is 57× what the tensor costs — and it
+is avoidable, because a dropped sign is not arbitrary: it *repeats* its
+group's last stored sign. So the group's contribution factors:
+
+```
+sum_j sign[j]*x[j]  ==  sum_{j<k-1} sign[j]*x[j]  +  sign[k-1] * sum_{j>=k-1} x[j]
+```
+
+Fold `x` that way — each group's last stored position absorbing the
+dropped ones — and the dot product runs against the `kept` signs alone.
+At `IQ0.5_XXXL` that is half the arithmetic and none of the expansion.
+Packed generation went from 7.1× float32 to 4.0×, and the resident cost
+did not move.
+
+Decoding those signs is one gather off an 8 KiB byte→signs table, which
+replaced `unpackbits` plus a uint8→float32 conversion plus the `2b - 1`
+mapping: three passes over the widest array became one.
+
+### Logits agree to float32 rounding, not exactly
+
+The fold changes which terms are added together, and chunking changes
+the order they are added in. Float32 addition is not associative, so the
+packed and materialised paths differ in the last bits — about 5e-7 on a
+15.8M model. The *weights* are bit-identical, and that is what the tests
+assert exactly; the logits are asserted `allclose`. An earlier version of
+this page claimed bit-identical logits, which was true only while every
+tensor fitted in a single chunk.
 
 ### Slicing granularity
 

@@ -201,13 +201,20 @@ def read_config(metadata: dict, tensors: dict) -> ModelConfig:
 # ---------------------------------------------------------------------------
 
 
+#: Ceiling on the transient buffer a packed matmul unpacks into.
+CHUNK_BYTES = 8 << 20
+
+#: HNX sub-bit GGML type -> the packing name subbit.py knows it by.
+_SUB_BIT_PACKINGS = {200: "sign_scale_l", 201: "pair_code_m", 202: "quad_code_xxxl"}
+
+
 def _dequantize(raw: bytes, ggml_type: int, elements: int):
     """Tensor bytes to a flat float32 numpy array, for every type we write."""
     import numpy as np
 
     from ..quant import llamaquants
     from ..quant.gguf import GGMLType
-    from ..quant.subbit import dequantize_tensor as subbit_dequantize
+    from ..quant.subbit import dequantize_array as subbit_dequantize
 
     kind = int(ggml_type)
     if kind == int(GGMLType.F32):
@@ -221,30 +228,15 @@ def _dequantize(raw: bytes, ggml_type: int, elements: int):
     if kind == int(GGMLType.F64):
         return np.frombuffer(raw, dtype="<f8", count=elements).astype(np.float32)
     if llamaquants.is_supported(kind):
-        return np.asarray(llamaquants.dequantize_array(raw, kind), dtype=np.float32)[
-            :elements
-        ]
-    if kind in (
-        int(GGMLType.HNX_IQ0_9),
-        int(GGMLType.HNX_IQ0_75),
-        int(GGMLType.HNX_IQ0_5),
-    ):
-        packing = {
-            int(GGMLType.HNX_IQ0_9): "sign_scale_l",
-            int(GGMLType.HNX_IQ0_75): "pair_code_m",
-            int(GGMLType.HNX_IQ0_5): "quad_code_xxxl",
-        }[kind]
-        return np.asarray(
-            subbit_dequantize(raw, packing), dtype=np.float32
-        )[:elements]
+        # Already a numpy array, and already float32: no per-element
+        # Python anywhere on this path.
+        return llamaquants.dequantize_array(raw, kind)[:elements]
+    if kind in _SUB_BIT_PACKINGS:
+        return subbit_dequantize(raw, _SUB_BIT_PACKINGS[kind])[:elements]
     raise HnxRunError(
         f"GGML type {kind} is one this runtime cannot decode. It reads F32, F16, "
         f"BF16, the llama.cpp block types, and the HyperNix sub-bit types."
     )
-
-
-#: HNX sub-bit GGML type -> the packing name subbit.py knows it by.
-_SUB_BIT_PACKINGS = {200: "sign_scale_l", 201: "pair_code_m", 202: "quad_code_xxxl"}
 
 
 def _block_geometry(ggml_type: int) -> tuple[int, int]:
@@ -285,18 +277,30 @@ class PackedWeight:
     for a narrow one it is a handful, and either way the arithmetic is
     exact rather than approximately aligned.
 
+    The fold
+    --------
+    For the sub-bit types the unpacking never reaches one float per
+    weight. A dropped position repeats its group's last stored sign, so
+    the input can be folded to match -- see :meth:`_fold_input` -- and
+    the dot product then runs against the ``kept`` signs alone. At
+    ``IQ0.5_XXXL`` that is half the arithmetic and none of the expansion,
+    and the expansion was the larger half. It changes the sum's
+    association, so the folded result agrees with the materialised one to
+    float32 rounding rather than exactly.
+
     The cost is time: every forward pass re-unpacks. That is the trade a
     reference runtime should make by default, and :func:`load_model`
     takes ``materialize=True`` for anyone who would rather spend the
-    memory.
+    memory, or ``cache_bytes`` for a budget between the two.
     """
 
     __slots__ = ("raw", "ggml_type", "shape", "device", "_block", "_block_bytes",
-                 "_rows_per_group", "_group_bytes")
+                 "_rows_per_group", "_group_bytes", "_pinned", "_packing")
 
     def __init__(self, raw: bytes, ggml_type: int, shape: tuple[int, ...], device: str):
         from math import gcd
 
+        self._pinned = None
         self.raw = raw
         self.ggml_type = int(ggml_type)
         self.shape = tuple(int(d) for d in shape)
@@ -314,10 +318,58 @@ class PackedWeight:
         self._group_bytes = (
             self._rows_per_group * columns // self._block
         ) * self._block_bytes
+        self._packing = self._folding_packing(columns)
+
+    def _folding_packing(self, columns: int) -> str | None:
+        """The packing name if this weight can take the folded matmul.
+
+        Only sub-bit types can, and only when a sign group sits inside a
+        single row: the fold rewrites ``x`` per group, so a group that
+        straddles a row boundary would mix two rows' inputs. ``columns``
+        is a multiple of 8 in every real model, so this is a guard rather
+        than a limitation -- but it fails quietly and wrongly if left
+        unchecked, which is the kind that ships.
+        """
+        from ..quant.subbit import PACKINGS
+
+        name = _SUB_BIT_PACKINGS.get(self.ggml_type)
+        if name is None:
+            return None
+        return name if columns % PACKINGS[name].group == 0 else None
 
     @property
     def nbytes(self) -> int:
+        """What this weight costs in memory, pinned or not."""
+        if self._pinned is not None:
+            return self._pinned.numel() * self._pinned.element_size()
         return len(self.raw)
+
+    @property
+    def dense_bytes(self) -> int:
+        """What pinning this weight would cost."""
+        total = 4
+        for dim in self.shape:
+            total *= int(dim)
+        return total
+
+    @property
+    def pinned(self) -> bool:
+        return self._pinned is not None
+
+    def pin(self) -> None:
+        """Decode once and keep it, trading the memory for the time.
+
+        Every forward pass re-unpacks an unpinned weight. Pinning the
+        ones a budget can afford is the dial between "costs what the file
+        costs" and "runs at float32 speed" -- and because the traversal
+        order is fixed, pinning the largest tensors saves the most decode
+        work per byte spent.
+        """
+        if self._pinned is None:
+            self._pinned = self.rows_slice(0, self.rows)
+
+    def unpin(self) -> None:
+        self._pinned = None
 
     @property
     def rows(self) -> int:
@@ -333,12 +385,16 @@ class PackedWeight:
 
         chunk = self.raw[first_group * self._group_bytes:last_group * self._group_bytes]
         count = (last_group - first_group) * self._rows_per_group * self.columns
+        # No .copy(): every decoder returns a freshly allocated array, so
+        # torch can take it as is. Copying here doubled the traffic of the
+        # hottest loop in packed mode for nothing.
         flat = _dequantize(chunk, self.ggml_type, count)
-        array = flat.reshape(-1, self.columns)
-        return torch.from_numpy(array.copy()).to(self.device)
+        return torch.from_numpy(flat.reshape(-1, self.columns)).to(self.device)
 
     def rows_slice(self, start: int, stop: int):
         """Rows ``[start, stop)``, unpacking only the groups they touch."""
+        if self._pinned is not None:
+            return self._pinned[start:stop]
         first = start // self._rows_per_group
         last = -(-stop // self._rows_per_group)  # ceiling division
         decoded = self._decode_groups(first, last)
@@ -366,23 +422,105 @@ class PackedWeight:
         """
         return self.rows_slice(0, self.rows)
 
+    def _chunk_step(self, width: int) -> int:
+        """Rows per chunk, so the transient buffer stays near CHUNK_BYTES.
+
+        Bounded by bytes rather than rows so peak memory is a property of
+        this runtime rather than of how wide someone's FFN happens to be.
+        Bigger than a megabyte because each chunk costs a fixed amount of
+        numpy call overhead, and eight is still nothing next to the
+        float32 model this exists to avoid holding.
+        """
+        rows = max(1, CHUNK_BYTES // (max(width, 1) * 4))
+        return max(self._rows_per_group, rows - rows % self._rows_per_group)
+
+    def _folded_signs(self, start: int, stop: int):
+        """Rows ``[start, stop)`` as *stored* signs, ``(rows, columns * k // g)``.
+
+        Never widened to one value per weight. That expansion is the
+        largest allocation on the packed path and the fold makes it
+        unnecessary.
+        """
+        import torch
+
+        from ..quant.subbit import stored_signs
+
+        first = start // self._rows_per_group
+        last = -(-stop // self._rows_per_group)  # ceiling division
+        chunk = self.raw[first * self._group_bytes:last * self._group_bytes]
+        signs = stored_signs(chunk, self._packing)
+        decoded = torch.from_numpy(
+            signs.reshape((last - first) * self._rows_per_group, -1)
+        ).to(self.device)
+        offset = start - first * self._rows_per_group
+        return decoded[offset:offset + (stop - start)]
+
+    def _fold_input(self, x):
+        """``x``, with each group's last stored position absorbing the rest.
+
+        A dropped position repeats its group's last stored sign, so for a
+        group of ``g`` weights of which ``k`` signs survive::
+
+            sum_j sign[j] * x[j] == sum_{j<k-1} sign[j] * x[j]
+                                    + sign[k-1] * sum_{j>=k-1} x[j]
+
+        Fold the input that way and the dot product can run against the
+        stored signs alone -- ``k/g`` of the weights, so half the arithmetic
+        at ``IQ0.5_XXXL`` and none of the expansion. The result is the same
+        sum with its terms gathered differently, so it agrees with the
+        materialised path to float32 rounding rather than exactly.
+        """
+        import torch
+
+        from ..quant.subbit import PACKINGS
+
+        spec = PACKINGS[self._packing]
+        grouped = x.reshape(*x.shape[:-1], self.columns // spec.group, spec.group)
+        folded = torch.cat(
+            (
+                grouped[..., :spec.kept - 1],
+                grouped[..., spec.kept - 1:].sum(-1, keepdim=True),
+            ),
+            dim=-1,
+        )
+        return folded.reshape(*x.shape[:-1], -1)
+
     def matmul_t(self, x, *, chunk_rows: int = 0):
         """``x @ self.T``, unpacking the weight a chunk of rows at a time."""
         import torch
 
+        if self._pinned is not None:
+            return x @ self._pinned.T
+
+        folding = self._packing is not None
+        if folding:
+            from ..quant.subbit import PACKINGS
+
+            spec = PACKINGS[self._packing]
+            width = self.columns * spec.kept // spec.group
+            operand = self._fold_input(x)
+        else:
+            width = self.columns
+            operand = x
+
         if chunk_rows <= 0:
-            # Keep the transient buffer near a megabyte whatever the
-            # model's width, so peak memory is a property of this runtime
-            # rather than of how wide someone's FFN happens to be.
-            chunk_rows = max(1, (1 << 20) // (max(self.columns, 1) * 4))
-        step = max(self._rows_per_group, chunk_rows - chunk_rows % self._rows_per_group)
+            step = self._chunk_step(width)
+        else:
+            step = max(
+                self._rows_per_group, chunk_rows - chunk_rows % self._rows_per_group
+            )
 
         out = torch.empty(
             (*x.shape[:-1], self.rows), dtype=torch.float32, device=self.device
         )
         for start in range(0, self.rows, step):
             stop = min(start + step, self.rows)
-            out[..., start:stop] = x @ self.rows_slice(start, stop).T
+            rows = (
+                self._folded_signs(start, stop)
+                if folding
+                else self.rows_slice(start, stop)
+            )
+            out[..., start:stop] = operand @ rows.T
         return out
 
 
@@ -457,7 +595,18 @@ class LoadedModel:
     @property
     def packed_in_memory(self) -> int:
         """How many tensors are still in their on-disk form."""
-        return sum(1 for w in self.tensors.values() if isinstance(w, PackedWeight))
+        return sum(
+            1
+            for w in self.tensors.values()
+            if isinstance(w, PackedWeight) and not w.pinned
+        )
+
+    @property
+    def pinned_in_memory(self) -> int:
+        """How many packed weights were decoded once and kept."""
+        return sum(
+            1 for w in self.tensors.values() if isinstance(w, PackedWeight) and w.pinned
+        )
 
     def describe(self) -> str:
         mix = ", ".join(f"{k} x{v}" for k, v in sorted(self.packed_as.items()))
@@ -469,7 +618,8 @@ class LoadedModel:
             f"  packed as: {mix}",
             f"  resident : {self.resident_bytes / 1e6:.2f} MB "
             f"({self.resident_bits_per_weight:.3f} bits/weight), "
-            f"{self.packed_in_memory}/{len(self.tensors)} tensors still packed",
+            f"{self.packed_in_memory}/{len(self.tensors)} tensors still packed"
+            + (f", {self.pinned_in_memory} pinned" if self.pinned_in_memory else ""),
         ]
         if self.file_bytes:
             lines.append(
@@ -483,11 +633,39 @@ class LoadedModel:
 _FLOAT_TYPES = (0, 1, 28, 30)  # F32, F16, F64, BF16
 
 
+def _spend_cache_budget(tensors: dict, budget: int) -> int:
+    """Pin as many weights as *budget* affords, largest first.
+
+    Largest first because every forward pass touches every tensor once,
+    so there is no locality to exploit and no cache-replacement policy
+    that helps: the only question is how much decode work a byte of
+    budget buys, and a big tensor buys the most.
+    """
+    if budget <= 0:
+        return 0
+    candidates = sorted(
+        (
+            (weight.dense_bytes, name)
+            for name, weight in tensors.items()
+            if isinstance(weight, PackedWeight)
+        ),
+        reverse=True,
+    )
+    spent = 0
+    for size, name in candidates:
+        if spent + size > budget:
+            continue
+        tensors[name].pin()
+        spent += size
+    return spent
+
+
 def load_model(
     path: str | Path,
     *,
     device: str = "cpu",
     materialize: bool = False,
+    cache_bytes: int = 0,
 ) -> LoadedModel:
     """Read a GGUF, keeping quantised tensors packed in memory.
 
@@ -502,6 +680,13 @@ def load_model(
     was made from. Float tensors and one-dimensional weights (norms) are
     always materialised; they are a rounding error of the size either
     way.
+
+    ``cache_bytes`` is the dial between the two. Weights are pinned
+    largest-first until the budget is spent, so a machine with room for
+    half the model in float32 spends it on the half that costs the most
+    to unpack, and one with no room to spare keeps every byte packed.
+    :attr:`LoadedModel.resident_bits_per_weight` reports where that
+    landed rather than leaving it to be guessed.
     """
     import numpy as np
     import torch
@@ -568,6 +753,9 @@ def load_model(
             f"run. It has {len(tensors)} tensor(s); this looks like a fragment or a "
             f"file that is not a language model."
         )
+
+    if cache_bytes > 0:
+        _spend_cache_budget(tensors, int(cache_bytes))
 
     from .hnxtokenizer import tokenizer_from_metadata
 

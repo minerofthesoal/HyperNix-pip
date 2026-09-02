@@ -65,6 +65,8 @@ __all__ = [
     "dequantize_block",
     "quantize_tensor",
     "dequantize_tensor",
+    "dequantize_array",
+    "stored_signs",
     "packed_block_bytes",
 ]
 
@@ -251,8 +253,82 @@ def quantize_tensor(weights: list[float], packing: str,
     return bytes(out)
 
 
-def dequantize_tensor(data: bytes, packing: str) -> list[float]:
-    """Reconstruct a whole tensor."""
+def _expansion(spec: Packing):
+    """How many output positions each stored sign accounts for.
+
+    The first ``kept - 1`` stand for themselves; the last also covers the
+    ``group - kept`` positions whose sign was dropped, because those
+    repeat it. As a repeat-count array this is one contiguous expansion
+    rather than a gather plus a copy.
+    """
+    import numpy as np
+
+    counts = _EXPANSION_CACHE.get(spec.name)
+    if counts is None:
+        counts = np.array(
+            [1] * (spec.kept - 1) + [1 + spec.group - spec.kept], dtype=np.intp
+        )
+        _EXPANSION_CACHE[spec.name] = counts
+    return counts
+
+
+_EXPANSION_CACHE: dict[str, object] = {}
+
+
+def _sign_table():
+    """``byte -> the eight signs its bits stand for``, as float32.
+
+    One gather off this replaces unpackbits plus a uint8-to-float32
+    conversion plus the ``2b - 1`` mapping: three passes over the widest
+    array on the hot path become one, and it measured about 1.6x on every
+    packing. 8 KiB, built once.
+    """
+    import numpy as np
+
+    global _SIGN_TABLE
+    if _SIGN_TABLE is None:
+        bits = np.unpackbits(
+            np.arange(256, dtype=np.uint8)[:, None], axis=1, bitorder="little"
+        )
+        _SIGN_TABLE = (bits.astype(np.float32) * 2.0) - 1.0
+    return _SIGN_TABLE
+
+
+_SIGN_TABLE = None
+
+
+def stored_signs(data: bytes, packing: str):
+    """The stored signs, scaled, *without* expanding the dropped ones.
+
+    Shape ``(blocks, codes_per_block, kept)``. This is the array
+    :func:`dequantize_array` expands, and it is smaller than the tensor
+    it came from by exactly ``kept / group`` -- half, for the 0.5-bit
+    tier.
+
+    It is separate because the expansion is avoidable in the one place it
+    costs most. Every dropped position repeats its group's last stored
+    sign, so a dot product against the group factors::
+
+        sum_k sign[k] * x[k]  ==  sum_{k<kept-1} sign[k] * x[k]
+                                  + sign[kept-1] * sum_{k>=kept-1} x[k]
+
+    -- the matmul can run against these signs directly, given an ``x``
+    whose last stored position has absorbed the dropped ones. That is
+    what :mod:`hypernix.models.hnxrun` does, and it removes the only
+    full-size operation left on the hot path.
+
+    The obvious spelling of the expansion -- astype, *2, -1, repeat the
+    tail, concatenate, scale -- allocates six full-size arrays, and a
+    runtime that keeps weights packed pays for all of them on every
+    forward pass. Expanding with an index gather is worse: the result is
+    non-contiguous, so the reshape that follows silently copies, and that
+    copy measured larger than every other step combined. So what is left
+    here is two passes over the *smaller* array: one gather off
+    :func:`_sign_table`, which does the unpacking and the ``2b - 1``
+    mapping at once, and one in-place multiply by the block's scale.
+    """
+    import numpy as np
+
     spec = PACKINGS.get(packing)
     if spec is None:
         raise SubBitError(f"Unknown packing {packing!r}")
@@ -260,7 +336,51 @@ def dequantize_tensor(data: bytes, packing: str) -> list[float]:
         raise SubBitError(
             f"{len(data)} bytes is not a whole number of {spec.block_bytes}-byte blocks"
         )
-    weights: list[float] = []
-    for start in range(0, len(data), spec.block_bytes):
-        weights.extend(dequantize_block(data[start:start + spec.block_bytes], packing))
-    return weights
+
+    blocks = np.frombuffer(data, dtype=np.uint8).reshape(-1, spec.block_bytes)
+    if not blocks.size:
+        return np.zeros((0, spec.codes_per_block, spec.kept), dtype=np.float32)
+
+    # .copy() because frombuffer is read-only and .view needs alignment
+    # it cannot assume on an arbitrary slice of someone else's bytes.
+    scales = blocks[:, :2].copy().view(np.float16).reshape(-1).astype(np.float32)
+
+    # blocks[:, 2:] is a strided view and stays one: np.take reads it at
+    # the same speed and skips an allocation the size of the payload,
+    # which on a runtime that exists to not hold the model is the point.
+    stored = spec.codes_per_block * spec.kept
+    head = np.take(_sign_table(), blocks[:, 2:], axis=0).reshape(len(blocks), -1)
+    head = head[:, :stored].reshape(-1, spec.codes_per_block, spec.kept)
+    head *= scales[:, None, None]
+    return head
+
+
+def dequantize_array(data: bytes, packing: str):
+    """Reconstruct a whole tensor as a numpy float32 array.
+
+    The same arithmetic as :func:`dequantize_block`, done to every block
+    at once. That matters more than it looks: the block-at-a-time form is
+    a Python loop over 256 weights, and a runtime that keeps weights
+    packed re-runs it on every forward pass. Measured on hnxrun it was
+    the entire difference between a packed model and a materialised one.
+    """
+    import numpy as np
+
+    spec = PACKINGS.get(packing)
+    if spec is None:
+        raise SubBitError(f"Unknown packing {packing!r}")
+
+    # Scale first, expand second. The order is the whole optimisation --
+    # see :func:`stored_signs`.
+    return np.repeat(
+        stored_signs(data, packing), _expansion(spec), axis=2
+    ).reshape(-1)
+
+
+def dequantize_tensor(data: bytes, packing: str) -> list[float]:
+    """Reconstruct a whole tensor, as a list of floats.
+
+    :func:`dequantize_array` is the same thing without the conversion,
+    and is what anything doing arithmetic should call.
+    """
+    return dequantize_array(data, packing).tolist()

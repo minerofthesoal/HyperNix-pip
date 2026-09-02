@@ -20,6 +20,75 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3 pt 4 — the sub-bit models actually run
+
+✨ **HnxRun: a runtime for the files nothing else will open.** The IQ0.x
+tiers had been real quantisations since pt 2 — genuinely 0.56 bits per
+weight, a well-formed GGUF — and completely unrunnable. The type ids sit
+at 200 and above, deliberately outside anything upstream allocates, so
+every llama.cpp refuses them by name and the reference reader raises
+`ValueError: np.uint32(202) is not a valid GGMLQuantizationType`. A file
+that was correct, 30× smaller, and had nowhere to go.
+
+`hypernix.models.hnxrun` is the llama-family graph in torch — RMSNorm,
+RoPE, grouped-query causal attention with a KV cache, SwiGLU, output
+head — reading every type this package writes. `hypernix generate` and
+`hypernix chat` route to it for a sub-bit model and still hand upstream
+quants to llama.cpp, which is better at `Q4_K_M` than this will ever be.
+The RoPE convention is the part that decides whether this works:
+llama.cpp's converter *permutes* Q and K so rotation applies to adjacent
+pairs, and applying the Hugging Face half-split form to those tensors
+gives a model that loads, runs, and generates confident nonsense.
+
+𖢥 **Sub-bit in memory, not only on disk.** The first version dequantised
+every tensor to float32 at load time, so a model that was 0.81 bits per
+weight on disk was 32.000 resident — larger than the F16 model the
+quantisation was made from, and every byte the tier existed to save
+handed straight back. Everything worked; the numbers were just gone.
+`PackedWeight` now holds the on-disk bytes and unpacks inside the
+matmul, and an embedding lookup unpacks only the rows the prompt
+touches. Resident cost went 32.000 → 0.572 bits per weight.
+
+✨ **And fast enough to be worth running.** Sub-bit memory that costs 30×
+the time is a different way of not shipping the tier. The packed matmul
+no longer widens a weight to one float per element at all: a dropped
+sign repeats its group's last stored one, so the group's contribution
+factors, and folding `x` to match lets the dot product run against the
+`kept` signs alone. Decoding those signs is one gather off an 8 KiB
+byte→signs table, replacing `unpackbits` plus a uint8→float32
+conversion plus the `2b - 1` mapping. Measured on a 15.8M-parameter
+llama, best of eight interleaved runs:
+
+    tier          disk   resident   bpw    ms/token   vs float32
+    float32         --    63.2 MB  32.000       2.7         1.0x
+    IQ0.9_L    1.87 MB    1.87 MB   0.947      16.4         6.2x
+    IQ0.75_M   1.63 MB    1.62 MB   0.822      15.6         5.9x
+    IQ0.5_XXXL 1.13 MB    1.13 MB   0.572      10.6         4.0x
+
+56× the memory for 4× the time, and the tier that saves the most memory
+is now the fastest, because the work is proportional to the signs
+actually stored. `load_model(..., cache_bytes=N)` is the dial in
+between: weights are pinned largest-first, since every forward pass
+touches every tensor once and the only question is how much decode work
+a byte of budget buys.
+
+📚 **Corrected: the logits are not bit-identical.** The wiki claimed the
+packed and materialised paths produced identical logits. They produce
+identical *weights* — same bytes, same decoder, and that is asserted
+exactly — but the fold changes which terms are summed and chunking
+changes the order, and float32 addition is not associative. The
+difference is about 5e-7 and the claim was only ever true while every
+tensor fitted in one chunk, which no real model does. The test now
+asserts `allclose` on logits and `torch.equal` on the weights, which is
+the distinction that was being papered over.
+
+🐛 **`--json` now means JSON on `--list-tiers`.** Both quantiser CLIs
+returned from the listing branch before ever looking at `args.as_json`,
+so `steamroller --list-tiers --json` printed the human table. A script
+that asked for machine output got prose and found out at `json.loads`. A
+flag that is accepted and ignored is worse than one that is rejected,
+because the rejection is visible.
+
 ## 0.72.3 pt 3 — hyprslug grows up
 
 ✨ **hyprslug writes the llama.cpp quant types.** "Quantises without
