@@ -1,8 +1,8 @@
 # HnxRun — running the models llama.cpp cannot
 
 ```bash
-hypernix generate --model model.iq05.gguf --prompt "hello"
-hypernix chat     --model model.iq05.gguf
+hypernix generate --model-dir model.iq05.gguf --prompt "hello"
+hypernix chat     --model-dir model.iq05.gguf --cache-bytes 2G
 ```
 
 ```python
@@ -208,6 +208,45 @@ with ids you already have.
   error, so the name is checked against what the forward pass matches.
 - A file with no `token_embd.weight` — a fragment, not a model.
 - A token id outside the vocabulary.
+
+## How you actually reach it
+
+Nothing here needs to be imported to be used. `hypernix generate` and
+`hypernix chat` read the file's own metadata, and a GGML type at 200 or
+above routes here instead of to llama.cpp:
+
+```bash
+hypernix quantize --source model.f32.gguf --output model.iq05.gguf \
+    --type IQ0.5_XXXL -hnx \
+    --quantize-embeddings --quantize-output
+hypernix generate --model-dir model.iq05.gguf --prompt "hello"
+hypernix chat     --model-dir model.iq05.gguf --cache-bytes 2G
+```
+
+`steamroller <src> IQ0.5_XXXL -hnx` writes the same file through the
+same encoder, so either route arrives here.
+
+Those two `--quantize-*` flags are the difference between a file the
+tables above describe and one they do not. A sub-bit tier leaves
+`token_embd` and the output head in float by default — at half a bit the
+embedding table is the model, and that is a defensible call — but on a
+7B the untouched pair is then most of the file, and the resident cost
+lands nearer 1.7 bits per weight than 0.572. The default is a quality
+decision with a size consequence; both halves are now reachable from the
+command line, which they were not.
+
+`--cache-bytes` is `load_model`'s budget, and only these tiers can use
+it — llama.cpp has its own answer to how much to keep resident.
+
+`chat` holds the model open for the whole session. That is worth stating
+because it was not true: `load_gguf` handed back a bare `LoadedModel`,
+which has no `.chat()`, so `hypernix chat` on a 0.5-bit model loaded
+successfully and then died with `AttributeError` on the first message —
+while every test passed, because they checked that the CLI *mentions*
+`load_gguf` and that the routing avoids llama.cpp, and both were true of
+the broken version. `load_gguf` now returns an `HnxSession` that speaks
+the same `.chat()` as every other backend, and the tests run a real
+model through `main()` rather than reading the source.
 
 ## See also
 

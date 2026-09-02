@@ -58,6 +58,7 @@ __all__ = [
     "PackedWeight",
     "load_model",
     "generate_tokens",
+    "continue_text",
     "generate_text",
     "describe",
 ]
@@ -1003,29 +1004,34 @@ def generate_tokens(
     return produced
 
 
-def generate_text(
-    path: str | Path,
+def continue_text(
+    model: LoadedModel,
     prompt: str,
     *,
     max_new_tokens: int = 32,
     temperature: float = 0.0,
     top_k: int = 0,
     seed: int | None = None,
-    device: str = "cpu",
 ) -> str:
-    """Load *path* and continue *prompt*.
+    """Continue *prompt* with a model that is already loaded.
 
-    Needs the GGUF to carry its tokenizer, which every real conversion
-    does. Without one there is no way to turn text into the ids this
-    model was trained on, and guessing an encoding would produce output
-    that looks like a broken model rather than a missing tokenizer.
+    The text-in, text-out half of :func:`generate_tokens`, taking the
+    model rather than a path so a caller holding one open -- a chat REPL,
+    a server -- pays the load once. :func:`generate_text` is this plus
+    the load, for a caller with only a filename.
+
+    Needs the GGUF to have carried its tokenizer, which every real
+    conversion does. Without one there is no way to turn text into the
+    ids this model was trained on, and guessing an encoding would produce
+    output that looks like a broken model rather than a missing
+    tokenizer.
     """
-    model = load_model(path, device=device)
     if model.tokenizer is None:
         raise HnxRunError(
-            f"{path} carries no tokenizer metadata, so text cannot be turned into "
-            f"tokens for it. Use generate_tokens() with ids you already have, or "
-            f"convert the model with a tool that writes tokenizer.ggml.*."
+            f"{model.path or 'This model'} carries no tokenizer metadata, so text "
+            f"cannot be turned into tokens for it. Use generate_tokens() with ids "
+            f"you already have, or convert the model with a tool that writes "
+            f"tokenizer.ggml.*."
         )
     prompt_ids = model.tokenizer.encode(prompt)
     if not prompt_ids:
@@ -1040,3 +1046,32 @@ def generate_text(
         stop_ids=model.tokenizer.stop_ids,
     )
     return model.tokenizer.decode(produced)
+
+
+def generate_text(
+    path: str | Path,
+    prompt: str,
+    *,
+    max_new_tokens: int = 32,
+    temperature: float = 0.0,
+    top_k: int = 0,
+    seed: int | None = None,
+    device: str = "cpu",
+    cache_bytes: int = 0,
+) -> str:
+    """Load *path* and continue *prompt*.
+
+    One shot: the model is loaded, used and dropped. Anything that
+    generates more than once should :func:`load_model` and call
+    :func:`continue_text`, because a GGUF load is seconds to minutes and
+    paying it per message makes a REPL unusable.
+    """
+    model = load_model(path, device=device, cache_bytes=cache_bytes)
+    return continue_text(
+        model,
+        prompt,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        seed=seed,
+    )

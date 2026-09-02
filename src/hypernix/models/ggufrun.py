@@ -39,6 +39,7 @@ __all__ = [
     "load_gguf",
     "generate_with_gguf",
     "chat_with_gguf",
+    "HnxSession",
 ]
 
 
@@ -137,6 +138,72 @@ def _uses_hnx_runtime(info: dict[str, Any]) -> bool:
     return bool(info.get("sub_bit"))
 
 
+def _flatten_messages(
+    messages: list[dict[str, str]], system: str | None = None
+) -> str:
+    """Chat messages as one plain prompt, for the sub-bit runtime.
+
+    Flattened rather than run through a chat template on purpose: a model
+    quantised to half a bit is not going to follow a template faithfully,
+    and formatting its input as though it would dresses up the output as
+    more structured than it is.
+    """
+    parts = []
+    if system:
+        parts.append(str(system))
+    for message in messages:
+        content = str(message.get("content", "")).strip()
+        if content:
+            parts.append(content)
+    return "\n".join(parts)
+
+
+class HnxSession:
+    """A sub-bit model held open, with the ``.chat()`` shape everything else has.
+
+    :func:`load_gguf` used to hand back a bare
+    :class:`hypernix.models.hnxrun.LoadedModel` for these files, which has
+    no ``.chat()`` -- so ``hypernix chat`` on a 0.5-bit model loaded it
+    successfully and then died with ``AttributeError`` on the first
+    message. Every other backend this module returns speaks ``.chat()``,
+    so this one does too, and the REPL's stated intent -- load once, not
+    per turn -- actually holds for the tier that needs it most, since
+    these are the models whose load does real work.
+    """
+
+    __slots__ = ("model", "path")
+
+    def __init__(self, model: Any, path: Path):
+        self.model = model
+        self.path = path
+
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        system: str | None = None,
+        max_tokens: int = 512,
+        temperature: float = 0.7,
+    ) -> str:
+        from . import hnxrun
+
+        try:
+            return hnxrun.continue_text(
+                self.model,
+                _flatten_messages(messages, system),
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except hnxrun.HnxRunError as exc:
+            raise GGUFRunError(str(exc)) from exc
+
+    def describe(self) -> str:
+        return self.model.describe()
+
+    def close(self) -> None:
+        """Nothing to release -- the weights are plain Python objects."""
+
+
 def load_gguf(
     path: str | Path,
     *,
@@ -144,8 +211,15 @@ def load_gguf(
     n_ctx: int = 8192,
     n_gpu_layers: int = -1,
     quiet: bool = True,
+    cache_bytes: int = 0,
 ) -> Any:
-    """Load a local GGUF through :mod:`hypernix.models.multilama`."""
+    """Load a local GGUF through :mod:`hypernix.models.multilama`.
+
+    ``cache_bytes`` only reaches the sub-bit runtime, which is the only
+    one that holds weights packed and can therefore trade memory back for
+    speed. llama.cpp has its own answer to that question and this does not
+    second-guess it.
+    """
     model_path = Path(path)
     if not model_path.exists():
         raise GGUFRunError(f"No such model: {model_path}")
@@ -158,9 +232,10 @@ def load_gguf(
         from . import hnxrun
 
         try:
-            return hnxrun.load_model(model_path)
+            loaded = hnxrun.load_model(model_path, cache_bytes=cache_bytes)
         except hnxrun.HnxRunError as exc:
             raise GGUFRunError(str(exc)) from exc
+        return HnxSession(loaded, model_path)
 
     from . import multilama
 
@@ -189,14 +264,17 @@ def chat_with_gguf(
     temperature: float = 0.7,
     backend: str = "vanilla",
     n_ctx: int = 8192,
+    cache_bytes: int = 0,
 ) -> str:
-    """One chat turn against a local GGUF."""
-    if _uses_hnx_runtime(describe_gguf(path)):
-        return _chat_with_hnx_runtime(
-            path, messages, system=system, max_tokens=max_tokens,
-            temperature=temperature,
-        )
-    model = load_gguf(path, backend=backend, n_ctx=n_ctx)
+    """One chat turn against a local GGUF.
+
+    One shot: the model is loaded, used and closed. A caller doing more
+    than one turn should hold :func:`load_gguf`'s result open and call
+    ``.chat()`` on it -- both backends return something that speaks it.
+    """
+    model = load_gguf(
+        path, backend=backend, n_ctx=n_ctx, cache_bytes=cache_bytes
+    )
     try:
         return model.chat(
             messages, system=system, max_tokens=max_tokens, temperature=temperature
@@ -210,40 +288,6 @@ def chat_with_gguf(
                 logger.debug("ggufrun: close() raised", exc_info=True)
 
 
-def _chat_with_hnx_runtime(
-    path: str | Path,
-    messages: list[dict[str, str]],
-    *,
-    system: str | None = None,
-    max_tokens: int = 512,
-    temperature: float = 0.7,
-) -> str:
-    """A chat turn through HyperNix's own runtime, for the sub-bit tiers.
-
-    Flattened to a plain prompt rather than run through a chat template:
-    a model quantised to half a bit is not going to be following a
-    template faithfully, and pretending otherwise would dress up its
-    output as more structured than it is.
-    """
-    from . import hnxrun
-
-    parts = []
-    if system:
-        parts.append(system)
-    for message in messages:
-        content = str(message.get("content", "")).strip()
-        if content:
-            parts.append(content)
-    prompt = "\n".join(parts)
-
-    try:
-        return hnxrun.generate_text(
-            path, prompt, max_new_tokens=max_tokens, temperature=temperature
-        )
-    except hnxrun.HnxRunError as exc:
-        raise GGUFRunError(str(exc)) from exc
-
-
 def generate_with_gguf(
     path: str | Path,
     prompt: str,
@@ -252,6 +296,7 @@ def generate_with_gguf(
     temperature: float = 1.0,
     backend: str = "vanilla",
     n_ctx: int = 8192,
+    cache_bytes: int = 0,
 ) -> str:
     """Continue *prompt* with a local GGUF.
 
@@ -265,4 +310,5 @@ def generate_with_gguf(
         temperature=temperature,
         backend=backend,
         n_ctx=n_ctx,
+        cache_bytes=cache_bytes,
     )

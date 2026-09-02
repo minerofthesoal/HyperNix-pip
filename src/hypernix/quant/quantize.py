@@ -470,6 +470,8 @@ def quantize_gguf(
     auto: bool = False,
     backend: str = "auto",
     imatrix: str | Path | None = None,
+    quantize_embeddings: bool | None = None,
+    quantize_output: bool | None = None,
 ) -> Path:
     """Run llama-quantize to produce ``output_gguf`` from ``source_gguf``.
 
@@ -482,6 +484,13 @@ def quantize_gguf(
     When ``auto`` is true, a final PyPI fallback
     (``pip install llama-cpp-python``) is attempted if the GitHub release
     fetch fails.
+
+    ``quantize_embeddings`` and ``quantize_output`` reach the hyprslug
+    path only, and default to what the tier implies: a sub-bit tier
+    leaves both in float, because at half a bit the embedding table is
+    the model. That default is a quality decision with a real size
+    consequence -- on a 7B, an untouched F32 embedding and head are most
+    of the resulting file -- so it is passable rather than fixed.
     """
     source = Path(source_gguf)
     output = Path(output_gguf)
@@ -516,7 +525,11 @@ def quantize_gguf(
             f"[hypernix] quantizing with hyprslug → {hnx_tier} (no llama.cpp)",
             file=sys.stderr,
         )
-        _hnx_quantize(source, output, hnx_tier, imatrix=imatrix)
+        _hnx_quantize(
+            source, output, hnx_tier, imatrix=imatrix,
+            quantize_embeddings=quantize_embeddings,
+            quantize_output=quantize_output,
+        )
         return output
     if backend not in ("auto", "llama"):
         raise ValueError(

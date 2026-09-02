@@ -82,6 +82,45 @@ tensor fitted in one chunk, which no real model does. The test now
 asserts `allclose` on logits and `torch.equal` on the weights, which is
 the distinction that was being papered over.
 
+𖢥 **`hypernix chat` on a sub-bit model crashed on the first message.**
+`load_gguf` routed these files to hnxrun correctly and handed back a bare
+`LoadedModel`, which has no `.chat()` — so the REPL loaded the model,
+printed nothing, and died with `AttributeError: 'LoadedModel' object has
+no attribute 'chat'`. Every test passed: they asserted that `_run_chat`
+*mentions* `load_gguf` and that the routing does not reach llama.cpp,
+and both were true of the broken version. `load_gguf` now returns an
+`HnxSession` speaking the same `.chat()` as every other backend, so the
+REPL's stated intent — load once, not per turn — holds for the tier
+whose load actually costs something, and the tests run a real sub-bit
+model through `cli.main()` instead of reading the source.
+
+✨ **`--cache-bytes` on `generate` and `chat`.** The memory-for-speed dial
+existed in `load_model` and was unreachable from the command line, which
+is the same as not existing. Sizes are human (`512M`, `2G`, a plain byte
+count) and one it cannot read is refused rather than quietly becoming
+zero — a memory limit that does not hold looks exactly like the tool
+ignoring the flag. It reaches the sub-bit runtime only; llama.cpp has its
+own answer to how much to keep resident and this does not guess on its
+behalf.
+
+🔁 **One chat path, not two.** `chat_with_gguf` had a separate
+`_chat_with_hnx_runtime` branch that reloaded the model on every turn.
+Both backends now go through `load_gguf(...).chat(...)`, and
+`hnxrun.continue_text()` is the text-in/text-out half of `generate_text`
+that takes an already-loaded model, so nothing has to reload to produce
+a second sentence.
+
+✨ **`--quantize-embeddings` / `--quantize-output` on `hypernix
+quantize`.** A sub-bit tier leaves `token_embd` and the output head in
+float, for a good reason — at half a bit the embedding table is the
+model — but with a size consequence nobody chose: on a 7B the untouched
+pair is most of the resulting file, so a tier called `IQ0.5_XXXL`
+produced something nearer 1.7 bits per weight than 0.5. The policy was
+reachable from `hyprslug.quantize_gguf` and from no command line at all,
+which meant the headline number in the docs could not be obtained with
+the tool. On the toy model in the tests: 10.301 bits/weight by default,
+0.657 with both flags. The default is unchanged; it is now a choice.
+
 🐛 **`--json` now means JSON on `--list-tiers`.** Both quantiser CLIs
 returned from the listing branch before ever looking at `args.as_json`,
 so `steamroller --list-tiers --json` printed the human table. A script
