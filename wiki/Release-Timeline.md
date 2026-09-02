@@ -472,3 +472,26 @@ timeline
         : a82c166 - Security- require consent before the AI agent runs code or touches credentials
 ```
 
+## Release v0.72.3 (2026-09-02)
+
+```mermaid
+timeline
+    title Release v0.72.3 Commits
+    0.72.3
+        : 2c584d3 - docs- 0.72.3 pt 3 changelog
+        : 3c9b555 - gkey printed about one key in three thousand wrong
+        : 67c4d08 - Dflash2- a draft model, inside the model it drafts for
+        : e45cdfe - An imatrix maker, and an imatrix reader for anyone else's
+        : ac30c2f - hyprslug writes the llama.cpp quants too, still with no llama.cpp
+        : fc269ec - Ask bash where python3 is instead of telling it
+        : 24012dc - Windows- a path is a path, not a URL scheme or a shell escape
+        : 2569171 - wake-up- train a wake word, then listen for it
+        : 260385e - hnx quantize without llama-cpp-python, and generate/chat that read GGUF
+        : cf14b5b - The IQ0.x tiers now actually quantise, and need no llama.cpp
+        : 931c893 - SSPKID that outlives its process, and gkey create -Con
+        : 547dfa4 - T1 v1.0.2026.9.2.1- the governed inference surface
+        : b3b97dd - CI- wait for every server, and let a release skip the integration gate
+        : e1efc70 - Fix formatting of rich dependency in pyproject.toml
+        : 0c67edd - Fix rich dependency version constraint
+```
+
