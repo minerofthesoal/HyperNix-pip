@@ -2,8 +2,9 @@
 
 Also installed as ``doomslug``, ``doomslugthedestroyer`` and ``dstd``.
 
+    hyprslug model.f16.gguf Q4_K_M -o model.q4km.gguf
     hyprslug model.f16.gguf IQ0.5_XXXL -o model.iq05.gguf
-    doomslug model.f16.gguf IQ0.9_L --imatrix imatrix.json
+    doomslug model.q8_0.gguf Q4_K_M --imatrix imatrix.json
     dstd --list-tiers
 """
 from __future__ import annotations
@@ -12,7 +13,13 @@ import argparse
 import json
 import sys
 
-from .hyprslug import ALIASES, TIER_TYPES, HyprslugError, quantize_gguf
+from .hyprslug import (
+    ALIASES,
+    RECIPES,
+    TIER_TYPES,
+    HyprslugError,
+    quantize_gguf,
+)
 from .subbit import PACKINGS
 
 __all__ = ["main", "cli_main"]
@@ -22,32 +29,52 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="hyprslug",
         description=(
-            "Quantise a GGUF to a HyperNix sub-bit tier. No llama.cpp binary is "
-            "looked for, downloaded or built at any point."
+            "Quantise a GGUF to a llama.cpp quant type or a HyperNix sub-bit "
+            "tier. No llama.cpp binary is looked for, downloaded or built at "
+            "any point, for either."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Also answers to: " + ", ".join(a for a in ALIASES if a != "hyprslug") + "\n\n"
-            "These are HyperNix extension types. Stock llama.cpp will refuse the\n"
-            "resulting GGUF by name — which is the point of the type ids being far\n"
-            "above anything upstream has allocated. Below ~1.5 bits a model stops\n"
-            "being a worse version of itself; evaluate before shipping one.\n"
+            "The Q* targets are upstream llama.cpp types and produce a GGUF any\n"
+            "llama.cpp reads. The IQ0.x tiers are HyperNix extension types and\n"
+            "stock llama.cpp will refuse those by name — which is the point of the\n"
+            "type ids being far above anything upstream has allocated. Below ~1.5\n"
+            "bits a model stops being a worse version of itself; evaluate before\n"
+            "shipping one.\n"
         ),
     )
-    parser.add_argument("source", nargs="?", help="Input GGUF (F32, F16 or BF16)")
-    parser.add_argument("tier", nargs="?", help="Target tier, e.g. IQ0.5_XXXL")
+    parser.add_argument("source", nargs="?",
+                        help="Input GGUF (unquantised, or an existing quant "
+                             "to requantise from)")
+    parser.add_argument("tier", nargs="?",
+                        help="Target, e.g. Q4_K_M or IQ0.5_XXXL")
     parser.add_argument("-o", "--output", help="Output path")
     parser.add_argument("--imatrix", help="Importance matrix as JSON: {tensor: [weights]}")
-    parser.add_argument("--quantize-embeddings", action="store_true",
+    parser.add_argument("--quantize-embeddings", action="store_true", default=None,
                         help="Include token embeddings (they dominate a small model)")
-    parser.add_argument("--quantize-output", action="store_true",
+    parser.add_argument("--no-quantize-embeddings", dest="quantize_embeddings",
+                        action="store_false", help="Leave token embeddings alone")
+    parser.add_argument("--quantize-output", action="store_true", default=None,
                         help="Include the output head")
+    parser.add_argument("--no-quantize-output", dest="quantize_output",
+                        action="store_false", help="Leave the output head alone")
     parser.add_argument("--list-tiers", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
     parser.add_argument("-q", "--quiet", action="store_true")
     args = parser.parse_args(argv)
 
     if args.list_tiers:
+        print("llama.cpp quant types (any llama.cpp reads the result):")
+        for name, recipe in sorted(
+            RECIPES.items(), key=lambda kv: -kv[1].bits_per_weight
+        ):
+            widened = ", ".join(sorted({fmt for _, fmt in recipe.overrides}))
+            note = f"  wider: {widened}" if widened else ""
+            print(f"  {name:8} {recipe.bits_per_weight:5.2f} bits/weight  "
+                  f"{recipe.summary}{note}")
+        print()
+        print("HyperNix sub-bit tiers (stock llama.cpp refuses these by name):")
         for tier, (type_id, packing) in TIER_TYPES.items():
             spec = PACKINGS[packing]
             print(

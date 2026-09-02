@@ -301,21 +301,40 @@ class TestTheGGUFItWrites:
         assert any("divide into" in reason for _, reason in report.skipped)
         assert report.quantized_fraction == 0.0
 
-    def test_an_already_quantised_source_is_refused_clearly(self, tmp_path):
+    def test_an_already_quantised_source_is_requantised_and_said_so(self, tmp_path):
+        """A Q8_0 GGUF is the only copy of the model most people have.
+
+        "Quantise from the unquantised weights" is advice they cannot
+        take, so this reads the source through the llama.cpp decoders
+        instead -- and names the type it came from, because requantising
+        compounds whatever the first pass lost and that is the
+        operator's call to make.
+        """
         writer = GGUFWriter(tmp_path / "q.gguf")
         writer.set_metadata("general.architecture", "llama")
-        writer.add_tensor("blk.0.attn_q.weight", (512, 8), int(GGMLType.Q4_K))
+        writer.add_tensor("blk.0.attn_q.weight", (512, 8), int(GGMLType.Q8_0))
+        writer.write(lambda t: b"\x11" * t.nbytes)
+
+        report = quantize_gguf(tmp_path / "q.gguf", tmp_path / "out.gguf", "IQ0.5_XXXL")
+        assert report.tensors_quantized == 1
+        assert report.requantized_from == {"Q8_0": 1}
+        assert "requantised" in report.describe()
+
+    def test_a_source_type_it_cannot_read_is_copied_and_reported(self, tmp_path):
+        writer = GGUFWriter(tmp_path / "q.gguf")
+        writer.set_metadata("general.architecture", "llama")
+        writer.add_tensor("blk.0.attn_q.weight", (512, 8), int(GGMLType.IQ4_XS))
         writer.write(lambda t: b"\x00" * t.nbytes)
 
         report = quantize_gguf(tmp_path / "q.gguf", tmp_path / "out.gguf", "IQ0.5_XXXL")
         assert report.tensors_quantized == 0
-        assert any("already quantised" in reason for _, reason in report.skipped)
+        assert any("cannot read" in reason for _, reason in report.skipped)
 
-    def test_an_unknown_tier_is_refused(self, tmp_path):
+    def test_an_unknown_target_is_refused(self, tmp_path):
         source = _write_gguf(
             tmp_path / "src.gguf", {"a.weight": ((512, 8), _weights(512 * 8))}
         )
-        with pytest.raises(HyprslugError, match="Unknown tier"):
+        with pytest.raises(HyprslugError, match="Unknown target"):
             quantize_gguf(source, tmp_path / "out.gguf", "IQ9_NOPE")
 
     def test_a_missing_source_is_refused(self, tmp_path):

@@ -506,11 +506,17 @@ class Steamroller:
 
             if step.kind == "quantize" and not self.hnx_only:
                 self._run_llama_quantize(binary, current, destination, step.llama_type, imatrix)
+            elif step.kind == "quantize" and last:
+                # The target itself is an upstream quant type, and
+                # hyprslug can write those now. Skipping this step because
+                # "hnx mode does not run llama-quantize" would produce no
+                # output at all for `steamroller model.gguf Q4_K_M -hnx`.
+                self.quantize_hnx(current, destination, step.llama_type, imatrix=imatrix)
             elif step.kind == "quantize":
-                # hnx mode has no staging tier to run: the sub-bit packer
-                # reads the unquantised source directly, and passing it
-                # through Q3_K_L first would only throw away precision it
-                # is about to use.
+                # A staging pass, and hnx mode has none to run: the sub-bit
+                # packer reads the source directly, and passing it through
+                # Q3_K_L first would only throw away precision it is about
+                # to use.
                 self._emit({
                     "event": "step_skipped",
                     "step": step.to_dict(),
@@ -582,6 +588,38 @@ class Steamroller:
                 f"llama-quantize failed producing {llama_type}:\n" + "\n".join(tail),
                 code="quantize_failed",
             )
+
+    def quantize_hnx(
+        self,
+        source: Path,
+        destination: Path,
+        llama_type: str,
+        *,
+        imatrix: str | Path | None = None,
+    ) -> None:
+        """Write an upstream quant type with hyprslug, no binary involved.
+
+        The ``-hnx`` promise is "no llama.cpp is looked for, downloaded or
+        built at any point" — not "only the HyperNix tiers work". A
+        machine that cannot build llama.cpp is exactly the machine that
+        needs a Q4_K_M.
+        """
+        from .hyprslug import HyprslugError, all_targets, quantize_gguf, resolve_recipe
+
+        if resolve_recipe(llama_type) is None:
+            raise SteamrollerError(
+                f"-hnx cannot write {llama_type}: hyprslug has no encoder for it.",
+                code="pack_failed",
+                hint=f"Without -hnx this tier uses llama-quantize. hyprslug writes: "
+                     f"{', '.join(all_targets())}",
+            )
+        try:
+            report = quantize_gguf(
+                source, destination, llama_type, imatrix=imatrix, progress=self.progress
+            )
+        except HyprslugError as exc:
+            raise SteamrollerError(str(exc), code="pack_failed") from exc
+        self._emit({"event": "quantized", "report": report.to_dict()})
 
     def pack_sub_bit(
         self,

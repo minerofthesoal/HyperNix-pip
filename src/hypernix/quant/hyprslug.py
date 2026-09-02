@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import llamaquants
 from .gguf import GGMLType, GGUFError, GGUFFile, GGUFTensor, GGUFWriter
 from .subbit import BLOCK_SIZE, PACKINGS, SubBitError, quantize_tensor
 
@@ -52,8 +53,11 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "HyprslugError",
     "TIER_TYPES",
+    "RECIPES",
+    "Recipe",
     "QuantizeReport",
     "quantize_gguf",
+    "resolve_recipe",
     "tier_for_packing",
     "ALIASES",
 ]
@@ -74,13 +78,123 @@ TIER_TYPES: dict[str, tuple[int, str]] = {
     "IQ0.5_XXXL": (int(GGMLType.HNX_IQ0_5), "quad_code_xxxl"),
 }
 
-#: Source types this can read element-wise. A quantised source would need
-#: a decoder per K-quant format; refusing is better than half-supporting.
-_READABLE = {
+
+#: Tensors whose name contains one of these is *never* packed, whatever
+#: the recipe says: one-dimensional weights are a rounding error of the
+#: file size and a large fraction of the damage.
+_ALWAYS_COPY = ("_norm", "norm.", ".bias")
+
+
+@dataclass(frozen=True)
+class Recipe:
+    """Which block format each tensor gets, for one named quantisation.
+
+    llama.cpp's "Q4_K_M" is not a block format — Q4_K is. The suffix
+    names a *mix*: most tensors at Q4_K, the ones the model leans on
+    hardest a step wider. Keeping the two apart is why this is a table
+    of policies over :mod:`hypernix.quant.llamaquants` rather than ten
+    more encoders.
+
+    ``overrides`` is checked in order, first match wins, against the
+    lower-cased tensor name.
+    """
+
+    name: str
+    base: str
+    summary: str
+    overrides: tuple[tuple[str, str], ...] = ()
+    output: str = ""
+    embeddings: str = ""
+
+    def format_for(self, tensor_name: str) -> str:
+        """The block format *tensor_name* should be written in."""
+        lowered = tensor_name.lower()
+        if self.output and (lowered.startswith("output.") or lowered == "output.weight"):
+            return self.output
+        if self.embeddings and ("token_embd" in lowered or "tok_embeddings" in lowered):
+            return self.embeddings
+        for fragment, fmt in self.overrides:
+            if fragment in lowered:
+                return fmt
+        return self.base
+
+    @property
+    def bits_per_weight(self) -> float:
+        return llamaquants.FORMATS[self.base].bits_per_weight
+
+
+# The tensors llama.cpp widens in a "_M" mix. attn_v and ffn_down are
+# the two the perplexity numbers move most on, which is why upstream
+# spends the extra bits there and nowhere else.
+_M_WIDENS = ("attn_v", "ffn_down")
+_L_WIDENS = ("attn_v", "ffn_down", "attn_k")
+
+
+def _mix(name: str, base: str, wider: str, widens: tuple[str, ...], summary: str) -> Recipe:
+    return Recipe(
+        name=name,
+        base=base,
+        summary=summary,
+        overrides=tuple((fragment, wider) for fragment in widens),
+        output="Q6_K",
+    )
+
+
+#: Every quantisation hyprslug can write, by name.
+#:
+#: The plain names are single block formats. The ``_S``/``_M``/``_L``
+#: names are mixes, and they are *our* reading of what upstream does
+#: rather than a byte-for-byte reproduction of its table: llama.cpp
+#: picks per layer index as well as per tensor role, and a file that
+#: claimed to match it exactly would be claiming something nobody has
+#: checked. What is exact is the block encoding of every tensor.
+RECIPES: dict[str, Recipe] = {}
+
+
+def _register(recipe: Recipe) -> None:
+    RECIPES[recipe.name] = recipe
+
+
+for _plain_name in ("Q4_0", "Q4_1", "Q5_0", "Q5_1", "Q8_0",
+                    "Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K"):
+    _register(Recipe(
+        _plain_name, _plain_name,
+        f"{llamaquants.FORMATS[_plain_name].bits_per_weight:.2f} bits per weight, "
+        f"every eligible tensor.",
+    ))
+
+_register(_mix("Q2_K_S", "Q2_K", "Q3_K", _M_WIDENS,
+               "2-bit k-quant, small. The narrowest upstream type worth running."))
+_register(_mix("Q3_K_S", "Q3_K", "Q3_K", (),
+               "3-bit k-quant, small. Uniform Q3_K with a Q6_K head."))
+_register(_mix("Q3_K_M", "Q3_K", "Q4_K", _M_WIDENS,
+               "3-bit k-quant, medium."))
+_register(_mix("Q3_K_L", "Q3_K", "Q5_K", _L_WIDENS,
+               "3-bit k-quant, large. The staging tier every descent passes through."))
+_register(_mix("Q4_K_S", "Q4_K", "Q4_K", (),
+               "4-bit k-quant, small. Uniform Q4_K with a Q6_K head."))
+_register(_mix("Q4_K_M", "Q4_K", "Q6_K", _M_WIDENS,
+               "4-bit k-quant, medium. The usual default."))
+_register(_mix("Q5_K_S", "Q5_K", "Q5_K", (),
+               "5-bit k-quant, small."))
+_register(_mix("Q5_K_M", "Q5_K", "Q6_K", _M_WIDENS,
+               "5-bit k-quant, medium."))
+
+#: Source types this can read element-wise without help.
+#:
+#: A quantised source is read through :mod:`hypernix.quant.llamaquants`
+#: instead, which is what makes requantisation possible at all: a
+#: Q8_0 GGUF is the only copy of the model most people have, and
+#: "quantise from the unquantised weights" is advice they cannot take.
+_UNQUANTIZED = {
     int(GGMLType.F32): ("<f", 4),
     int(GGMLType.F16): ("<e", 2),
     int(GGMLType.BF16): (None, 2),
 }
+
+
+def _readable(ggml_type: int) -> bool:
+    return int(ggml_type) in _UNQUANTIZED or llamaquants.is_supported(int(ggml_type))
 
 
 def tier_for_packing(packing: str) -> str:
@@ -91,14 +205,40 @@ def tier_for_packing(packing: str) -> str:
     raise HyprslugError(f"No tier uses packing {packing!r}")
 
 
+def resolve_recipe(tier: str) -> Recipe | None:
+    """The :class:`Recipe` for *tier*, or ``None`` if it is a sub-bit tier.
+
+    Case- and separator-insensitive, because ``q4_k_m``, ``Q4_K_M`` and
+    ``q4km`` are all the same request and refusing two of them helps
+    nobody.
+    """
+    key = (tier or "").strip().upper().replace("-", "_")
+    if key in RECIPES:
+        return RECIPES[key]
+    squashed = key.replace("_", "")
+    for name, recipe in RECIPES.items():
+        if name.replace("_", "") == squashed:
+            return recipe
+    return None
+
+
+def all_targets() -> list[str]:
+    """Every name :func:`quantize_gguf` accepts, widest first."""
+    return sorted(RECIPES, key=lambda n: -RECIPES[n].bits_per_weight) + list(TIER_TYPES)
+
+
 def _decode_floats(data: bytes, ggml_type: int) -> list[float]:
-    """Tensor bytes to a list of floats."""
-    spec = _READABLE.get(int(ggml_type))
+    """Tensor bytes to a list of floats, quantised source or not."""
+    spec = _UNQUANTIZED.get(int(ggml_type))
     if spec is None:
+        if llamaquants.is_supported(int(ggml_type)):
+            # Requantising loses whatever the first pass lost -- that is
+            # unavoidable and it is not silent: the report says the source
+            # was already quantised.
+            return [float(v) for v in llamaquants.dequantize_array(data, int(ggml_type))]
         raise HyprslugError(
-            f"hyprslug reads F32, F16 and BF16 sources; this tensor is type "
-            f"{ggml_type}. Quantise from the unquantised model, not from an "
-            f"already-quantised one."
+            f"hyprslug reads F32, F16, BF16 and the llama.cpp block types; this "
+            f"tensor is type {ggml_type}, which is none of them."
         )
     fmt, width = spec
     count = len(data) // width
@@ -112,23 +252,34 @@ def _decode_floats(data: bytes, ggml_type: int) -> list[float]:
     return list(struct.unpack(f"<{count}{fmt[1]}", data[: count * width]))
 
 
+def _is_embedding(name: str) -> bool:
+    return "token_embd" in name or "tok_embeddings" in name
+
+
+def _is_output_head(name: str) -> bool:
+    return name.startswith("output.") or name == "output.weight"
+
+
 def _should_quantize(
     tensor: GGUFTensor,
     *,
+    block: int,
     quantize_embeddings: bool,
     quantize_output: bool,
 ) -> tuple[bool, str]:
     """Whether to pack *tensor*, and why not when not."""
+    name = tensor.name.lower()
     if len(tensor.shape) < 2:
         return False, "1-D (norm or bias): all of the damage, none of the size"
-    if int(tensor.ggml_type) not in _READABLE:
-        return False, f"source type {tensor.ggml_type} is already quantised"
-    if tensor.elements % BLOCK_SIZE:
-        return False, f"{tensor.elements} elements do not divide into {BLOCK_SIZE}"
-    name = tensor.name.lower()
-    if not quantize_embeddings and ("token_embd" in name or "tok_embeddings" in name):
+    if any(fragment in name for fragment in _ALWAYS_COPY):
+        return False, "a norm or bias: all of the damage, none of the size"
+    if not _readable(int(tensor.ggml_type)):
+        return False, f"source type {tensor.ggml_type} is one hyprslug cannot read"
+    if tensor.elements % block:
+        return False, f"{tensor.elements} elements do not divide into {block}"
+    if not quantize_embeddings and _is_embedding(name):
         return False, "token embeddings (pass quantize_embeddings=True to include)"
-    if not quantize_output and (name.startswith("output.") or name == "output.weight"):
+    if not quantize_output and _is_output_head(name):
         return False, "output head (pass quantize_output=True to include)"
     return True, ""
 
@@ -139,6 +290,8 @@ class QuantizeReport:
 
     tier: str = ""
     packing: str = ""
+    formats: dict[str, int] = field(default_factory=dict)
+    requantized_from: dict[str, int] = field(default_factory=dict)
     source_bytes: int = 0
     output_bytes: int = 0
     tensors_total: int = 0
@@ -168,6 +321,8 @@ class QuantizeReport:
             "tensors_total": self.tensors_total,
             "tensors_quantized": self.tensors_quantized,
             "tensors_copied": self.tensors_copied,
+            "formats": dict(sorted(self.formats.items())),
+            "requantized_from": dict(sorted(self.requantized_from.items())),
             "quantized_fraction": round(self.quantized_fraction, 4),
             "skipped": [{"tensor": n, "reason": r} for n, r in self.skipped],
             "seconds": round(self.seconds, 2),
@@ -181,6 +336,17 @@ class QuantizeReport:
             f"  {self.tensors_quantized}/{self.tensors_total} tensors packed, "
             f"{self.quantized_fraction * 100:.1f}% of weights",
         ]
+        if len(self.formats) > 1:
+            mix = ", ".join(f"{fmt} x{count}" for fmt, count in sorted(self.formats.items()))
+            lines.append(f"  mix: {mix}")
+        if self.requantized_from:
+            # Requantising compounds the first pass's error. Whether that
+            # matters is the operator's call; whether they get to make it
+            # is not.
+            was = ", ".join(
+                f"{fmt} x{count}" for fmt, count in sorted(self.requantized_from.items())
+            )
+            lines.append(f"  ! requantised from an already-quantised source: {was}")
         if self.tensors_copied:
             lines.append(f"  {self.tensors_copied} copied at source precision:")
             for name, reason in self.skipped[:5]:
@@ -216,24 +382,42 @@ def quantize_gguf(
     tier: str,
     *,
     imatrix: str | Path | dict[str, list[float]] | None = None,
-    quantize_embeddings: bool = False,
-    quantize_output: bool = False,
+    quantize_embeddings: bool | None = None,
+    quantize_output: bool | None = None,
     progress: Callable[[dict], None] | None = None,
 ) -> QuantizeReport:
     """Quantise *source* to *tier*, writing *destination*.
 
-    Returns a :class:`QuantizeReport` describing what was packed and what
-    was not. Nothing here invokes llama.cpp.
+    *tier* is either a llama.cpp quantisation — a block format like
+    ``Q4_K`` or a mix like ``Q4_K_M`` — or one of the HyperNix sub-bit
+    tiers in :data:`TIER_TYPES`. Returns a :class:`QuantizeReport`
+    describing what was packed and what was not. Nothing here invokes
+    llama.cpp, at any point, for any tier.
+
+    *quantize_embeddings* and *quantize_output* default to what the
+    target implies: a llama.cpp mix quantises both (with the head a step
+    wider, as upstream does), and a sub-bit tier leaves both alone,
+    because at half a bit the embedding table is the model.
     """
     source_path = Path(source)
     destination_path = Path(destination)
-    if tier not in TIER_TYPES:
-        raise HyprslugError(
-            f"Unknown tier {tier!r}. hyprslug packs: {', '.join(TIER_TYPES)}"
-        )
-    ggml_type, packing = TIER_TYPES[tier]
-    if packing not in PACKINGS:
-        raise HyprslugError(f"Tier {tier} names packing {packing!r}, which does not exist.")
+    recipe = resolve_recipe(tier)
+    packing = ""
+    ggml_type = 0
+    if recipe is None:
+        if tier not in TIER_TYPES:
+            raise HyprslugError(
+                f"Unknown target {tier!r}. hyprslug writes: {', '.join(all_targets())}"
+            )
+        ggml_type, packing = TIER_TYPES[tier]
+        if packing not in PACKINGS:
+            raise HyprslugError(
+                f"Tier {tier} names packing {packing!r}, which does not exist."
+            )
+    if quantize_embeddings is None:
+        quantize_embeddings = recipe is not None
+    if quantize_output is None:
+        quantize_output = recipe is not None
     if not source_path.exists():
         raise HyprslugError(f"No such model: {source_path}")
 
@@ -250,7 +434,7 @@ def quantize_gguf(
         raise HyprslugError(f"{source_path}: {exc}") from exc
 
     report = QuantizeReport(
-        tier=tier,
+        tier=recipe.name if recipe else tier,
         packing=packing,
         source_bytes=source_path.stat().st_size,
         tensors_total=len(model.tensors),
@@ -261,39 +445,63 @@ def quantize_gguf(
     # Recorded in the file itself, not a sidecar. A sidecar can be lost in
     # a copy, and then nothing about the model says what was done to it.
     writer.set_metadata("hypernix.quantiser", "hyprslug")
-    writer.set_metadata("hypernix.tier", tier)
-    writer.set_metadata("hypernix.packing", packing)
-    writer.set_metadata("hypernix.sub_bit", True)
+    writer.set_metadata("hypernix.tier", report.tier)
     writer.set_metadata("hypernix.imatrix", bool(weights_by_tensor))
-    writer.set_metadata(
-        "general.file_type_description",
-        f"HyperNix {tier} ({PACKINGS[packing].bits_per_weight:.3f} bpw)",
-    )
+    if recipe is None:
+        writer.set_metadata("hypernix.packing", packing)
+        writer.set_metadata("hypernix.sub_bit", True)
+        writer.set_metadata(
+            "general.file_type_description",
+            f"HyperNix {tier} ({PACKINGS[packing].bits_per_weight:.3f} bpw)",
+        )
+    else:
+        writer.set_metadata("hypernix.sub_bit", False)
+        writer.set_metadata("hypernix.base_format", recipe.base)
+        writer.set_metadata(
+            "general.file_type_description",
+            f"{recipe.name} ({recipe.bits_per_weight:.2f} bpw base) via hyprslug",
+        )
 
-    plan: list[tuple[GGUFTensor, GGUFTensor, bool]] = []
+    # (original tensor, declared tensor, block format or "" for a copy).
+    plan: list[tuple[GGUFTensor, GGUFTensor, str]] = []
     for tensor in model.tensors:
+        chosen = recipe.format_for(tensor.name) if recipe else ""
+        block = llamaquants.FORMATS[chosen].block if recipe else BLOCK_SIZE
         do_it, reason = _should_quantize(
             tensor,
+            block=block,
             quantize_embeddings=quantize_embeddings,
             quantize_output=quantize_output,
         )
-        target_type = ggml_type if do_it else tensor.ggml_type
+        if not do_it:
+            chosen = ""
+        if do_it and recipe:
+            target_type = llamaquants.FORMATS[chosen].ggml_type
+        elif do_it:
+            target_type = ggml_type
+        else:
+            target_type = tensor.ggml_type
         declared = writer.add_tensor(tensor.name, tensor.shape, target_type)
-        plan.append((tensor, declared, do_it))
+        plan.append((tensor, declared, chosen if recipe else ("sub-bit" if do_it else "")))
         if do_it:
             report.tensors_quantized += 1
             report.elements_quantized += tensor.elements
+            label = chosen if recipe else tier
+            report.formats[label] = report.formats.get(label, 0) + 1
+            if int(tensor.ggml_type) not in _UNQUANTIZED:
+                was = GGMLType(int(tensor.ggml_type)).name
+                report.requantized_from[was] = report.requantized_from.get(was, 0) + 1
         else:
             report.tensors_copied += 1
             report.elements_copied += tensor.elements
             report.skipped.append((tensor.name, reason))
 
-    by_name = {declared.name: (original, do_it) for original, declared, do_it in plan}
+    by_name = {declared.name: (original, fmt) for original, declared, fmt in plan}
     done = 0
 
     def _data_for(declared: GGUFTensor) -> bytes:
         nonlocal done
-        original, do_it = by_name[declared.name]
+        original, fmt = by_name[declared.name]
         raw = model.tensor_bytes(original)
         done += 1
         if progress is not None:
@@ -303,11 +511,12 @@ def quantize_gguf(
                     "name": declared.name,
                     "index": done,
                     "total": len(plan),
-                    "quantized": do_it,
+                    "quantized": bool(fmt),
+                    "format": fmt,
                 })
             except Exception:  # noqa: BLE001 - a listener must not fail the run
                 logger.debug("hyprslug: progress callback raised", exc_info=True)
-        if not do_it:
+        if not fmt:
             return raw
         values = _decode_floats(raw, original.ggml_type)
         importance = weights_by_tensor.get(declared.name)
@@ -320,9 +529,14 @@ def quantize_gguf(
                 declared.name, len(importance), len(values),
             )
             importance = None
+        if fmt == "sub-bit":
+            try:
+                return quantize_tensor(values, packing, importance)
+            except SubBitError as exc:
+                raise HyprslugError(f"{declared.name}: {exc}") from exc
         try:
-            return quantize_tensor(values, packing, importance)
-        except SubBitError as exc:
+            return llamaquants.quantize_array(values, fmt, importance)
+        except llamaquants.LlamaQuantError as exc:
             raise HyprslugError(f"{declared.name}: {exc}") from exc
 
     try:
