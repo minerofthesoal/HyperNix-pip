@@ -967,11 +967,15 @@ T1_DEFAULT_PLAN=$DEFAULT_PLAN
 
 # --- Network ---------------------------------------------------------------
 # Where uvicorn binds. start-t1.sh passes these on the command line and
-# `hypernix-t1 start` reads them from here, so both start the server in
+# 'hypernix-t1 start' reads them from here, so both start the server in
 # the same place. They used to live only in start-t1.sh, which meant
-# `hypernix-t1 start` fell back to its own 127.0.0.1:8000 default and
+# 'hypernix-t1 start' fell back to its own 127.0.0.1:8000 default and
 # every later status, logs, key and test pointed at an address nothing
 # was listening on.
+#
+# Single quotes, not backticks: this heredoc is unquoted so that
+# $BIND_HOST expands, which means a backtick here is command
+# substitution and would run the command while writing this file.
 T1_HOST=$BIND_HOST
 T1_PORT=$BIND_PORT
 

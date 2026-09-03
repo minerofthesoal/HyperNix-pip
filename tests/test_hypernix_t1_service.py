@@ -198,15 +198,36 @@ class TestTheSystemdUnit:
         """systemctl being on PATH is not the same as there being a
         session to talk to. Containers, plain ssh and WSL all fail here,
         and the bare systemd error -- "Failed to connect to bus: No
-        medium found" -- says nothing about what to do next."""
+        medium found" -- says nothing about what to do next.
+
+        The guard probes for the bus directly rather than inferring it
+        from the exit code, which is what the first version of this test
+        did and why it failed on every GitHub runner. A runner *has* a
+        user bus, so the no-bus branch is never reached there -- but the
+        run still exits non-zero, because HOME is redirected to a tmp
+        directory and systemd cannot see the unit written into it
+        ("Unit file hypernix-t1.service does not exist"). Reading a
+        non-zero exit as "took the branch I meant" turned a skip into a
+        failure on Linux, macOS and Windows at once.
+        """
         import shutil
+        import subprocess
 
         home, config = configured
         if shutil.which("systemctl") is None:
             pytest.skip("no systemctl to probe")
+        probe = subprocess.run(
+            ["systemctl", "--user", "show-environment"],
+            capture_output=True, timeout=30, check=False,
+        )
+        if probe.returncode == 0:
+            pytest.skip(
+                "this machine has a working user bus, so the no-bus branch "
+                "cannot be exercised here"
+            )
+
         result = run("autostart", "on", home=home, config=config)
-        if result.returncode == 0:
-            pytest.skip("this machine has a working user bus")
+        assert result.returncode != 0
         message = result.stdout + result.stderr
         assert "enable-linger" in message or "session startup" in message
         assert "--write-only" in message

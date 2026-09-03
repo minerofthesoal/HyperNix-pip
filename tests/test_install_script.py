@@ -93,6 +93,101 @@ class TestBash32Portability:
         assert "${x:(-" not in code
 
 
+class TestNoHeredocRunsCommands:
+    """A backtick inside an unquoted heredoc is command substitution.
+
+    The ``.env`` heredoc has to be unquoted -- it expands ``$BIND_HOST``,
+    ``$DEFAULT_PLAN`` and a dozen others -- so anything backticked in its
+    body *runs*. A comment written as::
+
+        # `hypernix-t1 start` reads them from here
+
+    executes ``hypernix-t1 start`` while the config file is being
+    written, and splices its output into the comment. That shipped, and
+    Codacy's shellcheck is what caught it.
+
+    This is not a style rule. Command substitution in a heredoc that
+    writes a *config file* runs a server as a side effect of writing
+    down where the server listens.
+    """
+
+    def _heredoc_bodies(self, source: str):
+        """Every unquoted-heredoc body in the script, with its delimiter.
+
+        ``<<'EOF'`` and ``<<"EOF"`` are literal and safe; bare ``<<EOF``
+        expands. Only the second kind is interesting.
+        """
+        import re
+
+        bodies = []
+        lines = source.splitlines()
+        opener = re.compile(r"<<-?\s*(?P<quote>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)\1")
+        index = 0
+        while index < len(lines):
+            found = opener.search(lines[index])
+            if found:
+                tag = found.group("tag")
+                quoted = bool(found.group("quote"))
+                start = index + 1
+                end = start
+                while end < len(lines) and lines[end].strip() != tag:
+                    end += 1
+                if not quoted:
+                    bodies.append((tag, start, lines[start:end]))
+                index = end
+            index += 1
+        return bodies
+
+    def test_the_parser_finds_the_env_heredoc(self, source):
+        """Otherwise the test below passes by looking at nothing."""
+        tags = {tag for tag, _start, _body in self._heredoc_bodies(source)}
+        assert "ENVEOF" in tags, tags
+
+    def test_no_unquoted_heredoc_contains_a_backtick(self, source):
+        offenders = []
+        for tag, start, body in self._heredoc_bodies(source):
+            for offset, line in enumerate(body):
+                if "`" in line:
+                    offenders.append(f"  {tag} line {start + offset + 1}: {line.strip()}")
+        assert not offenders, (
+            "backticks inside an unquoted heredoc are command substitution "
+            "and will run while the file is written:\n" + "\n".join(offenders)
+        )
+
+    def test_the_generated_env_has_no_command_substitution(self, tmp_path):
+        """End to end: write a real config and check nothing ran.
+
+        The static check above is the one that scales; this is the one
+        that proves the static check is testing the right thing.
+        """
+        import os
+        import subprocess
+
+        marker = tmp_path / "should-not-exist"
+        env = {
+            **os.environ,
+            "HOME": str(tmp_path / "home"),
+            "T1_CONFIG_DIR": str(tmp_path / "cfg"),
+            "NO_COLOR": "1",
+            # If any heredoc runs a command, this is on PATH to catch it.
+            "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+        }
+        (tmp_path / "bin").mkdir(parents=True)
+        for name in ("hypernix-t1", "hypernix"):
+            shim = tmp_path / "bin" / name
+            shim.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 0\n')
+            shim.chmod(0o755)
+
+        subprocess.run(
+            [BASH, str(SCRIPT), "--non-interactive", "--install", "skip",
+             "--dry-run"],
+            capture_output=True, text=True, timeout=300, env=env, check=False,
+        )
+        assert not marker.exists(), (
+            "the installer ran a command that only appears inside a heredoc"
+        )
+
+
 class TestSecretHandling:
     def test_secrets_are_read_with_echo_off(self, source):
         assert "read -rs" in source
