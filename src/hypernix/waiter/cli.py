@@ -65,19 +65,32 @@ def _warn(text: str) -> None:
         print(f"WARNING: {text}", file=sys.stderr)
 
 
-def _err_connection(exc: Exception) -> None:
+def _err_connection(exc: Exception, context: str = "") -> None:
     """Print an error, expanded into a diagnosis when it is a reachability one.
 
     "Could not reach http://127.0.0.1:1234/hyperlink/pair: [Errno 111]
     Connection refused" is accurate and answers none of the questions the
     reader has. Only unreachability gets the extra work — every other
     error already says what is wrong.
+
+    ``context`` is what the caller was doing ("Automatic setup"), kept
+    because "could not reach" alone does not say which step gave up.
+
+    This used to be wired into exactly one of a dozen T1ClientError
+    handlers, so whether you got a diagnosis or a bare errno depended on
+    which subcommand you happened to run — and `serv -A`, the first
+    command anyone runs after an install, was one of the bare ones.
     """
     text = str(exc)
     url = _failed_url(text)
     if url is None:
-        _err(text)
+        _err(f"{context}: {text}" if context else text)
         return
+    if context:
+        # Just the context. The diagnosis below restates the failure in
+        # full, and printing the raw errno line as well says the same
+        # thing twice before saying anything useful.
+        _err(f"{context}:")
 
     from .diagnose import diagnose, format_diagnosis
 
@@ -88,8 +101,11 @@ def _err_connection(exc: Exception) -> None:
         # A diagnostic that fails must not replace the real error.
         _err(text)
         return
-    _err(format_diagnosis(result).split("\n")[0])
-    for line in format_diagnosis(result).split("\n")[1:]:
+    lines = format_diagnosis(result).split("\n")
+    if not context:
+        _err(lines[0])
+        lines = lines[1:]
+    for line in lines:
         print(line, file=sys.stderr)
 
 
@@ -413,7 +429,7 @@ def _cmd_serv(rest: list[str]) -> int:
         try:
             validated = client.validate()
         except T1ClientError as exc:
-            _err(f"Automatic setup failed: {exc}")
+            _err_connection(exc, "Automatic setup failed")
             return 1
         _ok(f"Connected to {cfg.server} — key {_mask(validated.get('key_id'))} ({validated.get('key_type')})")
         if validated.get("scopes"):
@@ -429,7 +445,7 @@ def _cmd_serv(rest: list[str]) -> int:
                     client.credential = promoted["key"]
                     _ok(f"Promoted to admin key {_mask(promoted['key_id'])}")
                 except T1ClientError as exc:
-                    _err(f"Admin promotion failed: {exc}")
+                    _err_connection(exc, "Admin promotion failed")
 
         if policy_flags:
             _apply_network_policy(client, args)
@@ -469,7 +485,7 @@ def _cmd_serv(rest: list[str]) -> int:
             validated = client.validate()
             models = client.list_models()
         except T1ClientError as exc:
-            _err(f"Refresh failed: {exc}")
+            _err_connection(exc, "Refresh failed")
             return 1
         _ok(f"Refreshed — key {_mask(validated.get('key_id'))} still valid, {models.get('count', 0)} model(s) visible.")
         if args.force_refresh:
@@ -495,7 +511,7 @@ def _cmd_serv(rest: list[str]) -> int:
             remote_config = client.config()["config"]
             models = client.list_models()
         except T1ClientError as exc:
-            _err(f"Sync failed: {exc}")
+            _err_connection(exc, "Sync failed")
             return 1
         # Mirror the server's own view of the settings a client cares
         # about, so `waiter config` reflects the server rather than
@@ -566,7 +582,7 @@ def _interactive_session(cfg: WaiterLocalConfig, store: WaiterConfigStore) -> in
             else:
                 _warn(f"Unknown command: {line!r} (try: models, status, usage, whoami, quit)")
         except T1ClientError as exc:
-            _err(str(exc))
+            _err_connection(exc)
 
 
 def _render_model_list(payload: dict[str, Any], *, as_json: bool = False) -> None:
@@ -610,7 +626,7 @@ def _cmd_models(rest: list[str]) -> int:
         client, _ = _client_for(args)
         payload = client.list_models()
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
     _render_model_list(payload, as_json=args.as_json)
     return 0
@@ -632,7 +648,7 @@ def _cmd_model(rest: list[str]) -> int:
             except T1ClientError:
                 usage = None  # unauthenticated or key lacks access — detail/availability still shown
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
 
     if args.as_json:
@@ -674,7 +690,7 @@ def _cmd_status(rest: list[str]) -> int:
         client, _ = _client_for(args)
         payload = client.status()
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
     if args.as_json:
         _print_json(payload)
@@ -692,7 +708,7 @@ def _cmd_health(rest: list[str]) -> int:
         client, cfg = _client_for(args)
         payload = client.health()
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
     if args.as_json:
         _print_json(payload)
@@ -713,7 +729,7 @@ def _cmd_whoami(rest: list[str]) -> int:
         client = T1Client(base_url=_base_url(cfg), credential=cfg.key)
         payload = client.validate()
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
     if args.as_json:
         _print_json(payload)
@@ -735,7 +751,7 @@ def _cmd_usage(rest: list[str]) -> int:
         else:
             payload = client.usage_current()
     except T1ClientError as exc:
-        _err(str(exc))
+        _err_connection(exc)
         return 1
     if args.as_json:
         _print_json(payload)

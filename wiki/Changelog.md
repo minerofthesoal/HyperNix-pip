@@ -20,6 +20,58 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3.post6 — `hypernix-t1 index`, and three more from the field
+
+✨ **`hypernix-t1 index` builds the model registry from the models.** The
+registry is the only place the T1 API looks up what a model can do, and
+every route calls `ModelRegistry.require` rather than trusting a
+client-supplied `model_id` — right design, and it also means a server
+with an empty registry serves nothing. Filling it meant the installer's
+one-entry template of placeholders, or hand-written JSON. Both ask an
+operator to transcribe numbers that are already in the files, and a
+context limit mistyped there is not caught anywhere; it is simply the
+number the server enforces.
+
+```bash
+hypernix-t1 index                      # ./hypernix/models -> models.json
+hypernix-t1 index --dir /srv/models --dry-run
+hypernix-t1 index --refresh            # re-read the measured fields
+```
+
+Architecture, context length and parameter count come from the GGUF's
+own metadata and tensor table — the parameter count is *summed from the
+tensors*, so three quantisations of one model report the same figure and
+none of them is read off a filename. Pricing, plan and priority are
+policy, not measurements, so they come from flags. A value the file does
+not carry is defaulted **and reported as assumed**, rather than
+presented as though it had been read.
+
+An entry you have already edited is left alone; `--refresh` re-reads
+only the measured fields and still leaves pricing, plan, priority,
+status and notes as you set them. An unchanged registry is not even
+rewritten — re-indexing is what running the command twice does, and
+touching the mtime is what a file watcher keys on. An unreadable file is
+reported and the walk continues, with a non-zero exit because the
+registry written is missing a model someone put there on purpose.
+
+🐛 **`hyprslug-headers serve <directory>` was refused.** LM Studio's
+layout is `<root>/<publisher>/<name>/<name>.gguf` — which is exactly
+what `install-model` writes, so the directory is what tab-completion
+stops at and what gets pasted. These commands would not accept the thing
+they had just created. A directory holding one GGUF now resolves to it;
+one holding several is refused *with the list*, because choosing would
+be choosing which model was meant.
+
+𖢥 **`waiter serv -A` gave a bare errno when the server was not
+running.** *"Could not reach http://…:8000/auth/t1/validate: [Errno 111]
+Connection refused"* is accurate and answers none of the reader's
+questions — and the machinery to answer them already existed in
+`waiter.diagnose`. It was wired into exactly one of a dozen
+`T1ClientError` handlers, and `serv -A`, the first command anyone runs
+after an install, was one of the eleven that got the bare errno. All of
+them now route through it, and the remedy leads with `hypernix-t1
+start` rather than a shell script the reader may not have.
+
 ## 0.72.3.post5 — three things found by running the commands on a real machine
 
 Reported from an actual install, not from the suite. None was a subtle

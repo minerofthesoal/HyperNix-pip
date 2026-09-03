@@ -36,7 +36,8 @@ reachable if you already knew the filename. Fixed.)
 | [HnxRun](HnxRun.md) | The runtime for the models llama.cpp cannot read — loads and runs a sub-bit GGUF, so a 0.5-bit quantisation has somewhere to go. |
 | [Devices](Devices.md) | CUDA (including the sm_61 / GTX 1080 trap), ROCm, Metal, Intel, Vulkan and CPU — what runs where, and which torch wheel. |
 | [LowBit](LowBit.md) | Every GGML type at 200 and above: `IQ0.25_UXL`, `INT1`, `FP2`, `INT4` — the two families, and what each rate really costs. |
-| [HyprSlug-Headers](HyprSlug-Headers.md) | `hypernix hyprslug-headers` — self-describing headers, the compat export, and the server that lets LM Studio reach a sub-bit model without converting it. |
+| [HyprSlug-Headers](HyprSlug-Headers.md)
+- [ModelIndex](ModelIndex.md) — `hypernix-t1 index`, a folder of GGUFs into a model registry | `hypernix hyprslug-headers` — self-describing headers, the compat export, and the server that lets LM Studio reach a sub-bit model without converting it. |
 | [PipelineMechanics](PipelineMechanics.md) | The small support modules gluing download → convert → quantize together. |
 
 **Training core**

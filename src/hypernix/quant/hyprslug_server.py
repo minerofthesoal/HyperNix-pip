@@ -68,10 +68,15 @@ class HyprslugModel:
     def __init__(self, path: str | Path, *, cache_bytes: int = 0,
                  name: str = "", device: str = "auto") -> None:
         from ..models import hnxrun
+        from .hyprslug_headers import HeaderError, resolve_model_path
 
-        self.path = Path(path)
-        if not self.path.exists():
-            raise ServerError(f"No such model: {self.path}")
+        # A directory is accepted: LM Studio's layout puts the file in
+        # <publisher>/<name>/<name>.gguf, which is what install-model
+        # writes and what tab-completion stops at.
+        try:
+            self.path = resolve_model_path(path)
+        except HeaderError as exc:
+            raise ServerError(str(exc)) from exc
         try:
             self.model = hnxrun.load_model(
                 self.path, cache_bytes=cache_bytes, device=device

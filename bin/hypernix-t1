@@ -363,6 +363,19 @@ cmd_key() {
   exec "$py" -m hypernix.security.gkey_cli "$@"
 }
 
+cmd_index() {
+  # No require_installed: indexing reads GGUF files and writes JSON, and
+  # needs neither a configured server nor the [t1api] extra. Someone who
+  # has just dropped models in a folder and has not run `create` yet
+  # should still be able to build a registry.
+  load_env
+  local py; py="$(python_bin)"
+  # T1_CONFIG_DIR so the default output lands beside this server's
+  # config rather than in whatever directory the shell happens to be in.
+  T1_CONFIG_DIR="${T1_CONFIG_DIR:-$CONFIG_DIR}" \
+    exec "$py" -m hypernix.t1api.modelindex_cli "$@"
+}
+
 cmd_autostart() {
   local action="on" write_only=0
   while [ $# -gt 0 ]; do
@@ -485,6 +498,11 @@ hypernix-t1 — manage a T1 API server
                         Set up a new server. Runs install-t1.sh when it is
                         available (the guided setup); otherwise writes a
                         minimal local-only configuration.
+  index [--dir D] [-o FILE] [--refresh] [--dry-run]
+                        Read every .gguf under D (default ./hypernix/models)
+                        and write the model registry from what the files
+                        say. Entries you have already edited are left
+                        alone unless --refresh.
   configure             Edit the configuration in \$EDITOR
   test                  Health, status, and a real end-to-end probe
   key ...               Run gkey against this server's key store
@@ -511,6 +529,7 @@ main() {
     configure|config)  cmd_configure "$@" ;;
     test)              cmd_test "$@" ;;
     key|keys)          cmd_key "$@" ;;
+    index)             cmd_index "$@" ;;
     autostart)         cmd_autostart "$@" ;;
     remove|uninstall)  cmd_remove "$@" ;;
     version|--version) printf 'hypernix-t1 %s\n' "$VERSION" ;;
