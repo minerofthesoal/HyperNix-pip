@@ -194,7 +194,12 @@ actually run instead of skipping everywhere CI does.
 `examples/hyprslug-headers/`, and three new wiki pages: LowBit,
 HyprSlug-Headers, TvTopPro.
 
-## 0.72.3 pt 4 — the sub-bit models actually run
+## 0.72.3.post1 ("pt 4") — the sub-bit models actually run
+
+*Released as `0.72.3.post1`. The heading said only "pt 4", so anyone
+looking up what the released version shipped found nothing under that
+name — the release commit bumps the version files and does not write
+here.*
 
 ✨ **HnxRun: a runtime for the files nothing else will open.** The IQ0.x
 tiers had been real quantisations since pt 2 — genuinely 0.56 bits per

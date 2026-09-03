@@ -495,3 +495,26 @@ timeline
         : 0c67edd - Fix rich dependency version constraint
 ```
 
+## Release v0.72.3.post1 (2026-09-03)
+
+```mermaid
+timeline
+    title Release v0.72.3.post1 Commits
+    0.72.3.post1
+        : 1b575fe - Wire the sub-bit runtime all the way to the command line
+        : 0437bba - Sub-bit in memory *and* fast enough to run
+        : 74ff8f0 - chore- update JSON stats (scheduled)
+        : 4c26095 - Sub-bit in memory too, not only on disk
+        : 9f57892 - The sub-bit models can be run now
+        : b191c39 - --json now means JSON on --list-tiers
+        : a825a36 - hypernix v0.72.3 [skip ci]
+        : 2c584d3 - docs- 0.72.3 pt 3 changelog
+        : 3c9b555 - gkey printed about one key in three thousand wrong
+        : 67c4d08 - Dflash2- a draft model, inside the model it drafts for
+        : e45cdfe - An imatrix maker, and an imatrix reader for anyone else's
+        : ac30c2f - hyprslug writes the llama.cpp quants too, still with no llama.cpp
+        : fc269ec - Ask bash where python3 is instead of telling it
+        : 24012dc - Windows- a path is a path, not a URL scheme or a shell escape
+        : 2569171 - wake-up- train a wake word, then listen for it
+```
+
