@@ -122,6 +122,10 @@ tvtop-old = "hypernix.monitoring.tvtop_plus_plus:cli_main"
 tvtop-older = "hypernix.monitoring.tv:cli_main"
 tvtop-plus-plus = "hypernix.monitoring.tvtop_plus_plus:cli_main"
 tvtoppp = "hypernix.monitoring.tvtop_plus_plus:cli_main"
+# 0.72.3.post2: tvtop++'s stats, btop++'s presentation, themes. Not
+# built on cctvtop -- it takes TVTopPlusPlus as a stat source only.
+tvtoppro = "hypernix.monitoring.tvtoppro:cli_main"
+tvtop-pro = "hypernix.monitoring.tvtoppro:cli_main"
 eth = "hypernix.system.ethanol:cli_main"
 # v0.71.5b3: ups had no entry point at all — a complete module that
 # nothing could run.
