@@ -79,6 +79,7 @@ __all__ = [
     "wrap",
     "scan",
     "install",
+    "install_model",
     "status",
     "uninstall",
     "runtime_dir",
@@ -435,6 +436,87 @@ def wrap(
             f"serve the original through hnxrun instead."
         ),
         "report": report.to_dict(),
+    }
+
+
+def install_model(
+    path: str | Path,
+    *,
+    to: str = "",
+    publisher: str = "HyperNix",
+    name: str = "",
+    root: str | Path | None = None,
+    progress=None,
+) -> dict[str, Any]:
+    """Put a loadable copy of *path* where LM Studio and Bionic look.
+
+    Both read the same tree — ``<root>/<publisher>/<repo>/<file>.gguf`` —
+    and both list whatever is in it that their llama.cpp can open. Which
+    is the constraint: a sub-bit model cannot go there as it stands, so
+    what is installed is a :func:`wrap` of it.
+
+    That trade is in the returned report and in what the command prints,
+    because "installed into LM Studio" is exactly the phrase under which
+    someone would otherwise assume the 0.9-bit file itself now works
+    there. It does not. The installed copy is a stock quantisation of it,
+    several times larger, and the original stays where it was.
+
+    An upstream-typed GGUF is *copied* rather than re-quantised: it
+    already opens, and re-encoding it would lose a generation of quality
+    to no purpose.
+    """
+    import shutil
+
+    source = Path(path)
+    if not source.is_file():
+        raise HeaderError(f"No such model: {source}")
+
+    roots = [Path(root)] if root else lmstudio_roots()
+    if not roots:
+        default = Path.home() / ".lmstudio" / "models"
+        raise HeaderError(
+            f"No LM Studio model directory found. Pass --root, set "
+            f"LMSTUDIO_HOME, or create {default}."
+        )
+    target_root = roots[0]
+
+    header = read_header(source)
+    label = name or source.stem
+    directory = target_root / publisher / label
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / f"{label}.gguf"
+
+    if header.is_extension:
+        fallback = to or header.fallback or "Q4_K_M"
+        report = wrap(source, destination, to=fallback, progress=progress)
+        report.update(
+            installed_to=str(destination),
+            publisher=publisher,
+            model_name=label,
+            converted=True,
+            lmstudio_root=str(target_root),
+        )
+        return report
+
+    shutil.copy2(source, destination)
+    return {
+        "source": str(source),
+        "output": str(destination),
+        "installed_to": str(destination),
+        "publisher": publisher,
+        "model_name": label,
+        "converted": False,
+        "from_tier": "upstream",
+        "to_type": "unchanged",
+        "source_bytes": source.stat().st_size,
+        "output_bytes": destination.stat().st_size,
+        "growth": 1.0,
+        "lmstudio_root": str(target_root),
+        "honest_warning": (
+            "Copied unchanged: this file is already a type llama.cpp reads, "
+            "so re-quantising it would lose a generation of quality for "
+            "nothing."
+        ),
     }
 
 

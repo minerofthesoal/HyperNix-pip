@@ -250,6 +250,8 @@ model through `main()` rather than reading the source.
 
 ## See also
 
+- [Devices](Devices.md) — running it on CUDA, ROCm, Metal or Intel, and
+  why `torch.cuda.is_available()` is not the question
 - [HyprSlug](HyprSlug.md) — the quantiser that writes these files
 - [Dflash2](Dflash2.md) — a draft model inside the model
 - [Imatrix](Imatrix.md) — deciding which weights the quantiser protects

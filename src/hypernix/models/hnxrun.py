@@ -318,12 +318,15 @@ class PackedWeight:
     """
 
     __slots__ = ("raw", "ggml_type", "shape", "device", "_block", "_block_bytes",
-                 "_rows_per_group", "_group_bytes", "_pinned", "_packing")
+                 "_rows_per_group", "_group_bytes", "_pinned", "_packing",
+                 "_device_packed", "_decode_here")
 
-    def __init__(self, raw: bytes, ggml_type: int, shape: tuple[int, ...], device: str):
+    def __init__(self, raw: bytes, ggml_type: int, shape: tuple[int, ...],
+                 device: str, *, decode_on_device: bool | None = None):
         from math import gcd
 
         self._pinned = None
+        self._device_packed = None
         self.raw = raw
         self.ggml_type = int(ggml_type)
         self.shape = tuple(int(d) for d in shape)
@@ -342,6 +345,7 @@ class PackedWeight:
             self._rows_per_group * columns // self._block
         ) * self._block_bytes
         self._packing = self._folding_packing(columns)
+        self._decode_here = decode_on_device
 
     def _folding_packing(self, columns: int) -> str | None:
         """The packing name if this weight can take the folded matmul.
@@ -361,11 +365,70 @@ class PackedWeight:
         return name if columns % PACKINGS[name].group == 0 else None
 
     @property
+    def on_accelerator(self) -> bool:
+        """Whether this weight lives somewhere that is not the CPU."""
+        return not str(self.device).startswith("cpu")
+
+    def _decodes_on_device(self) -> bool:
+        """Whether the packed bytes can be decoded where they sit.
+
+        Only the HyperNix extension types can. The llama.cpp block types
+        still decode through numpy and upload the result, which is the
+        arrangement this exists to avoid -- but ``hypernix generate``
+        routes an upstream quant to llama.cpp anyway, so the slow path is
+        one nobody takes to run a model.
+        """
+        from .hnxtorch import supports
+
+        if not supports(self.ggml_type):
+            return False
+        if self._decode_here is not None:
+            # Forced on or off. On is how the accelerator path gets
+            # tested on a machine with no accelerator: it is the same
+            # code CUDA runs, and asserting it against the numpy decoder
+            # is the only check of it that does not need a GPU present.
+            return bool(self._decode_here)
+        return self.on_accelerator
+
+    def packed_on_device(self):
+        """The packed bytes as a uint8 tensor on this weight's device.
+
+        Uploaded once and kept. This is the whole reason a sub-bit model
+        is worth putting on a GPU: the packed form is the small one, so
+        PCIe carries 0.9 bits per weight at load rather than 32 bits per
+        weight per forward pass.
+        """
+        if self._device_packed is None:
+            from .hnxtorch import to_device_bytes
+
+            self._device_packed = to_device_bytes(self.raw, self.device)
+        return self._device_packed
+
+    @property
     def nbytes(self) -> int:
         """What this weight costs in memory, pinned or not."""
         if self._pinned is not None:
             return self._pinned.numel() * self._pinned.element_size()
         return len(self.raw)
+
+    @property
+    def device_bytes(self) -> int:
+        """What this weight occupies in the device's own memory.
+
+        Reported separately from :attr:`nbytes` rather than folded into
+        it: the host copy is still held, and a single number covering
+        both would be a memory figure that matches neither the RAM the
+        process uses nor the VRAM the card reports.
+
+        Non-zero on CPU only when the torch decoder has been forced on,
+        which is a testing mode -- there it is a real second allocation
+        bought for nothing, and saying zero would hide it.
+        """
+        if self._pinned is not None and self.on_accelerator:
+            return self._pinned.numel() * self._pinned.element_size()
+        if self._device_packed is None:
+            return 0
+        return self._device_packed.numel()
 
     @property
     def dense_bytes(self) -> int:
@@ -406,7 +469,14 @@ class PackedWeight:
         """Rows from whole groups ``[first_group, last_group)``, as float32."""
         import torch
 
-        chunk = self.raw[first_group * self._group_bytes:last_group * self._group_bytes]
+        start = first_group * self._group_bytes
+        stop = last_group * self._group_bytes
+        if self._decodes_on_device():
+            from .hnxtorch import decode
+
+            flat = decode(self.packed_on_device()[start:stop], self.ggml_type)
+            return flat.reshape(-1, self.columns)
+        chunk = self.raw[start:stop]
         count = (last_group - first_group) * self._rows_per_group * self.columns
         # No .copy(): every decoder returns a freshly allocated array, so
         # torch can take it as is. Copying here doubled the traffic of the
@@ -470,11 +540,18 @@ class PackedWeight:
 
         first = start // self._rows_per_group
         last = -(-stop // self._rows_per_group)  # ceiling division
-        chunk = self.raw[first * self._group_bytes:last * self._group_bytes]
-        signs = stored_signs(chunk, self._packing)
-        decoded = torch.from_numpy(
-            signs.reshape((last - first) * self._rows_per_group, -1)
-        ).to(self.device)
+        rows = (last - first) * self._rows_per_group
+        window = slice(first * self._group_bytes, last * self._group_bytes)
+        if self._decodes_on_device():
+            from .hnxtorch import stored_signs as device_stored_signs
+
+            decoded = device_stored_signs(
+                self.packed_on_device()[window], self._packing
+            ).reshape(rows, -1)
+        else:
+            decoded = torch.from_numpy(
+                stored_signs(self.raw[window], self._packing).reshape(rows, -1)
+            ).to(self.device)
         offset = start - first * self._rows_per_group
         return decoded[offset:offset + (stop - start)]
 
@@ -590,6 +667,26 @@ class LoadedModel:
     tokenizer: Any = None
     #: Bytes on disk, for comparison with what the load actually cost.
     file_bytes: int = 0
+    #: Where the weights are. "cpu", "cuda:0", "mps", ...
+    device: str = "cpu"
+
+    @property
+    def device_bytes(self) -> int:
+        """What this model occupies on an accelerator.
+
+        Separate from :attr:`resident_bytes`, which counts host memory.
+        On a GPU the packed bytes are held in both places -- the file's
+        copy on the host and the uploaded copy on the card -- and one
+        number covering both would match neither what the process uses
+        nor what nvidia-smi reports.
+        """
+        total = 0
+        for weight in self.tensors.values():
+            if isinstance(weight, PackedWeight):
+                total += weight.device_bytes
+            elif hasattr(weight, "device") and str(weight.device) != "cpu":
+                total += weight.numel() * weight.element_size()
+        return total
 
     @property
     def sub_bit(self) -> bool:
@@ -644,6 +741,11 @@ class LoadedModel:
             f"{self.packed_in_memory}/{len(self.tensors)} tensors still packed"
             + (f", {self.pinned_in_memory} pinned" if self.pinned_in_memory else ""),
         ]
+        if str(self.device) != "cpu":
+            lines.append(
+                f"  device   : {self.device}, {self.device_bytes / 1e6:.2f} MB "
+                f"resident there (packed)"
+            )
         if self.file_bytes:
             lines.append(
                 f"  on disk  : {self.file_bytes / 1e6:.2f} MB "
@@ -710,11 +812,28 @@ def load_model(
     to unpack, and one with no room to spare keeps every byte packed.
     :attr:`LoadedModel.resident_bits_per_weight` reports where that
     landed rather than leaving it to be guessed.
+
+    ``device`` takes ``"auto"``, ``"cpu"``, ``"cuda"``, ``"cuda:1"``,
+    ``"mps"``, ``"xpu"``, or a :class:`~hypernix.models.hnxdevice.Device`.
+    On an accelerator the *packed* bytes are uploaded once and decoded
+    there, which is the arrangement worth having: the packed form is the
+    small one, so a 7B at ``IQ0.9_L`` puts about 800 MB on the card
+    instead of the 28 GB its float16 weights would need. A named device
+    that cannot run raises with the reason and the remedy rather than
+    quietly falling back to the CPU — see
+    :func:`hypernix.models.hnxdevice.select`.
     """
     import numpy as np
     import torch
 
     from ..quant.gguf import GGMLType, GGUFError, GGUFFile
+    from .hnxdevice import DeviceError, select
+
+    try:
+        resolved = select(str(device))
+    except DeviceError as exc:
+        raise HnxRunError(str(exc)) from exc
+    device = resolved.torch_device
 
     model_path = Path(path)
     if not model_path.exists():
@@ -790,6 +909,7 @@ def load_model(
         packed_as=packed,
         tokenizer=tokenizer_from_metadata(gguf_file.metadata),
         file_bytes=model_path.stat().st_size,
+        device=device,
     )
 
 

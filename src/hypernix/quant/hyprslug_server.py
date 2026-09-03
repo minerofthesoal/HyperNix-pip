@@ -66,14 +66,16 @@ class HyprslugModel:
     """
 
     def __init__(self, path: str | Path, *, cache_bytes: int = 0,
-                 name: str = "") -> None:
+                 name: str = "", device: str = "auto") -> None:
         from ..models import hnxrun
 
         self.path = Path(path)
         if not self.path.exists():
             raise ServerError(f"No such model: {self.path}")
         try:
-            self.model = hnxrun.load_model(self.path, cache_bytes=cache_bytes)
+            self.model = hnxrun.load_model(
+                self.path, cache_bytes=cache_bytes, device=device
+            )
         except hnxrun.HnxRunError as exc:
             raise ServerError(f"{self.path}: {exc}") from exc
         self.name = name or self.path.stem
@@ -108,6 +110,8 @@ class HyprslugModel:
                 "context_length": self.model.config.context_length,
                 "tokenizer": bool(self.has_tokenizer),
                 "runtime": "hypernix.models.hnxrun",
+                "device": str(self.model.device),
+                "device_bytes": self.model.device_bytes,
             },
         }
 
@@ -311,9 +315,11 @@ def build_server(model: HyprslugModel, *, host: str = "127.0.0.1",
 
 
 def serve(path: str | Path, *, host: str = "127.0.0.1", port: int = 1234,
-          cache_bytes: int = 0, name: str = "") -> None:
+          cache_bytes: int = 0, name: str = "", device: str = "auto") -> None:
     """Load *path* and serve it until interrupted."""
-    model = HyprslugModel(path, cache_bytes=cache_bytes, name=name)
+    model = HyprslugModel(
+        path, cache_bytes=cache_bytes, name=name, device=device
+    )
     server = build_server(model, host=host, port=port)
     try:
         server.serve_forever()

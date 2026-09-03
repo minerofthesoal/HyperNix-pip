@@ -19,6 +19,7 @@ from .hyprslug_headers import (
     HEADER_VERSION,
     HeaderError,
     install,
+    install_model,
     read_header,
     scan,
     stamp,
@@ -107,6 +108,25 @@ def _human_scan(rows: list[dict]) -> None:
               f"{row['bytes'] / 1e6:8.1f} MB  {row['path']}")
 
 
+def _human_install_model(result: dict) -> None:
+    print(f"installed  {result['installed_to']}")
+    if result["converted"]:
+        print(f"  {result['from_tier']} -> {result['to_type']}, "
+              f"{result['source_bytes'] / 1e6:.1f} MB -> "
+              f"{result['output_bytes'] / 1e6:.1f} MB ({result['growth']}x)")
+    else:
+        print(f"  copied unchanged ({result['output_bytes'] / 1e6:.1f} MB)")
+    print()
+    print(f"  {result['honest_warning']}")
+    print()
+    print("  LM Studio and Bionic should list it after a rescan, under")
+    print(f"  {result['publisher']} / {result['model_name']}.")
+    if result["converted"]:
+        print("  The original is untouched. To run *that* at its own bitrate:")
+        print(f"    hypernix hyprslug-headers serve {result['source']} "
+              f"--device auto")
+
+
 def _human_wrap(result: dict) -> None:
     print(f"{result['source']}")
     print(f"  -> {result['output']}")
@@ -164,6 +184,21 @@ def main(argv: list[str] | None = None) -> int:
     p_wrap.add_argument("--to", dest="target", default="",
                         help=f"Target type. Defaults per tier: {FALLBACKS}")
 
+    p_model = subparsers.add_parser(
+        "install-model",
+        help="Put a loadable copy where LM Studio and Bionic look.")
+    p_model.add_argument("model")
+    p_model.add_argument("--to", dest="target", default="",
+                         help="Target type for the conversion. Per-tier "
+                              "default otherwise.")
+    p_model.add_argument("--publisher", default="HyperNix",
+                         help="Folder LM Studio groups it under.")
+    p_model.add_argument("--name", default="",
+                         help="Model name. Defaults to the filename.")
+    p_model.add_argument("--root", default=None,
+                         help="LM Studio models directory, if it is somewhere "
+                              "unusual. LMSTUDIO_HOME works too.")
+
     p_serve = subparsers.add_parser(
         "serve", help="Serve the model over an OpenAI-compatible endpoint.")
     p_serve.add_argument("model")
@@ -173,6 +208,11 @@ def main(argv: list[str] | None = None) -> int:
                          help="Model id clients see. Defaults to the filename.")
     p_serve.add_argument("--cache-bytes", dest="cache_bytes", type=int, default=0,
                          help="Memory to spend keeping weights decoded.")
+    p_serve.add_argument("--device", default="auto",
+                         help="auto, cpu, cuda, cuda:1, mps, xpu. On an "
+                              "accelerator the packed bytes are uploaded once "
+                              "and decoded there. `hypernix devices` lists "
+                              "what is available and why not.")
 
     args = parser.parse_args(argv)
     if args.command is None:
@@ -245,6 +285,14 @@ def _dispatch(args, parser) -> int:
         _print(result, args.as_json, _human_wrap)
         return 0
 
+    if args.command == "install-model":
+        result = install_model(
+            args.model, to=args.target, publisher=args.publisher,
+            name=args.name, root=args.root,
+        )
+        _print(result, args.as_json, _human_install_model)
+        return 0
+
     if args.command == "serve":
         from .hyprslug_server import ServerError, serve
 
@@ -259,7 +307,8 @@ def _dispatch(args, parser) -> int:
             print(f"hyprslug-headers: http://{args.host}:{args.port}/v1  "
                   f"(ctrl-c to stop)", file=sys.stderr)
             serve(args.model, host=args.host, port=args.port,
-                  cache_bytes=args.cache_bytes, name=args.name)
+                  cache_bytes=args.cache_bytes, name=args.name,
+                  device=args.device)
         except ServerError as exc:
             print(f"hyprslug-headers: {exc}", file=sys.stderr)
             return 1

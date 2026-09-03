@@ -66,6 +66,13 @@ a slow complete one, and at these bitrates the whole reply arrives in
 about the time a stream's first token would. A `stream: true` request is
 refused with that sentence rather than ignored.
 
+`--device` runs it on an accelerator: `auto`, `cpu`, `cuda`, `cuda:1`,
+`mps`, `xpu`. On a GPU the *packed* bytes are uploaded once and decoded
+there, so a 7B at `IQ0.9_L` puts about 800 MB on the card rather than the
+28 GB a host-side decode would push across PCIe every token. See
+[Devices](Devices.md) — especially if the card is a GTX 10-series, where
+`torch.cuda.is_available()` says True and the first kernel launch fails.
+
 Standard-library `http.server`, not FastAPI. Requiring a web framework in
 order to find out why a model will not load — on the machine short enough
 of memory that someone quantised to 0.9 bits — is the wrong ask.
@@ -153,6 +160,28 @@ stays readable here. A file with *no* stamp still works: the header is
 derived from the tensor types, because every GGUF this package has ever
 written carries those and only the recent ones carry the stamp.
 
+## install-model — put a loadable copy where LM Studio looks
+
+```bash
+hypernix hyprslug-headers install-model model.iq09.gguf \
+    --to Q4_K_M --publisher HyperNix --name Qwen3.8-2B
+```
+
+Writes `<root>/<publisher>/<name>/<name>.gguf`, which is the layout LM
+Studio and Bionic both scan. What lands there is a `wrap` of the model,
+because a sub-bit GGUF is not something their llama.cpp can open — and
+the command says so, because "installed into LM Studio" is exactly the
+phrase under which someone would otherwise assume the 0.9-bit file itself
+now works there.
+
+An already-upstream GGUF is **copied unchanged** rather than
+re-quantised: it already opens, and re-encoding it would lose a
+generation of quality for nothing.
+
+Set `LMSTUDIO_HOME` or pass `--root` if the store is somewhere unusual.
+The original is never touched, and the report points at `serve` for
+anyone who wanted the tier kept.
+
 ## Finding what applies to what
 
 ```bash
@@ -206,5 +235,6 @@ asserts every type survives a stamp.
 ## See also
 
 - [HnxRun](HnxRun.md) — the runtime `serve` puts behind the endpoint
+- [Devices](Devices.md) — `--device` for `serve`, and the Vulkan answer
 - [HyprSlug](HyprSlug.md) — the quantiser that writes these files
 - [LowBit](LowBit.md) — the types at 200 and above

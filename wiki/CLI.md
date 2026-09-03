@@ -318,6 +318,11 @@ hypernix generate --model-dir model.iq05.gguf --prompt "hello" \
     --cache-bytes 2G
 ```
 
+`--hnx-device` chooses where a sub-bit model runs: `auto`, `cpu`, `cuda`,
+`cuda:1`, `mps`, `xpu`. On an accelerator the packed bytes are uploaded
+once and decoded there. `auto` falls back to the CPU; a named device that
+cannot run says why and what to install.
+
 `--cache-bytes` is the memory-for-speed dial for those tiers only. They
 hold their weights packed and unpack inside every matmul, which costs
 about 4× float32 in time; this spends memory to buy some of it back,
@@ -325,6 +330,20 @@ pinning the largest tensors first. Sizes are human (`512M`, `2G`, or a
 plain byte count); a size it cannot read is refused rather than quietly
 becoming zero. It has no effect on a model llama.cpp runs, which has its
 own answer to the same question.
+
+## `devices`
+
+```bash
+hypernix devices
+hypernix devices --json
+```
+
+What can and cannot run a sub-bit model here, with the reason for each
+refusal. The interesting answer is usually a refusal: a GTX 1080 is
+`sm_61`, recent torch wheels build for `sm_75` and up,
+`torch.cuda.is_available()` returns True anyway, and the failure arrives
+at the first kernel launch worded as though the driver were broken. See
+[Devices](Devices.md).
 
 ## `oven`
 

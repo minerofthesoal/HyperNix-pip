@@ -357,6 +357,76 @@ class TestScanningAndInstalling:
         assert model.is_file(), "uninstall touched a model"
 
 
+class TestInstallingIntoLMStudio:
+    """LM Studio and Bionic read the same tree and list whatever their
+    llama.cpp can open. Which is the constraint: a sub-bit model cannot
+    go there as it stands, so what gets installed is a wrap of it."""
+
+    def test_it_lands_where_lm_studio_looks(self, isolated, sub_bit):
+        result = headers.install_model(sub_bit, name="Tiny", publisher="Acme")
+        installed = Path(result["installed_to"])
+        assert installed.is_file()
+        assert installed.parent.name == "Tiny"
+        assert installed.parent.parent.name == "Acme"
+        assert installed.name == "Tiny.gguf"
+
+    def test_what_it_installs_actually_opens(self, isolated, sub_bit):
+        """The point of the exercise. If the installed file is refused
+        too, nothing has been achieved but a copy."""
+        gguf = pytest.importorskip("gguf")
+
+        result = headers.install_model(sub_bit, to="Q4_K_M", name="Tiny")
+        reader = gguf.GGUFReader(result["installed_to"])
+        assert len(reader.tensors) > 0
+
+    def test_it_says_the_installed_copy_is_not_the_model(self, isolated, sub_bit):
+        """"Installed into LM Studio" is exactly the phrase under which
+        someone assumes the 0.9-bit file now works there."""
+        result = headers.install_model(sub_bit, to="Q4_K_M", name="Tiny")
+        assert result["converted"] is True
+        assert result["growth"] > 1.0
+        assert "not a IQ0.9_L model" in result["honest_warning"]
+
+    def test_the_original_is_left_alone(self, isolated, sub_bit):
+        before = Path(sub_bit).read_bytes()
+        headers.install_model(sub_bit, name="Tiny")
+        assert Path(sub_bit).read_bytes() == before
+
+    def test_an_upstream_model_is_copied_not_requantised(self, isolated, source):
+        """It already opens. Re-encoding would lose a generation of
+        quality for nothing."""
+        upstream = Path(source).parent / "already-fine.gguf"
+        quantize_gguf(source, upstream, "Q4_K_M")
+        result = headers.install_model(upstream, name="Fine")
+        assert result["converted"] is False
+        assert result["growth"] == 1.0
+        assert Path(result["installed_to"]).stat().st_size == upstream.stat().st_size
+
+    def test_a_missing_model_says_so(self, isolated, tmp_path):
+        with pytest.raises(headers.HeaderError, match="No such model"):
+            headers.install_model(tmp_path / "absent.gguf")
+
+    def test_no_lmstudio_directory_names_the_default(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("LMSTUDIO_HOME", str(tmp_path / "nowhere"))
+        with pytest.raises(headers.HeaderError, match="lmstudio"):
+            headers.install_model(tmp_path / "x.gguf", root=None)
+
+    def test_from_the_command_line(self, isolated, sub_bit):
+        import contextlib
+        import io
+
+        from hypernix.quant.hyprslug_headers_cli import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(["install-model", str(sub_bit), "--name", "Tiny"])
+        text = out.getvalue()
+        assert code == 0
+        assert "installed" in text
+        # It must also point at the way to keep the tier.
+        assert "serve" in text
+
+
 class TestTheServer:
     """The mechanism that keeps the tier: LM Studio talks HTTP, the
     model stays sub-bit."""

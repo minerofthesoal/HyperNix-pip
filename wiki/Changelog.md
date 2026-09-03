@@ -20,6 +20,67 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3.post3 — CUDA, ROCm, Metal, Intel; and the Vulkan answer
+
+✨ **The sub-bit runtime runs on accelerators, and the packed bytes stay
+packed there.** `hypernix.models.hnxtorch` is a torch rewrite of both
+decoders in ops every backend supports — shifts, masks, gathers — so the
+same code runs on CUDA, ROCm, MPS and XPU. It is asserted *bit-identical*
+to the numpy decoders, not close: integer unpacking followed by one
+multiply has no rounding to hide behind.
+
+The arrangement is the point. The obvious port — decode with numpy, then
+`.to("cuda")` — is the worst one available: it pushes **expanded
+float32** across PCIe every forward pass, 34× the bytes a 0.9-bit tensor
+occupies, every token, to save nothing. The packed form is the small one,
+so it is uploaded once and decoded on the card. A 7B at `IQ0.9_L` puts
+about 800 MB on the GPU instead of the 28 GB a host-side decode would
+move per pass — and instead of the 14 GB its float16 weights would need,
+which is what lets it fit on a card that could not hold them.
+
+✨ **`hypernix devices`**, and the sm_61 trap it exists for. A GTX
+1060/1070/1080, Titan Xp or P40 is compute capability 6.1, and recent
+torch wheels build for sm_75 and up. `torch.cuda.is_available()` returns
+**True** on those cards; the driver is fine, memory reports correctly,
+and the first kernel launch fails with *"no kernel image is available for
+execution on the device"* — which reads like a broken driver and is
+actually a wheel that was never built for the card. The probe compares
+the device's capability against `torch.cuda.get_arch_list()` and names
+the wheel to install (`cu118` for Pascal and Maxwell). Unusable backends
+are listed *with the reason*, because "CUDA is not available" and "CUDA
+is available and has no kernels for your card" are different problems
+with different fixes.
+
+🛡️ **Half precision is not automatic.** GP102/GP104 run FP16 at 1/64 of
+their FP32 rate. A rule as reasonable-looking as "half on CUDA, float on
+CPU" finds it and makes a GTX 1080 dramatically slower while appearing to
+optimise it, so `default_dtype()` returns float32 below `sm_70` and the
+device listing says why.
+
+🛡️ **Vulkan is answered, not faked.** PyTorch's Vulkan backend is not in
+any released wheel and implements vision ops rather than a transformer;
+reporting it as available because an import succeeded would be a lie with
+a long debugging tail. `--device vulkan` refuses and gives the route that
+does work — llama.cpp's Vulkan runtime, which is what LM Studio uses on
+AMD, Intel and older NVIDIA cards, reached by converting the model with
+`hyprslug-headers wrap`.
+
+✨ **`hyprslug-headers install-model`** puts a loadable copy where LM
+Studio and Bionic look — `<root>/<publisher>/<name>/<name>.gguf`, the
+layout both scan. What lands there is a wrap, because a sub-bit GGUF is
+not something their llama.cpp can open, and the command says so:
+"installed into LM Studio" is exactly the phrase under which someone
+would assume the 0.9-bit file itself now works there. An already-upstream
+GGUF is copied unchanged rather than re-quantised.
+
+✨ `--hnx-device` on `generate` and `chat`, `--device` on
+`hyprslug-headers serve`. `auto` falls back to the CPU, which cannot be
+absent; a *named* device that is present but unusable raises with the
+reason and the remedy rather than being silently downgraded, because
+someone who typed `--device cuda` wants to know why they did not get it.
+
+📚 New wiki page: [Devices](Devices.md).
+
 ## 0.72.3.post2 — new quant types, hyprslug-headers, tvtoppro
 
 ✨ **Five more quant types**, in two families. `IQ0.25_UXL` and `INT1`
