@@ -127,10 +127,17 @@ class GGMLType(IntEnum):
     IQ1_M = 29
     BF16 = 30
 
-    # --- HyperNix sub-bit extension types -----------------------------
+    # --- HyperNix extension types -------------------------------------
+    # Deliberately outside anything upstream has allocated, so a stock
+    # loader refuses the file by name rather than reading a 0.5-bit
+    # tensor as Q4_K and producing noise.
     HNX_IQ0_9 = 200
     HNX_IQ0_75 = 201
     HNX_IQ0_5 = 202
+    HNX_IQ0_25 = 203
+    HNX_INT1 = 204
+    HNX_INT4 = 205
+    HNX_FP2 = 206
 
 
 #: ``type -> (elements per block, bytes per block)``.
@@ -169,6 +176,12 @@ _BLOCK_SHAPE: dict[int, tuple[int, int]] = {
     GGMLType.HNX_IQ0_9: (256, 30),
     GGMLType.HNX_IQ0_75: (256, 26),
     GGMLType.HNX_IQ0_5: (256, 18),
+    GGMLType.HNX_IQ0_25: (256, 8),
+    # The fixed-codebook types from hypernix.quant.lowbit, plus INT1,
+    # which is subbit's k == g case rather than a codec of its own.
+    GGMLType.HNX_INT1: (256, 34),
+    GGMLType.HNX_INT4: (256, 130),
+    GGMLType.HNX_FP2: (256, 66),
 }
 
 

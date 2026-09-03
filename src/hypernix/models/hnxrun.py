@@ -205,8 +205,21 @@ def read_config(metadata: dict, tensors: dict) -> ModelConfig:
 #: Ceiling on the transient buffer a packed matmul unpacks into.
 CHUNK_BYTES = 8 << 20
 
-#: HNX sub-bit GGML type -> the packing name subbit.py knows it by.
-_SUB_BIT_PACKINGS = {200: "sign_scale_l", 201: "pair_code_m", 202: "quad_code_xxxl"}
+#: HNX sign-and-scale GGML type -> the packing name subbit.py knows it
+#: by. These are the ones the folded matmul applies to, because they are
+#: the ones with dropped signs to reconstruct.
+_SUB_BIT_PACKINGS = {
+    200: "sign_scale_l",
+    201: "pair_code_m",
+    202: "quad_code_xxxl",
+    203: "quarter_code_uxl",
+    204: "int1_binary",
+}
+
+#: HNX fixed-codebook GGML type -> the codec name lowbit.py knows it by.
+#: These carry magnitude, so there is nothing to fold: every weight has
+#: its own code and the matmul is the ordinary one.
+_LOW_BIT_CODECS = {205: "INT4", 206: "FP2"}
 
 
 def _dequantize(raw: bytes, ggml_type: int, elements: int):
@@ -234,9 +247,13 @@ def _dequantize(raw: bytes, ggml_type: int, elements: int):
         return llamaquants.dequantize_array(raw, kind)[:elements]
     if kind in _SUB_BIT_PACKINGS:
         return subbit_dequantize(raw, _SUB_BIT_PACKINGS[kind])[:elements]
+    if kind in _LOW_BIT_CODECS:
+        from ..quant.lowbit import dequantize_array as lowbit_dequantize
+
+        return lowbit_dequantize(raw, _LOW_BIT_CODECS[kind])[:elements]
     raise HnxRunError(
         f"GGML type {kind} is one this runtime cannot decode. It reads F32, F16, "
-        f"BF16, the llama.cpp block types, and the HyperNix sub-bit types."
+        f"BF16, the llama.cpp block types, and the HyperNix extension types."
     )
 
 
@@ -248,6 +265,11 @@ def _block_geometry(ggml_type: int) -> tuple[int, int]:
     kind = int(ggml_type)
     if kind in _SUB_BIT_PACKINGS:
         return BLOCK_SIZE, packed_block_bytes(_SUB_BIT_PACKINGS[kind])
+    if kind in _LOW_BIT_CODECS:
+        from ..quant.lowbit import BLOCK_SIZE as LOW_BLOCK
+        from ..quant.lowbit import packed_block_bytes as low_block_bytes
+
+        return LOW_BLOCK, low_block_bytes(_LOW_BIT_CODECS[kind])
     fmt = llamaquants.BY_TYPE.get(kind)
     if fmt is None:
         raise HnxRunError(f"GGML type {kind} has no block geometry here.")

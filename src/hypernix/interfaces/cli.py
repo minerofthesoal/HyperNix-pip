@@ -54,6 +54,11 @@ _ALIAS: dict[str, str] = {
     "q6_k": "q6_k",
     "q4km": "q4_k_m",
     "q4_k_m": "q4_k_m",
+    # 0.72.3.post2: q4m is what people type for the mix. It is not a
+    # block format of its own -- Q4_K is the format, _M is the policy
+    # that widens attn_v/ffn_down and keeps the head at Q6_K.
+    "q4m": "q4_k_m",
+    "q4_m": "q4_k_m",
     "q5km": "q5_k_m",
     "q5_k_m": "q5_k_m",
 }
@@ -69,6 +74,7 @@ _SUBCOMMANDS = {
     "upload",
     "doctor",
     "fetch-llama-quantize",
+    "hyprslug-headers",
     "train",
     "generate",
     "oven",
@@ -1036,6 +1042,10 @@ def main(argv: list[str] | None = None) -> int:
         return path_main(rest)
     if cmd == "fetch-llama-quantize":
         return _run_fetch_llama_quantize(rest)
+    if cmd == "hyprslug-headers":
+        from hypernix.quant.hyprslug_headers_cli import main as _headers_main
+
+        return _headers_main(rest)
     if cmd == "train":
         return _run_train(rest)
     if cmd == "generate":

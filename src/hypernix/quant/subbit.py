@@ -112,12 +112,22 @@ class Packing:
 
 
 PACKINGS: dict[str, Packing] = {
-    #: 7 signs kept of every 8. The least destructive tier.
+    #: Every sign kept. The k == g case, where nothing is reconstructed
+    #: and the only loss is the magnitude — a binary net with a block
+    #: scale. 1.0625 bits/weight: one bit each plus the FP16 scale, the
+    #: same way Q4_0 is 4.5 and not 4.
+    "int1_binary": Packing("int1_binary", group=1, code_bits=1),
+    #: 7 signs kept of every 8. The least destructive sub-bit tier.
     "sign_scale_l": Packing("sign_scale_l", group=8, code_bits=7),
     #: 3 of every 4.
     "pair_code_m": Packing("pair_code_m", group=4, code_bits=3),
     #: 2 of every 4 — half the signs, and no magnitude at all.
     "quad_code_xxxl": Packing("quad_code_xxxl", group=4, code_bits=2),
+    #: 3 of every 16, and the other 13 repeat the third. 0.25 bits per
+    #: weight *exactly* — 8 bytes covering 256 weights, scale included.
+    #: About 59% of signs survive, which is barely above the 50% a coin
+    #: gets; see the warning on the tier.
+    "quarter_code_uxl": Packing("quarter_code_uxl", group=16, code_bits=3),
 }
 
 

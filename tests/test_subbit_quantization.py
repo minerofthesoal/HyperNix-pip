@@ -73,10 +73,29 @@ class TestTheBitRatesAreWhatTheTiersClaim:
     def test_each_packing_hits_its_advertised_rate(self, packing, expected_bpw):
         assert PACKINGS[packing].bits_per_weight == pytest.approx(expected_bpw)
 
-    def test_all_three_are_below_one_bit_per_weight(self):
+    #: The packings that claim to be sub-bit. ``int1_binary`` is in this
+    #: module's PACKINGS table but is not one of them: it is the k == g
+    #: end of the same machinery, one whole bit per weight plus the
+    #: scale, and it is named INT1 rather than IQ-something precisely so
+    #: nobody expects otherwise.
+    SUB_BIT_PACKINGS = [
+        "sign_scale_l", "pair_code_m", "quad_code_xxxl", "quarter_code_uxl",
+    ]
+
+    def test_every_sub_bit_packing_is_below_one_bit_per_weight(self):
         """The entire premise. A 'sub-bit' tier at 1.06 bpw is not one."""
-        for spec in PACKINGS.values():
-            assert spec.bits_per_weight < 1.0, spec.name
+        for name in self.SUB_BIT_PACKINGS:
+            assert PACKINGS[name].bits_per_weight < 1.0, name
+
+    def test_the_one_packing_that_is_not_sub_bit_says_so_in_its_name(self):
+        """It would be easy to let INT1 drift into the sub-bit list and
+        quietly weaken what 'sub-bit' means."""
+        not_sub_bit = [
+            name for name, spec in PACKINGS.items()
+            if spec.bits_per_weight >= 1.0
+        ]
+        assert not_sub_bit == ["int1_binary"]
+        assert TIER_TYPES["INT1"][1] == "int1_binary"
 
     def test_more_bits_means_less_error(self):
         """Monotonic, or the tiers are not a ladder.
@@ -101,8 +120,15 @@ class TestTheBitRatesAreWhatTheTiersClaim:
         If they drift, every tensor offset after the first is wrong and
         the file opens, reports sensible shapes and returns garbage.
         """
+        from hypernix.quant.lowbit import CODECS
+
         for tier, (ggml_type, packing) in TIER_TYPES.items():
-            assert PACKINGS[packing].block_bytes == type_size_bytes(ggml_type), tier
+            emitted = (
+                PACKINGS[packing].block_bytes
+                if packing in PACKINGS
+                else CODECS[packing].block_bytes
+            )
+            assert emitted == type_size_bytes(ggml_type), tier
 
 
 class TestBlockRoundTrip:
@@ -600,15 +626,18 @@ class TestTheHyprslugCLI:
             code = main(list(argv))
         return code, out.getvalue()
 
-    def test_list_tiers_names_all_three(self):
+    def test_list_tiers_names_every_tier(self):
         code, text = self._run("--list-tiers")
         assert code == 0
         for tier in TIER_TYPES:
             assert tier in text
 
     def test_it_reports_the_real_bit_rate(self):
+        """The rate the packer emits, not the rate the name suggests --
+        which for the fixed-codebook tiers are different numbers."""
         _, text = self._run("--list-tiers")
-        assert "0.938" in text and "0.812" in text and "0.562" in text
+        for rate in ("0.938", "0.812", "0.562", "0.250", "1.062", "4.062", "2.062"):
+            assert rate in text, rate
 
     def test_it_quantises_a_file(self, tmp_path):
         source = _write_gguf(
