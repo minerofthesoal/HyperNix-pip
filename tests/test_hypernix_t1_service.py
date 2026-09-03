@@ -43,7 +43,7 @@ def run(*argv: str, home: Path, config: Path, timeout: int = 60):
     result = subprocess.run(
         [BASH, str(SCRIPT), *argv],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         timeout=timeout,
         env={
             **os.environ,
@@ -68,7 +68,8 @@ def configured(tmp_path):
         "T1_PORT=8123\n"
         f"T1_KEYMASTER_DIR={config}/keymaster\n"
         f"T1_DB_PATH={config}/t1.sqlite3\n"
-        "T1_TOKEN_SECRET=" + "d" * 64 + "\n"
+        "T1_TOKEN_SECRET=" + "d" * 64 + "\n",
+        encoding="utf-8",
     )
     return home, config
 
@@ -93,7 +94,7 @@ class TestShape:
         # touched nothing turns red.
         result = subprocess.run(
             ["shellcheck", "--severity=warning", str(SCRIPT)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8",
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
@@ -118,7 +119,7 @@ class TestProcessIdentity:
 
     def test_a_stale_pid_is_not_reported_as_running(self, configured):
         home, config = configured
-        (config / "server.pid").write_text("999999\n")
+        (config / "server.pid").write_text("999999\n", encoding="utf-8")
         assert "not running" in run("status", home=home, config=config).output
 
     def test_someone_elses_process_is_not_claimed(self, configured):
@@ -126,7 +127,7 @@ class TestProcessIdentity:
         home, config = configured
         victim = subprocess.Popen(["sleep", "120"])
         try:
-            (config / "server.pid").write_text(f"{victim.pid}\n")
+            (config / "server.pid").write_text(f"{victim.pid}\n", encoding="utf-8")
             assert "not running" in run("status", home=home, config=config).output
             # And stop must not kill it.
             run("stop", home=home, config=config)
@@ -143,7 +144,7 @@ class TestProcessIdentity:
         four-line note pushed the `ps` line past the window and the test
         failed while the code was correct.
         """
-        body = _function_body(SCRIPT.read_text(), "server_pid")
+        body = _function_body(SCRIPT.read_text(encoding="utf-8"), "server_pid")
         assert "kill -0" in body, "does not check the PID is alive"
         assert "hypernix.t1api" in body, "does not check the command line"
 
@@ -152,7 +153,7 @@ class TestConfig:
     def test_the_env_file_is_read_not_sourced(self):
         """.env is a file people edit by hand; sourcing runs whatever
         ends up in it."""
-        source = SCRIPT.read_text()
+        source = SCRIPT.read_text(encoding="utf-8")
         body = source.split("load_env()")[1].split("\n}")[0]
         # The syntax, not the word — the function's own comment explains
         # why sourcing is avoided, and matching that proves nothing.
@@ -164,7 +165,7 @@ class TestConfig:
 
     def test_only_known_prefixes_are_exported(self):
         """A stray line in .env should not set PATH or LD_PRELOAD."""
-        assert 'T1_*|HYPERNIX_*)' in SCRIPT.read_text()
+        assert 'T1_*|HYPERNIX_*)' in SCRIPT.read_text(encoding="utf-8")
 
 
 class TestTheSystemdUnit:
@@ -181,7 +182,7 @@ class TestTheSystemdUnit:
         if not unit.exists():
             pytest.skip("systemd not available to write a unit here")
         line = next(
-            row for row in unit.read_text().splitlines() if row.startswith("ExecStart=")
+            row for row in unit.read_text(encoding="utf-8").splitlines() if row.startswith("ExecStart=")
         )
         path = line.split("=", 1)[1].split()[0]
         assert path.startswith("/"), line
@@ -190,7 +191,7 @@ class TestTheSystemdUnit:
         """A user unit gets a minimal PATH, and a tailscale in
         /usr/local/bin then becomes invisible — which presents as
         "Tailscale is broken" when only PATH is."""
-        source = SCRIPT.read_text()
+        source = SCRIPT.read_text(encoding="utf-8")
         assert "Environment=PATH=" in source
         assert "/usr/local/bin" in source
 
@@ -241,7 +242,7 @@ class TestTheSystemdUnit:
 
     def test_it_runs_the_foreground_form_under_systemd(self):
         """No PID file and no backgrounding: systemd supervises."""
-        source = SCRIPT.read_text()
+        source = SCRIPT.read_text(encoding="utf-8")
         assert "start-foreground" in source
         foreground = _function_body(source, "cmd_start_foreground")
         assert "exec " in foreground
@@ -254,12 +255,12 @@ class TestRemoveKeepsTheKeys:
 
         Everything else in the config directory can be rebuilt.
         """
-        body = _function_body(SCRIPT.read_text(), "cmd_remove")
+        body = _function_body(SCRIPT.read_text(encoding="utf-8"), "cmd_remove")
         assert "! -name keymaster" in body
         assert "Keeping the key store" in body
 
     def test_it_requires_typing_the_word(self):
-        body = _function_body(SCRIPT.read_text(), "cmd_remove")
+        body = _function_body(SCRIPT.read_text(encoding="utf-8"), "cmd_remove")
         assert "'remove'" in body or '"remove"' in body
 
 
@@ -326,7 +327,7 @@ class TestCreateWithoutACheckout:
     def _run(self, copied: Path, *argv: str, home: Path, config: Path):
         return subprocess.run(
             [BASH, str(copied), *argv],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding="utf-8", timeout=120,
             env={
                 **os.environ,
                 "HOME": str(home),
@@ -346,7 +347,7 @@ class TestCreateWithoutACheckout:
                            home=home, config=config)
 
         assert result.returncode == 0, result.stdout + result.stderr
-        env = (config / ".env").read_text()
+        env = (config / ".env").read_text(encoding="utf-8")
         assert "T1_PORT=8971" in env
         assert "T1_HOST=127.0.0.1" in env
         assert f"T1_KEYMASTER_DIR={config}/keymaster" in env
@@ -367,7 +368,7 @@ class TestCreateWithoutACheckout:
             assert oct(env_file.stat().st_mode)[-3:] == "600"
         secret = next(
             line.split("=", 1)[1]
-            for line in env_file.read_text().splitlines()
+            for line in env_file.read_text(encoding="utf-8").splitlines()
             if line.startswith("T1_TOKEN_SECRET=")
         )
         assert len(secret) == 64
@@ -382,7 +383,7 @@ class TestCreateWithoutACheckout:
             home.mkdir()
             copied = self._isolated(tmp_path / f"run{i}")
             self._run(copied, "create", home=home, config=config)
-            secrets.append((config / ".env").read_text())
+            secrets.append((config / ".env").read_text(encoding="utf-8"))
         assert secrets[0] != secrets[1]
 
     def test_it_refuses_to_overwrite_without_force(self, tmp_path):
@@ -391,16 +392,16 @@ class TestCreateWithoutACheckout:
         copied = self._isolated(tmp_path)
 
         self._run(copied, "create", home=home, config=config)
-        first = (config / ".env").read_text()
+        first = (config / ".env").read_text(encoding="utf-8")
         again = self._run(copied, "create", home=home, config=config)
 
         assert again.returncode != 0
         assert "already exists" in again.stdout + again.stderr
-        assert (config / ".env").read_text() == first
+        assert (config / ".env").read_text(encoding="utf-8") == first
 
         forced = self._run(copied, "create", "--force", home=home, config=config)
         assert forced.returncode == 0
-        assert (config / ".env").read_text() != first
+        assert (config / ".env").read_text(encoding="utf-8") != first
 
     def test_it_says_what_the_minimal_config_does_not_cover(self, tmp_path):
         """Silence here would read as "configured", which it is not."""
@@ -432,7 +433,7 @@ class TestCreateWithoutACheckout:
         home.mkdir()
         result = subprocess.run(
             [BASH, str(SCRIPT), "create", "--help"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding="utf-8", timeout=120,
             env={**os.environ, "HOME": str(home),
                  "T1_CONFIG_DIR": str(config), "NO_COLOR": "1"},
         )
@@ -459,7 +460,7 @@ class TestTheTwoCreatePathsAgree:
         installer = REPO_ROOT / "install-t1.sh"
         if not installer.is_file():
             pytest.skip("no checkout")
-        source = installer.read_text()
+        source = installer.read_text(encoding="utf-8")
         for flag in ("--host)", "--port)", "--force)"):
             assert flag in source, flag
 
@@ -473,11 +474,11 @@ class TestTheTwoCreatePathsAgree:
         installer = REPO_ROOT / "install-t1.sh"
         if not installer.is_file():
             pytest.skip("no checkout")
-        source = installer.read_text()
+        source = installer.read_text(encoding="utf-8")
         assert "T1_HOST=$BIND_HOST" in source
         assert "T1_PORT=$BIND_PORT" in source
 
-        manager = SCRIPT.read_text()
+        manager = SCRIPT.read_text(encoding="utf-8")
         assert 'setting T1_HOST' in manager
         assert 'setting T1_PORT' in manager
 
@@ -489,7 +490,7 @@ class TestTheTwoCreatePathsAgree:
         installer = REPO_ROOT / "install-t1.sh"
         if not installer.is_file():
             pytest.skip("no checkout")
-        source = installer.read_text()
+        source = installer.read_text(encoding="utf-8")
         body = _function_body(source, "write_env")
         assert "FORCE_OVERWRITE" in body
         assert "already exists" in body

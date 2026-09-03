@@ -66,7 +66,7 @@ class TestShape:
         result = subprocess.run(
             ["shellcheck", "--severity=warning", str(SCRIPT)],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
@@ -175,16 +175,82 @@ class TestNoHeredocRunsCommands:
         (tmp_path / "bin").mkdir(parents=True)
         for name in ("hypernix-t1", "hypernix"):
             shim = tmp_path / "bin" / name
-            shim.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 0\n')
+            shim.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 0\n', encoding="utf-8")
             shim.chmod(0o755)
 
         subprocess.run(
             [BASH, str(SCRIPT), "--non-interactive", "--install", "skip",
              "--dry-run"],
-            capture_output=True, text=True, timeout=300, env=env, check=False,
+            capture_output=True, text=True, encoding="utf-8", timeout=300, env=env, check=False,
         )
         assert not marker.exists(), (
             "the installer ran a command that only appears inside a heredoc"
+        )
+
+
+class TestNothingHereTrustsTheMachinesLocale:
+    """These tests read UTF-8 shell scripts. They must say so.
+
+    ``install-t1.sh`` carries 476 non-ASCII bytes — em dashes, tick
+    marks — and prints them. ``Path.read_text()`` and
+    ``subprocess.run(text=True)`` both decode with
+    ``locale.getpreferredencoding()``, which is UTF-8 on Linux and macOS
+    and **cp1252** on Windows. So every one of these calls was correct on
+    two thirds of the CI matrix and raised on the third:
+
+        UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f in
+        position 2607: character maps to <undefined>
+
+    Same shape as the device-placement bug in ``hnxrun``: an implicit
+    default that happens to be right on the machine the tests were
+    written on. A locale is not observable from inside a passing test, so
+    this is checked at the source level instead — the only place the
+    property lives.
+
+    Scoped to the files that drive the shell scripts. Elsewhere a bare
+    ``read_text`` may be reading something this repo wrote as ASCII, and
+    a blanket rule would be noise rather than a guard.
+    """
+
+    #: Test modules that read or run the UTF-8 shell scripts.
+    SHELL_TEST_FILES = (
+        "test_install_script.py",
+        "test_hypernix_t1_service.py",
+        "test_t1api_example_scripts.py",
+        "test_autofix_scripts.py",
+    )
+
+    def _calls(self, module: str):
+        import ast
+
+        tree = ast.parse((Path(__file__).parent / module).read_text(
+            encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else None
+            if name in ("read_text", "write_text"):
+                yield node, name, {kw.arg for kw in node.keywords}
+            elif name == "run" and any(
+                kw.arg == "text" for kw in node.keywords
+            ):
+                yield node, "run(text=True)", {kw.arg for kw in node.keywords}
+
+    @pytest.mark.parametrize("module", SHELL_TEST_FILES)
+    def test_the_audit_finds_something_to_audit(self, module):
+        assert len(list(self._calls(module))) >= 2
+
+    @pytest.mark.parametrize("module", SHELL_TEST_FILES)
+    def test_every_read_and_capture_names_its_encoding(self, module):
+        offenders = [
+            f"{module}:{node.lineno} {kind}"
+            for node, kind, keywords in self._calls(module)
+            if "encoding" not in keywords
+        ]
+        assert not offenders, (
+            "these decode with the machine's locale, which is UTF-8 here "
+            "and cp1252 on Windows: " + "; ".join(offenders)
         )
 
 
@@ -250,7 +316,7 @@ class TestDryRun:
                 "skip",
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
             timeout=180,
             env={**os.environ, "NO_COLOR": "1", "HOME": str(tmp_path / "home")},
         )
@@ -259,7 +325,7 @@ class TestDryRun:
 
     def test_help_exits_zero(self):
         result = subprocess.run(
-            [BASH, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
+            [BASH, str(SCRIPT), "--help"], capture_output=True, text=True, encoding="utf-8", timeout=60
         )
         assert result.returncode == 0
         assert "--non-interactive" in result.stdout
@@ -268,7 +334,7 @@ class TestDryRun:
         result = subprocess.run(
             [BASH, str(SCRIPT), "--not-a-flag"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
             timeout=60,
         )
         assert result.returncode != 0
@@ -290,7 +356,7 @@ class TestCidrValidation:
             + f'\nvalidate_cidrs "{value}"\n'
         )
         return subprocess.run(
-            [BASH, "-c", harness], capture_output=True, text=True, timeout=60
+            [BASH, "-c", harness], capture_output=True, text=True, encoding="utf-8", timeout=60
         ).stdout.strip()
 
     @pytest.mark.parametrize(
@@ -586,7 +652,7 @@ class TestTheYesFlag:
 
     def test_the_help_text_describes_what_it_does(self):
         result = subprocess.run(
-            [BASH, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
+            [BASH, str(SCRIPT), "--help"], capture_output=True, text=True, encoding="utf-8", timeout=60
         )
         assert "--yes" in result.stdout
         # Collapse the wrapping first: the help text is hard-wrapped, so
@@ -607,7 +673,7 @@ class TestTheYesFlag:
              "--config-dir", str(target)],
             input=answers,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
             timeout=300,
             env={**os.environ, "NO_COLOR": "1", "HOME": str(tmp_path / "home")},
         )
@@ -705,7 +771,7 @@ done
         result = subprocess.run(
             [BASH, str(SCRIPT), "--dry-run", "--non-interactive",
              "--config-dir", str(tmp_path / "cfg"), "--install", "skip"],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, encoding="utf-8", timeout=300,
             env={
                 **os.environ,
                 "NO_COLOR": "1",
@@ -751,7 +817,7 @@ done
             [BASH, str(SCRIPT), "--dry-run", "--non-interactive",
              "--python", "/definitely/not/a/python",
              "--config-dir", str(tmp_path / "cfg")],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True, encoding="utf-8", timeout=180,
             env={**os.environ, "NO_COLOR": "1", "HOME": str(tmp_path / "home")},
         )
         assert result.returncode != 0
@@ -784,7 +850,7 @@ done
         result = subprocess.run(
             [BASH, str(SCRIPT), "--non-interactive", "--install", "skip",
              "--config-dir", str(tmp_path / "cfg")],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, encoding="utf-8", timeout=300,
             env={
                 **os.environ,
                 "NO_COLOR": "1",

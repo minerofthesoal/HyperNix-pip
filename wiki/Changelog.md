@@ -20,6 +20,77 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3.post4 — the accelerator path, actually on an accelerator
+
+𖢥 **`--hnx-device auto` was broken on every accelerator, and the whole
+local suite passed.** `_rope` built its inverse-frequency table with
+`torch.arange(...)` and no `device=`. On a CPU run that is correct by
+accident, because the default device *is* the CPU; anywhere else the
+table lands on the host, the positions land on the card, and the first
+forward pass ends with *"Expected all tensors to be on the same device,
+but found at least two devices, mps:0 and cpu!"*.
+
+Not an MPS quirk. CUDA and XPU would have failed identically on the first
+token — `auto` is the default, so this was the default path. The macOS CI
+runners are the only machines in the matrix with a device, so they were
+the only jobs that could see it: twelve failures there, green on Linux
+and Windows, green locally, on the same commit.
+
+𖢥 **Seeded sampling raised instead of sampling, off the CPU.**
+`generate_tokens` seeds a `torch.Generator(device="cpu")` and
+`torch.multinomial` refuses a generator whose device differs from the
+tensor's. The probability vector is now moved to the CPU rather than the
+generator to the device — which also means a seed picks the same draws on
+every backend, where a per-device generator would not.
+
+🔧 **A placement bug is invisible on a one-device machine**, so no number
+of ordinary tests could have caught either. `tests/test_hnx_device_placement.py`
+runs the rotation against `device="meta"` — tensors that allocate nothing
+but still carry a device identity torch enforces — which turns "would
+break on MPS" into an assertion that fails on a CPU-only box. Beside it,
+an audit parses the runtime modules and requires every `torch` tensor
+factory to pass `device=` (and every `from_numpy` to be followed by a
+`.to(...)`), because that is the class the one line belonged to. Four of
+the eleven fail on the pre-fix source; the rope one was the only naive
+factory left in either module.
+
+𖢥 **Every Windows test job was red on a locale, not a bug in the code
+under test.** `install-t1.sh` carries 476 non-ASCII bytes — em dashes,
+tick marks — and prints them. `Path.read_text()` and
+`subprocess.run(text=True)` both decode with
+`locale.getpreferredencoding()`, which is UTF-8 on Linux and macOS and
+**cp1252** on Windows, so twelve tests that drive the shell scripts
+raised *"'charmap' codec can't decode byte 0x8f in position 2607"* there
+and passed everywhere else. Every read, write and capture in the four
+shell-script test modules now names `encoding="utf-8"`, and a source-level
+audit keeps it that way — a locale is not observable from inside a
+passing test, so that is the only place the property lives.
+
+The same shape as the device bug above: an implicit default that happens
+to be correct on the machine the tests were written on. Noted while
+fixing it, not fixed here: `src/` still has a dozen bare `read_text()`
+calls on JSON and config files, which is the same latent issue for
+Windows *users* rather than for CI. That is a separate change.
+
+🐛 **A heredoc in `install-t1.sh` ran commands while writing `.env`.**
+Codacy's shellcheck reported two backticks as "use `$(...)` instead of
+legacy backticks", which read like a style nit and was not: the `.env`
+heredoc is unquoted so it can expand `$BIND_HOST`, so a backtick in its
+body is command substitution. Two comment lines describing where the
+server listens each *ran* `hypernix-t1 start` while the config was being
+written. Fixed to single quotes, with a note in the file saying why a
+backtick cannot appear there, and two regression tests — a heredoc parser
+that tells `<<'EOF'` from `<<EOF`, and an end-to-end check with a
+marker-touching shim named `hypernix-t1` on `PATH`.
+
+🐛 **`test_a_machine_with_no_user_bus_says_what_to_do` failed on every
+runner.** It inferred "took the no-bus branch" from a non-zero exit code.
+Runners have a working user bus *and* still exit non-zero, because the
+test redirects `HOME` and systemd cannot see a unit written there — a
+third case the guard did not have. It now probes `systemctl --user
+show-environment` directly, which is the condition it actually cares
+about: skips on a runner, asserts in a container.
+
 ## 0.72.3.post3 — CUDA, ROCm, Metal, Intel; and the Vulkan answer
 
 ✨ **The sub-bit runtime runs on accelerators, and the packed bytes stay
@@ -28,6 +99,10 @@ decoders in ops every backend supports — shifts, masks, gathers — so the
 same code runs on CUDA, ROCm, MPS and XPU. It is asserted *bit-identical*
 to the numpy decoders, not close: integer unpacking followed by one
 multiply has no rounding to hide behind.
+
+*(The decoders were bit-identical, and were tested as such. The forward
+pass around them had never run on an accelerator in CI when this shipped
+— see `post4` for what that hid.)*
 
 The arrangement is the point. The obvious port — decode with numpy, then
 `.to("cuda")` — is the worst one available: it pushes **expanded

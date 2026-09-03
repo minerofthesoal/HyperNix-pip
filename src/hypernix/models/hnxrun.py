@@ -960,7 +960,19 @@ def _rope(x, positions, theta: float, rope_dims: int):
     rotated = x[..., :dims]
     passthrough = x[..., dims:]
 
-    inverse = 1.0 / (theta ** (torch.arange(0, dims, 2, dtype=torch.float32) / dims))
+    # device=x.device, not the default. Without it this table is built on
+    # the CPU and multiplied by positions that live wherever the model
+    # does, which is fine on a CPU run and a hard error on every
+    # accelerator -- the whole forward pass dies with "found at least two
+    # devices". Nothing here reads a device from a global, so the tensor
+    # being rotated is the only authority on where the arithmetic goes.
+    inverse = 1.0 / (
+        theta
+        ** (
+            torch.arange(0, dims, 2, dtype=torch.float32, device=x.device)
+            / dims
+        )
+    )
     angles = positions.to(torch.float32)[:, None] * inverse[None, :]
     cos = torch.cos(angles)[None, :, :]
     sin = torch.sin(angles)[None, :, :]
@@ -1136,7 +1148,15 @@ def generate_tokens(
                 cut = torch.topk(scaled, int(top_k)).values[-1]
                 scaled = scaled.masked_fill(scaled < cut, float("-inf"))
             probabilities = torch.softmax(scaled, dim=-1)
-            token = int(torch.multinomial(probabilities, 1, generator=generator))
+            # The draw happens on the CPU whatever the model runs on. The
+            # generator above is a CPU one, and torch refuses a generator
+            # whose device differs from the tensor's, so a device-resident
+            # probability vector would raise here rather than sample. It
+            # also means a seed picks the same sequence of draws on every
+            # backend, which a per-device generator would not.
+            token = int(
+                torch.multinomial(probabilities.cpu(), 1, generator=generator)
+            )
         produced.append(token)
         if token in stops:
             break

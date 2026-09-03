@@ -181,6 +181,44 @@ re-quantised — it already opens, and re-encoding would lose a generation
 of quality for nothing. Set `LMSTUDIO_HOME` or pass `--root` if the store
 is somewhere unusual.
 
+## The bug that proves this needed a device to test on
+
+`--hnx-device` defaults to `auto`, so the accelerator path is the default
+path. It was also, until `7a6e68d`, broken on **every** accelerator — and
+the whole local suite passed anyway.
+
+`_rope` built its inverse-frequency table with `torch.arange(...)` and no
+`device=`. On a CPU run that is right by accident, because the default
+device *is* the CPU. Anywhere else the table sits on the CPU, the
+positions sit on the GPU, and the first token dies:
+
+```
+RuntimeError: Expected all tensors to be on the same device, but found
+at least two devices, mps:0 and cpu!
+```
+
+Not an MPS quirk — CUDA and XPU would have failed identically on the
+first forward pass. The macOS CI runners are simply the only machines in
+the matrix with a device, so they were the only jobs that could see it:
+twelve failures there, green everywhere else, green locally.
+
+The second half was the same shape. `generate_tokens` seeds a
+`torch.Generator(device="cpu")`, and `torch.multinomial` refuses a
+generator whose device differs from the tensor's, so seeded sampling
+raised rather than sampled. The vector is now moved to the CPU rather
+than the generator to the device, which also makes a seed pick the same
+draws on every backend.
+
+**What the tests learned from it.** A placement bug is invisible on a
+one-device machine, so more tests of the ordinary kind could not have
+found it. `tests/test_hnx_device_placement.py` uses `device="meta"` —
+tensors that allocate nothing but still carry a device identity torch
+enforces — which makes "would break on MPS" an ordinary assertion that
+fails on a CPU-only box. Alongside it, an audit parses the runtime
+modules and requires every `torch` tensor factory to say where its result
+goes, because that is the class the one line belonged to. Four of the
+eleven fail on the pre-fix source.
+
 ## Refusals
 
 `--device auto` falls back to the CPU, which cannot be absent. A **named**

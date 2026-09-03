@@ -45,7 +45,7 @@ def _run_script(name: str, *args: str) -> subprocess.CompletedProcess:
     env["HYPERNIX_AUTO_INSTALL"] = "0"
     return subprocess.run(
         [sys.executable, str(SCRIPTS / name), *args],
-        cwd=REPO_ROOT, capture_output=True, text=True, timeout=600, env=env,
+        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env,
     )
 
 
@@ -116,7 +116,7 @@ class TestDiscovery:
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
              "--collect-only", node_id],
-            cwd=REPO_ROOT, capture_output=True, text=True, timeout=300,
+            cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", timeout=300,
             env={"PYTHONPATH": str(SRC), "PATH": "/usr/bin:/bin:/usr/local/bin"},
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
