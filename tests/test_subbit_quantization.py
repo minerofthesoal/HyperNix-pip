@@ -495,6 +495,99 @@ class TestTheCLI:
         assert '__name__ == "__main__"' in source
 
 
+class TestTheEmbeddingPolicyIsReachable:
+    """The tier's name has to describe the file it produces.
+
+    A sub-bit tier leaves ``token_embd`` and the output head in float by
+    default, and the reason is sound: at half a bit the embedding table
+    is the model. But it has a size consequence nobody chose -- on a 7B
+    an untouched F32 table and head are most of the resulting file, so a
+    tier called ``IQ0.5_XXXL`` produced something closer to 1.7 bits per
+    weight. The policy was reachable from ``hyprslug.quantize_gguf`` and
+    from no command line at all, which meant the headline number in the
+    docs could not actually be obtained with the tool.
+    """
+
+    @pytest.fixture(scope="class")
+    def source(self, tmp_path_factory):
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_hnxrun import _write_model
+
+        directory = tmp_path_factory.mktemp("embed-policy")
+        return _write_model(directory / "tiny.f32.gguf", tokenizer=True)
+
+    def _quantize(self, source, name, *flags):
+        import contextlib
+        import io
+
+        from hypernix.interfaces import cli
+        from hypernix.models.ggufrun import load_gguf
+
+        out = Path(source).parent / f"{name}.gguf"
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+            code = cli.main([
+                "quantize", "--source", str(source), "--output", str(out),
+                "--type", "IQ0.5_XXXL", "-hnx", *flags,
+            ])
+        assert code == 0, buffer.getvalue()
+        return load_gguf(out).model.resident_bits_per_weight
+
+    def test_the_default_leaves_the_table_in_float(self, source):
+        """Unchanged behaviour, stated as a number so a change to it is
+        a test failure rather than a surprise."""
+        assert self._quantize(source, "default") > 4.0
+
+    def test_quantising_both_gets_under_a_bit(self, source):
+        """The number the tier is named for, obtainable from the CLI."""
+        both = self._quantize(
+            source, "both", "--quantize-embeddings", "--quantize-output"
+        )
+        assert both < 1.0
+
+    def test_each_flag_moves_it_on_its_own(self, source):
+        default = self._quantize(source, "d2")
+        embeddings = self._quantize(source, "e2", "--quantize-embeddings")
+        both = self._quantize(
+            source, "b2", "--quantize-embeddings", "--quantize-output"
+        )
+        assert default > embeddings > both
+
+    def test_the_negative_form_is_the_default(self, source):
+        """argparse's BooleanOptionalAction, so a script can be explicit
+        about wanting the float table rather than relying on a default."""
+        assert self._quantize(
+            source, "explicit", "--no-quantize-embeddings", "--no-quantize-output"
+        ) == self._quantize(source, "d3")
+
+    def test_the_result_still_runs(self, source):
+        """A smaller file that does not load is not an improvement."""
+        import contextlib
+        import io
+
+        from hypernix.interfaces import cli
+
+        out = Path(source).parent / "runs.gguf"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            assert cli.main([
+                "quantize", "--source", str(source), "--output", str(out),
+                "--type", "IQ0.5_XXXL", "-hnx",
+                "--quantize-embeddings", "--quantize-output",
+            ]) == 0
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            code = cli.main([
+                "generate", "--model-dir", str(out), "--prompt", "hi",
+                "--max-new-tokens", "3",
+            ])
+        assert code == 0
+        assert printed.getvalue().strip()
+
+
 class TestTheHyprslugCLI:
     def _run(self, *argv: str) -> tuple[int, str]:
         import contextlib

@@ -33,6 +33,7 @@ reachable if you already knew the filename. Fixed.)
 | [HyprSlug](HyprSlug.md) | Quantise a GGUF with no llama.cpp at all — the upstream types (`Q4_K_M` and friends) *and* the sub-bit tiers (`IQ0.9_L`, `IQ0.75_M`, `IQ0.5_XXXL`), which `llama-quantize` cannot produce. |
 | [Imatrix](Imatrix.md) | Measure an importance matrix from activations, and read anyone else's — both llama.cpp's binary format and JSON. |
 | [Dflash2](Dflash2.md) | A draft model carried inside the model it drafts for. Speculative decoding from one file, with the same tokens out. |
+| [HnxRun](HnxRun.md) | The runtime for the models llama.cpp cannot read — loads and runs a sub-bit GGUF, so a 0.5-bit quantisation has somewhere to go. |
 | [PipelineMechanics](PipelineMechanics.md) | The small support modules gluing download → convert → quantize together. |
 
 **Training core**

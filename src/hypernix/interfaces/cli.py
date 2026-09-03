@@ -428,6 +428,19 @@ def _run_quantize(raw: list[str]) -> int:
     )
     p.add_argument("--imatrix", default=None,
                    help="Importance matrix as JSON (hyprslug tiers).")
+    p.add_argument(
+        "--quantize-embeddings", dest="quantize_embeddings",
+        action=argparse.BooleanOptionalAction, default=None,
+        help="Include token_embd in the quantisation. A sub-bit tier leaves "
+             "it in float by default, because at half a bit the embedding "
+             "table is the model — but on a 7B that untouched table is then "
+             "most of the file, so a genuinely sub-1-bit result needs this.",
+    )
+    p.add_argument(
+        "--quantize-output", dest="quantize_output",
+        action=argparse.BooleanOptionalAction, default=None,
+        help="Include the output head. Same default and the same trade.",
+    )
     ns = p.parse_args(raw)
     with Spinner(f"Quantizing → {ns.qtype.upper()}", style="bar"):
         out = quantize_gguf(
@@ -436,6 +449,8 @@ def _run_quantize(raw: list[str]) -> int:
             auto_fetch=ns.auto_fetch, auto=ns.auto,
             backend="hnx" if ns.hnx else "auto",
             imatrix=ns.imatrix,
+            quantize_embeddings=ns.quantize_embeddings,
+            quantize_output=ns.quantize_output,
         )
     print(out)
     return 0
@@ -765,6 +780,42 @@ def _run_oven(raw: list[str]) -> int:
     return 0
 
 
+_SIZE_SUFFIXES = {"": 1, "b": 1, "k": 1 << 10, "m": 1 << 20, "g": 1 << 30, "t": 1 << 40}
+
+
+def _parse_size(text: str) -> int:
+    """``"2G"`` -> bytes. Plain digits are already bytes.
+
+    Written out because ``--cache-bytes 2000000000`` is a number nobody
+    types correctly, and a silently mis-parsed budget is a memory limit
+    that does not hold.
+    """
+    cleaned = str(text).strip().lower().removesuffix("ib").removesuffix("b")
+    if not cleaned:
+        raise argparse.ArgumentTypeError("expected a size like 512M or 2G")
+    suffix = cleaned[-1] if cleaned[-1] in _SIZE_SUFFIXES else ""
+    number = cleaned[:-1] if suffix else cleaned
+    try:
+        value = float(number)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a size. Try 512M, 2G, or a plain byte count."
+        ) from None
+    if value < 0:
+        raise argparse.ArgumentTypeError("a size cannot be negative")
+    return int(value * _SIZE_SUFFIXES[suffix])
+
+
+#: Shared by `generate` and `chat`, because a flag that means one thing
+#: on one command and is missing on the other is worse than no flag.
+_CACHE_BYTES_HELP = (
+    "Memory to spend keeping sub-bit weights decoded (e.g. 512M, 2G). "
+    "The IQ0.x tiers hold their weights packed and unpack inside every "
+    "matmul, which costs about 4x float32 in time; this buys some of it "
+    "back, largest tensors first. Ignored for models llama.cpp runs."
+)
+
+
 def _run_chat(raw: list[str]) -> int:
     """`hypernix chat` — chat REPL against any HyperNix-family model.
 
@@ -798,6 +849,8 @@ def _run_chat(raw: list[str]) -> int:
     p.add_argument("--top-p", type=float, default=0.95)
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--cache-bytes", dest="cache_bytes", type=_parse_size,
+                   default=0, help=_CACHE_BYTES_HELP)
 
     ns = p.parse_args(raw)
 
@@ -810,7 +863,9 @@ def _run_chat(raw: list[str]) -> int:
     gguf_model = None
     if ns.model_dir and is_gguf(ns.model_dir):
         try:
-            gguf_model = load_gguf(ns.model_dir, quiet=ns.quiet)
+            gguf_model = load_gguf(
+                ns.model_dir, quiet=ns.quiet, cache_bytes=ns.cache_bytes
+            )
         except GGUFRunError as exc:
             print(f"hypernix chat: {exc}", file=sys.stderr)
             return 1
@@ -881,6 +936,8 @@ def _run_generate(raw: list[str]) -> int:
     p.add_argument("--device", default=None)
     p.add_argument("--dtype", default="float32",
                    choices=["float32", "float16", "bfloat16"])
+    p.add_argument("--cache-bytes", dest="cache_bytes", type=_parse_size,
+                   default=0, help=_CACHE_BYTES_HELP)
     ns = p.parse_args(raw)
 
     # A .gguf is not a snapshot directory, and generate_text would fail
@@ -895,6 +952,7 @@ def _run_generate(raw: list[str]) -> int:
                 ns.model_dir, ns.prompt,
                 max_new_tokens=ns.max_new_tokens,
                 temperature=ns.temperature,
+                cache_bytes=ns.cache_bytes,
             ))
         except GGUFRunError as exc:
             print(f"hypernix generate: {exc}", file=sys.stderr)

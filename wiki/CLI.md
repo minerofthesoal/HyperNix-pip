@@ -166,6 +166,27 @@ hypernix quantize --source ./out-fp16.gguf --output ./out-q4.gguf --type q4_k_m
 | `--llama-quantize PATH` | auto |
 | `--no-auto-fetch` | false |
 | `--auto` | false (walks back releases + PyPI fallback) |
+| `-hnx` | false — quantise with hyprslug, never touch llama.cpp |
+| `--imatrix PATH` | none (hyprslug tiers) |
+| `--quantize-embeddings` / `--no-…` | tier's default |
+| `--quantize-output` / `--no-…` | tier's default |
+
+`-hnx` is what the sub-bit tiers need: `llama-quantize` has never heard
+of `IQ0.9_L`, `IQ0.75_M` or `IQ0.5_XXXL`, so nothing is looked for,
+downloaded or built.
+
+```bash
+hypernix quantize --source model.f32.gguf --output model.iq05.gguf \
+    --type IQ0.5_XXXL -hnx --quantize-embeddings --quantize-output
+```
+
+Those last two matter more than they look. A sub-bit tier leaves
+`token_embd` and the output head in float by default, because at half a
+bit the embedding table *is* the model — but on a 7B an untouched F32
+table and head are then most of the resulting file, and a tier called
+`IQ0.5_XXXL` lands nearer 1.7 bits per weight than 0.5. Pass both to get
+the number the tier is named for; leave them off to keep the quality the
+default is protecting. [HnxRun](HnxRun.md) runs either.
 
 ## `verify`
 
@@ -287,6 +308,24 @@ hypernix generate --model-dir ./snapshot --prompt "def fib(n):" \
 Small sampler, no chat template, no stop-sequence trimming. For
 code-oriented generation use `oven`; for conversations use `chat`.
 
+`--model-dir` also takes a `.gguf` file, not just a snapshot directory —
+GGUF is the format this package spends most of its time producing.
+Upstream quant types go to llama.cpp; the sub-bit tiers go to
+[HnxRun](HnxRun.md), because no llama.cpp can read them.
+
+```bash
+hypernix generate --model-dir model.iq05.gguf --prompt "hello" \
+    --cache-bytes 2G
+```
+
+`--cache-bytes` is the memory-for-speed dial for those tiers only. They
+hold their weights packed and unpack inside every matmul, which costs
+about 4× float32 in time; this spends memory to buy some of it back,
+pinning the largest tensors first. Sizes are human (`512M`, `2G`, or a
+plain byte count); a size it cannot read is refused rather than quietly
+becoming zero. It has no effect on a model llama.cpp runs, which has its
+own answer to the same question.
+
 ## `oven`
 
 Code-generation wrapper — preheat + `complete` or `fill` in one call.
@@ -319,7 +358,13 @@ hypernix chat --repo-id gemma-4-e4b --system "You are terse."
 ```
 
 Same flags as `oven` minus the FIM options, plus `--system` and
-`--message`.
+`--message`. `--model-dir` takes a `.gguf` here too, `--cache-bytes`
+included, and the model is loaded once and held for the whole session
+rather than per turn.
+
+```bash
+hypernix chat --model-dir model.iq05.gguf --cache-bytes 2G
+```
 
 ## `brew`
 
