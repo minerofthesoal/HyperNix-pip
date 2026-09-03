@@ -243,8 +243,13 @@ def _suggestions(result: ConnectionDiagnosis) -> list[str]:
 
     if result.nothing_listening:
         out.append(f"Nothing is listening on {result.host}:{result.port}.")
-        out.append("  Start the server:        ./examples/t1api/run_local.sh")
-        out.append("  or, if you installed it: ~/.hypernix/t1api/start-t1.sh")
+        # `hypernix-t1 start` first: it is what the installer leaves
+        # behind, and it is the answer for someone who has just finished
+        # install-t1.sh and has not started anything yet -- which is when
+        # this failure is most likely to be the first thing they see.
+        out.append("  Start it:                hypernix-t1 start")
+        out.append("  Check it came up:        hypernix-t1 status")
+        out.append("  From a checkout instead: ./examples/t1api/run_local.sh")
         out.append("  Then re-run this command.")
         return out
 

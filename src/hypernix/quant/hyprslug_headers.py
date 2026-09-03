@@ -266,6 +266,48 @@ def _extension_type(path: Path) -> int:
     return 0
 
 
+def resolve_model_path(path: str | Path) -> Path:
+    """A ``.gguf`` file, from either a file or the folder holding one.
+
+    LM Studio's layout is ``<root>/<publisher>/<name>/<name>.gguf``, and
+    that is the layout ``install-model`` writes -- so the directory is
+    what tab-completion stops at and what someone naturally pastes. It
+    was refused, which meant the commands here would not accept the thing
+    the commands here had just created.
+
+    A directory with exactly one GGUF resolves to it. More than one is
+    ambiguous and is refused *with the list*, because picking for the
+    caller would be picking which model they meant.
+    """
+    candidate = Path(path)
+    if candidate.is_file():
+        return candidate
+    if not candidate.exists():
+        raise HeaderError(f"No such model: {candidate}")
+    if not candidate.is_dir():
+        raise HeaderError(f"Not a model file or directory: {candidate}")
+
+    found = sorted(candidate.glob("*.gguf"))
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        nested = sorted(candidate.rglob("*.gguf"))
+        if len(nested) == 1:
+            return nested[0]
+        if not nested:
+            raise HeaderError(
+                f"{candidate} is a directory with no .gguf in it."
+            )
+        found = nested
+
+    listing = "\n".join(f"    {p.name}" for p in found[:10])
+    more = "" if len(found) <= 10 else f"\n    ... and {len(found) - 10} more"
+    raise HeaderError(
+        f"{candidate} holds {len(found)} .gguf files, so it is not clear "
+        f"which one is meant. Name one:\n{listing}{more}"
+    )
+
+
 def read_header(path: str | Path) -> Header:
     """The header stamped into *path*, or one derived from its tensors.
 
@@ -276,7 +318,7 @@ def read_header(path: str | Path) -> Header:
     """
     from .gguf import GGUFError, GGUFFile
 
-    model_path = Path(path)
+    model_path = resolve_model_path(path)
     try:
         model = GGUFFile.read(model_path)
     except (GGUFError, OSError) as exc:
@@ -548,6 +590,30 @@ def lmstudio_roots() -> list[Path]:
     return [c for c in candidates if c.is_dir()]
 
 
+#: Tier names as they appear in filenames, longest first so IQ0.5_XXXL
+#: is recognised before a shorter name that is a prefix of it.
+_TIER_NAMES_IN_FILENAMES = (
+    "IQ0.25_UXL", "IQ0.5_XXXL", "IQ0.75_M", "IQ0.9_L",
+    "INT1", "INT4", "FP2",
+)
+
+
+def tier_in_name(path: str | Path) -> str:
+    """The tier a filename *claims*, or "" if it names none.
+
+    Names are not evidence -- the tensors are -- but a name that
+    contradicts them is worth saying out loud. A file called
+    ``…-IQ0.9_L.gguf`` whose tensors are type 202 is an IQ0.5_XXXL model,
+    and someone reading a report that lists the real tier beside the
+    filename has to notice the disagreement themselves.
+    """
+    stem = Path(path).name.replace("-", "_").replace(" ", "_").upper()
+    for tier in _TIER_NAMES_IN_FILENAMES:
+        if tier.replace(".", "").replace("_", "") in stem.replace(".", "").replace("_", ""):
+            return tier
+    return ""
+
+
 def scan(root: str | Path) -> list[dict[str, Any]]:
     """Every GGUF under *root*, classified by whether llama.cpp can read it.
 
@@ -566,6 +632,7 @@ def scan(root: str | Path) -> list[dict[str, Any]]:
             entry.update(readable=False, error=str(exc))
             found.append(entry)
             continue
+        claimed = tier_in_name(candidate)
         entry.update(
             tier=header.tier or "upstream",
             family=header.family,
@@ -573,6 +640,10 @@ def scan(root: str | Path) -> list[dict[str, Any]]:
             stock_llama_cpp=not header.is_extension,
             bits_per_weight=header.bits_per_weight,
             fallback=header.fallback,
+            named_tier=claimed,
+            # The tensors are the truth; the filename is a label someone
+            # typed. Reporting the mismatch beats reporting either alone.
+            misnamed=bool(claimed and header.tier and claimed != header.tier),
         )
         found.append(entry)
     return found
