@@ -20,6 +20,28 @@ from pathlib import Path
 import pytest
 from shell_support import BASH, NO_BASH_REASON, shell_path
 
+
+def _names(line: str, path) -> bool:
+    """Does *line* name *path*, in whichever spelling the shell used?
+
+    The installer prints the interpreter it chose, as the shell resolved
+    it. On Windows that is Git Bash's mount form, ``/c/Users/...``, while
+    ``str(Path)`` here is ``C:\\Users\\...`` — so a test comparing the two
+    asserts that two spellings of one path are the same string, and fails
+    on a run where the script did exactly the right thing:
+
+        assert 'C:\\Users\\...\\bin\\python3' in
+               '  ✓ python: /c/Users/.../bin/python3 (3.11.9)'
+
+    Which spelling appears is the shell's business. Which interpreter was
+    chosen is the test's, so all the plausible spellings are accepted.
+    """
+    text = Path(path).as_posix()
+    spellings = {str(Path(path)), text, shell_path(path)}
+    if len(text) > 2 and text[1] == ":":
+        spellings.add(f"/{text[0].lower()}{text[2:]}")
+    return any(spelling in line for spelling in spellings)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "install-t1.sh"
 
@@ -797,7 +819,7 @@ done
             PYTHONPATH=str(REPO_ROOT / "src"),
         )
 
-        assert str(chosen) in line, line
+        assert _names(line, chosen), line
 
     def test_python_override_wins_over_the_search(self, tmp_path):
         bin_dir = tmp_path / "bin"
@@ -810,7 +832,7 @@ done
             PYTHONPATH=str(REPO_ROOT / "src"),
         )
 
-        assert str(override) in line, line
+        assert _names(line, override), line
 
     def test_an_unusable_override_is_refused_by_name(self, tmp_path):
         result = subprocess.run(
