@@ -20,6 +20,119 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3.post2 — new quant types, hyprslug-headers, tvtoppro
+
+✨ **Five more quant types**, in two families. `IQ0.25_UXL` and `INT1`
+extend the sign-and-scale machinery and needed no new arithmetic: `INT1`
+is its `k == g` case — every sign kept, only the magnitude lost — and
+`IQ0.25_UXL` is the far end, three signs of every sixteen in 8 bytes per
+256 weights, which is **0.25 bits per weight exactly**. About 59% of
+signs survive there, against the 50% a coin gets, and the tier says so.
+
+`INT4` and `FP2` are new, in `hypernix.quant.lowbit`: a fixed codebook,
+one FP16 block scale, a code per weight. `FP2`'s four levels are ±1 and
+±2 — one sign bit and one exponent bit, no zero, because a 2-bit type
+*with* a zero needs five levels and three bits. The rate is the name plus
+the scale (`INT4` is 4.062 bpw, not 4), which is llama.cpp's own
+convention — `Q4_0` is 4.5 — and is stated rather than left to a file
+size. Full table in [LowBit](LowBit.md).
+
+𖢥 **The FP2 scale search, which was not the original plan.** The first
+draft fitted the scale to each block's peak, the way `Q4_0` does.
+Measured on Gaussian weights that gave FP2 a relative error of 0.944 —
+*worse than one bit*, which scores 0.599 at half the size. With four
+levels and the scale pinned to a 3.5σ outlier, the levels land at 1.75σ
+and 3.5σ and almost everything rounds to the larger of two numbers that
+are both too big. A 2-bit format that loses to a 1-bit format is not a
+format. A 17-step search fixes it: FP2 0.944 → 0.396, INT4 0.113 → 0.104,
+and it is cheap because the codebook is fixed — nearest-level is a
+`searchsorted` against midpoints, not an argmin over a broadcast.
+
+🐛 **`Q4M` resolves to `Q4_K_M`.** Squashing separators does not get there
+— the missing character is the `K`, not an underscore — so it fell
+through to "unknown target", which is a confusing way to reject the most
+common request there is. `Q3L`, `Q5M`, `Q4S` and friends too.
+
+✨ **`hypernix hyprslug-headers`** — `install`, `status`, `scan`, `show`,
+`stamp`, `wrap`, `serve`. Three mechanisms, and the help leads with which
+is which, because no header makes a stock llama.cpp read a 0.5-bit
+tensor: the type id at 200 is how the loader notices, but the missing
+dequantisation kernel is why it stops, and a header claiming a type
+llama.cpp knows would load and produce noise. `stamp` writes the block
+geometry into the file's own metadata so any loader can be taught to read
+it; `wrap` re-encodes to a stock type, verified against the reference
+`gguf` reader; `serve` keeps the tier and puts hnxrun behind
+`/v1/chat/completions` so LM Studio and Bionic can reach a 0.9-bit model
+without converting it. Standard-library `http.server`, no FastAPI.
+[HyprSlug-Headers](HyprSlug-Headers.md).
+
+𖢥 **`wrap` reported success on a file it had not converted.** hyprslug's
+`_readable()` did not list the extension types, so `_should_quantize`
+declined every tensor with "source type 200 is one hyprslug cannot read"
+and copied it verbatim — producing a `Q2_K`-labelled file still full of
+type-200 tensors, refused by exactly the loader the command exists to
+satisfy. hyprslug now reads the extension types as a source, which also
+makes plain requantisation *from* a sub-bit model work, and `wrap`
+re-reads its own output and deletes it rather than shipping one that
+still carries an extension type.
+
+𖢥 **`stamp` corrupted `general.alignment`.** Copying metadata key by key
+with `set_metadata` re-infers a GGUF type per value, and nothing about
+the number `32` says UINT32 rather than INT32. The reference reader
+rejected the result with "Bad type for general.alignment field" — a file
+this package could still read and nothing else could.
+
+✨ **`tvtoppro`** — tvtop++'s stats under a btop++ presentation, with
+themes. Not built on cctvtop: `TVTopPlusPlus` is a stat source held as an
+attribute, and everything drawn is new. Braille graphs at two samples per
+cell across and four levels down, meters whose every *cell* takes its
+colour from its own position along the ramp, titles in the box border,
+and btop's own `.theme` files loading unchanged — including the `#XX`
+greyscale shorthand, which read as a truncated hex triplet turns every
+neutral in a real theme dark red. Seven themes built in and exported to
+`examples/tvtoppro/`. [TvTopPro](TvTopPro.md).
+
+🐛 **tvtoppro rows are truncated as well as padded.** At 60 columns the
+"no nvidia-smi here" line is longer than its box, and an over-long row
+does not wrap tidily — it pushes the right border onto the next line and
+every box below it looks broken. Caught by asserting every row of a frame
+is exactly the requested width, at four widths under all seven themes,
+measured with Rich rather than counted: the rows carry colour tags that
+print as nothing and braille that prints as one cell each, so `len()` is
+wrong in both directions.
+
+𖢥 **`hypernix-t1 create --host/--port` failed from a checkout.** They are
+in `hypernix-t1 --help`, but from a checkout `create` execs
+`install-t1.sh`, which had never heard of any of them and died with
+"Unknown option: --port" — so the documented interface failed on exactly
+the machine a developer is sitting at. The installer takes them now.
+
+𖢥 **`hypernix-t1 start` started the server somewhere else.**
+`install-t1.sh` put the bind address only into `start-t1.sh`, so
+`hypernix-t1 start` found no `T1_HOST` or `T1_PORT`, fell back to its own
+`127.0.0.1:8000` default, and started uvicorn on a different port from
+the one the installer had configured — after which `status`, `logs`,
+`key` and `test` all pointed at an address nothing was listening on. The
+installer writes both keys now, so both entry points agree.
+
+🛡️ **`install-t1.sh` refuses to clobber an existing `.env`.** Overwriting
+it regenerates the token secret, which invalidates every key already
+minted against it — a failure that surfaces later as "the server rejects
+my keys" rather than there as "the file was replaced". `create_minimal`
+already refused; `--force` overrides both.
+
+🛡️ **`hypernix-t1 autostart` explains a missing user bus.** `systemctl`
+being on PATH is not the same as there being a session to talk to; in a
+container, over plain ssh and on WSL it failed with systemd's bare
+"Failed to connect to bus: No medium found". It now names `enable-linger`
+and the `--write-only` flag, which installs the unit for a session that
+does not exist yet — and which lets the ExecStart-is-absolute test
+actually run instead of skipping everywhere CI does.
+
+📚 Example configs under `examples/tvtoppro/` and
+`examples/hyprslug-headers/`, and three new wiki pages: LowBit,
+HyprSlug-Headers, TvTopPro.
+
 ## 0.72.3 pt 4 — the sub-bit models actually run
 
 ✨ **HnxRun: a runtime for the files nothing else will open.** The IQ0.x

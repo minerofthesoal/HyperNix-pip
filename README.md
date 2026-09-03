@@ -17,6 +17,7 @@ for most updates
 ## Table of contents
 
 - [What's fixed in this update](#whats-fixed-in-this-update)
+- [What's new: 0.72.3.post2 — sub-bit models you can actually run](#whats-new-0723post2--sub-bit-models-you-can-actually-run)
 - [What's new: 0.72.3 — T1 v1.0.2026.8.1.1](#whats-new-0723--t1-v102026811)
 - [Package layout](#package-layout)
 - [Module reference](#module-reference)
@@ -38,6 +39,59 @@ for most updates
 
 
 Cross-platform: Linux, macOS, Windows. Python 3.10 - 3.14.
+
+## What's new: 0.72.3.post2 — sub-bit models you can actually run
+
+**The error this release is about.** LM Studio, opening a model this
+package produced:
+
+```
+llama_model_loader: failed to load model from Qwen3.8-2B-IQ0.9_L.gguf
+```
+
+That error is correct, and no header fixes it: the GGML type id at 200 is
+how the loader noticed, but the missing dequantisation kernel is why it
+stopped. So there are three real ways out, and
+`hypernix hyprslug-headers` leads with which is which.
+
+```bash
+hypernix hyprslug-headers install                        # find what needs it
+hypernix hyprslug-headers serve model.iq09.gguf          # keep the tier, talk HTTP
+hypernix hyprslug-headers wrap  model.iq09.gguf -o ok.gguf   # open anywhere, bigger
+hypernix hyprslug-headers stamp model.iq09.gguf          # make it self-describing
+```
+
+`serve` puts [HnxRun](wiki/HnxRun.md) behind `/v1/chat/completions`, so
+LM Studio and Bionic reach a 0.9-bit model without converting it.
+`wrap` re-encodes to a stock type and says, in the report, that the
+result is a `Q2_K` copy of a `IQ0.9_L` model rather than the original —
+verified against the reference `gguf` reader. See
+[HyprSlug-Headers](wiki/HyprSlug-Headers.md).
+
+**Five new quant types.** `IQ0.25_UXL` at a quarter of a bit exactly,
+`INT1`, `FP2`, `INT4`, and `Q4M` as a spelling of `Q4_K_M` that used to
+be rejected. `FP2`'s scale is searched, not fitted to the block peak —
+the obvious fit scored *worse than one bit*, and a 2-bit format that
+loses to a 1-bit format is not a format. Full table and the measurement
+in [LowBit](wiki/LowBit.md).
+
+**`tvtoppro`** — tvtop++'s stats under a btop++ presentation, with
+themes. Braille graphs, gradient meters, titles in the box border, and
+btop's own `.theme` files loading unchanged.
+
+```bash
+tvtoppro --theme gruvbox-dark
+tvtoppro --theme ~/.config/btop/themes/nord.theme
+```
+
+Seven themes built in and exported to `examples/tvtoppro/`. See
+[TvTopPro](wiki/TvTopPro.md).
+
+**`hypernix-t1` fixes.** `create --host/--port` failed from a checkout
+(the documented flags reached `install-t1.sh`, which had never heard of
+them), and `hypernix-t1 start` started uvicorn on a different port from
+the one the installer configured, because the bind address only ever went
+into `start-t1.sh`. Both paths agree now.
 
 ## What's new: 0.72.3 — T1 v1.0.2026.8.1.1
 

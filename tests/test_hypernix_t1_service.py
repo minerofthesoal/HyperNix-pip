@@ -172,7 +172,11 @@ class TestTheSystemdUnit:
         """systemd will not resolve a relative path, and the unit it
         wrote silently refused to start."""
         home, config = configured
-        run("autostart", "on", home=home, config=config)
+        # --write-only installs the unit without touching the user bus.
+        # Without it this test skipped wherever `systemctl --user` cannot
+        # reach a session -- containers, plain ssh, WSL -- which is
+        # everywhere CI runs, so the assertion below never ran.
+        run("autostart", "on", "--write-only", home=home, config=config)
         unit = home / ".config" / "systemd" / "user" / "hypernix-t1.service"
         if not unit.exists():
             pytest.skip("systemd not available to write a unit here")
@@ -189,6 +193,30 @@ class TestTheSystemdUnit:
         source = SCRIPT.read_text()
         assert "Environment=PATH=" in source
         assert "/usr/local/bin" in source
+
+    def test_a_machine_with_no_user_bus_says_what_to_do(self, configured):
+        """systemctl being on PATH is not the same as there being a
+        session to talk to. Containers, plain ssh and WSL all fail here,
+        and the bare systemd error -- "Failed to connect to bus: No
+        medium found" -- says nothing about what to do next."""
+        import shutil
+
+        home, config = configured
+        if shutil.which("systemctl") is None:
+            pytest.skip("no systemctl to probe")
+        result = run("autostart", "on", home=home, config=config)
+        if result.returncode == 0:
+            pytest.skip("this machine has a working user bus")
+        message = result.stdout + result.stderr
+        assert "enable-linger" in message or "session startup" in message
+        assert "--write-only" in message
+
+    def test_an_unknown_autostart_argument_is_refused(self, configured):
+        """It used to take ``${1:-on}`` and ignore everything else, so a
+        typo silently enabled autostart instead of reporting itself."""
+        home, config = configured
+        result = run("autostart", "onn", home=home, config=config)
+        assert result.returncode != 0
 
     def test_it_runs_the_foreground_form_under_systemd(self):
         """No PID file and no backgrounding: systemd supervises."""
@@ -390,6 +418,60 @@ class TestCreateWithoutACheckout:
         # install-t1.sh --help, not the minimal path's "Unknown option".
         assert "install-t1.sh" in result.stdout
         assert "--non-interactive" in result.stdout
+
+
+class TestTheTwoCreatePathsAgree:
+    """``hypernix-t1 create`` runs one of two programs.
+
+    From a checkout it execs ``install-t1.sh``; from a wheel there is no
+    installer and it writes a minimal config itself. Both are documented
+    by the same ``--help``, so both have to accept the same flags and
+    write the same keys — and neither of those was true.
+    """
+
+    def test_the_installer_accepts_the_flags_the_manager_documents(self):
+        """``create --host H --port N --force`` is in ``hypernix-t1
+        --help``. From a checkout it reached install-t1.sh, which had
+        never heard of any of them and died with "Unknown option:
+        --port" — so the documented interface failed on exactly the
+        machine a developer is sitting at."""
+        installer = REPO_ROOT / "install-t1.sh"
+        if not installer.is_file():
+            pytest.skip("no checkout")
+        source = installer.read_text()
+        for flag in ("--host)", "--port)", "--force)"):
+            assert flag in source, flag
+
+    def test_both_paths_write_the_key_the_manager_reads(self, tmp_path):
+        """The consequential half. install-t1.sh put the bind address
+        only into start-t1.sh, so ``hypernix-t1 start`` found no T1_HOST
+        or T1_PORT, fell back to its own 127.0.0.1:8000 default, and
+        started the server somewhere else — after which status, logs,
+        key and test all pointed at an address nothing was listening on.
+        """
+        installer = REPO_ROOT / "install-t1.sh"
+        if not installer.is_file():
+            pytest.skip("no checkout")
+        source = installer.read_text()
+        assert "T1_HOST=$BIND_HOST" in source
+        assert "T1_PORT=$BIND_PORT" in source
+
+        manager = SCRIPT.read_text()
+        assert 'setting T1_HOST' in manager
+        assert 'setting T1_PORT' in manager
+
+    def test_the_installer_refuses_to_clobber_an_env(self, tmp_path):
+        """Regenerating the token secret invalidates every key already
+        minted against it — a failure that surfaces later as "the server
+        rejects my keys" rather than here as "the file was replaced".
+        ``create_minimal`` already refused; the installer did not."""
+        installer = REPO_ROOT / "install-t1.sh"
+        if not installer.is_file():
+            pytest.skip("no checkout")
+        source = installer.read_text()
+        body = _function_body(source, "write_env")
+        assert "FORCE_OVERWRITE" in body
+        assert "already exists" in body
 
 
 class TestItIsActuallyInstalled:
