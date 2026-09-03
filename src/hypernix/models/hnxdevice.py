@@ -80,6 +80,120 @@ class DeviceError(RuntimeError):
     """A device was asked for that cannot run this."""
 
 
+#: Shared-object names that mean "torch is installed but its CUDA
+#: runtime is not", mapped to the wheel that carries each. A CUDA torch
+#: pulls these in as separate ``nvidia-*`` packages; install it where one
+#: cannot be resolved -- a slim image, a pruned virtualenv, a uv sync
+#: that dropped an optional dependency -- and ``import torch`` dies with
+#: a bare linker error naming a file nobody has heard of.
+_CUDA_RUNTIME_LIBS = {
+    "libcusparseLt": "nvidia-cusparselt-cu12",
+    "libcusparse": "nvidia-cusparse-cu12",
+    "libcublas": "nvidia-cublas-cu12",
+    "libcublasLt": "nvidia-cublas-cu12",
+    "libcudart": "nvidia-cuda-runtime-cu12",
+    "libcudnn": "nvidia-cudnn-cu12",
+    "libcufft": "nvidia-cufft-cu12",
+    "libcurand": "nvidia-curand-cu12",
+    "libcusolver": "nvidia-cusolver-cu12",
+    "libnccl": "nvidia-nccl-cu12",
+    "libnvJitLink": "nvidia-nvjitlink-cu12",
+    "libnvrtc": "nvidia-cuda-nvrtc-cu12",
+}
+
+
+def _torch_unavailable_reason(exc: ImportError) -> str:
+    """One line for a device row, for when torch will not import.
+
+    "torch is not installed" was the only thing the probes used to say,
+    and it is wrong in the case people actually hit: torch *is*
+    installed, and a shared object it links against is not. Reporting the
+    absent package for a present one sends the reader to reinstall the
+    thing they already have.
+    """
+    text = str(exc)
+    if "No module named" in text and "torch" in text:
+        return "torch is not installed."
+    missing = text.split(":", 1)[0].strip()
+    if missing.startswith("lib") and ".so" in missing:
+        return (f"torch is installed but cannot load {missing}, one of the "
+                f"NVIDIA runtime wheels a CUDA build needs.")
+    return f"torch is installed but will not import: {text}"
+
+
+def import_torch():
+    """``import torch``, or a sentence saying why it could not be done.
+
+    The runtime imports torch lazily and in several places, so without
+    this every one of them can end a command with a linker traceback::
+
+        ImportError: libcusparseLt.so.0: cannot open shared object file:
+        No such file or directory
+
+    That names a file the reader has never installed, in a package they
+    did not know torch depended on, from a command that was about to
+    load a GGUF. Nothing in it says the actual situation: a CUDA build of
+    torch is installed and one of its NVIDIA runtime wheels is missing,
+    and a machine that only wants to run a model on the CPU never needed
+    that build at all.
+    """
+    try:
+        import torch
+    except ImportError as exc:
+        raise DeviceError(_torch_import_advice(exc)) from exc
+    return torch
+
+
+def _torch_import_advice(exc: ImportError) -> str:
+    text = str(exc)
+    if "No module named" in text and "torch" in text:
+        return (
+            "PyTorch is not installed, and the sub-bit runtime needs it to "
+            "run a model.\n"
+            "    pip install torch --index-url "
+            "https://download.pytorch.org/whl/cpu\n"
+            "is the smallest install that works; drop the --index-url for "
+            "the CUDA build. `hypernix devices` then reports what it found."
+        )
+
+    missing = text.split(":", 1)[0].strip()
+    stem = missing.split(".so")[0]
+    package = _CUDA_RUNTIME_LIBS.get(stem)
+    if not (missing.startswith("lib") and ".so" in missing):
+        return (
+            f"PyTorch is installed but will not import: {text}\n"
+            f"Run `python -c \'import torch\'` to see it directly. The "
+            f"sub-bit runtime cannot load a model until that succeeds."
+        )
+
+    remedy = (
+        f"    pip install {package}\n" if package else
+        "    reinstall torch so its CUDA runtime wheels come with it\n"
+    )
+    return (
+        f"PyTorch is installed but cannot load {missing}, so importing it "
+        f"fails before this command can start.\n"
+        f"\n"
+        f"That library ships in a separate NVIDIA wheel that a CUDA build of "
+        f"torch depends on"
+        + (f" ({package})" if package else "")
+        + ". It is missing here, which usually means the CUDA build was "
+        "installed into an environment that did not pull its runtime "
+        "dependencies.\n"
+        "\n"
+        "Two ways out. If this machine has no NVIDIA GPU, or you only want "
+        "to run on the CPU, the CPU build is smaller and has none of these "
+        "dependencies:\n"
+        "    pip install --force-reinstall torch --index-url "
+        "https://download.pytorch.org/whl/cpu\n"
+        "To keep CUDA, install the missing runtime:\n"
+        + remedy +
+        "\n"
+        "`hypernix devices` reports what torch can actually use once it "
+        "imports."
+    )
+
+
 #: Compute capability -> the cards people call it. Only what changes a
 #: decision: whether the wheel builds for it, and whether FP16 is real.
 _ARCH_NAMES = {
@@ -274,9 +388,10 @@ def _cpu_device() -> Device:
 def _cuda_devices() -> list[Device]:
     try:
         import torch
-    except ImportError:
+    except ImportError as exc:
         return [Device("cuda", "cuda", "CUDA",
-                       reason="torch is not installed.")]
+                       reason=_torch_unavailable_reason(exc),
+                       remedy='Run `hypernix devices` for the full diagnosis, or install the CPU build: pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cpu')]
 
     if not torch.version.cuda and not torch.version.hip:
         return [Device(
@@ -353,8 +468,9 @@ def _mps_device() -> Device:
                 reason = "This torch was not built with MPS."
             return Device("mps", "mps", "Apple Metal", reason=reason)
         return Device("mps", "mps", "Apple Metal", usable=True)
-    except ImportError:
-        return Device("mps", "mps", "Apple Metal", reason="torch is not installed.")
+    except ImportError as exc:
+        return Device("mps", "mps", "Apple Metal",
+                      reason=_torch_unavailable_reason(exc), remedy='Run `hypernix devices` for the full diagnosis, or install the CPU build: pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cpu')
 
 
 def _xpu_device() -> Device:
@@ -371,8 +487,9 @@ def _xpu_device() -> Device:
                        "from the Intel index).",
             )
         return Device("xpu", "xpu", "Intel GPU (oneAPI)", usable=True)
-    except ImportError:
-        return Device("xpu", "xpu", "Intel GPU", reason="torch is not installed.")
+    except ImportError as exc:
+        return Device("xpu", "xpu", "Intel GPU",
+                      reason=_torch_unavailable_reason(exc), remedy='Run `hypernix devices` for the full diagnosis, or install the CPU build: pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cpu')
 
 
 def _vulkan_device() -> Device:

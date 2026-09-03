@@ -72,7 +72,16 @@ def _human_install(result: dict) -> None:
     print(f"  scanned {result['models_seen']} model(s); "
           f"{len(needs)} need this runtime")
     for model in needs:
-        print(f"    {model['tier']:12} {Path(model['path']).name}")
+        note = ""
+        if model.get("misnamed"):
+            note = (f"   <- named {model['named_tier']}, "
+                    f"tensors say {model['tier']}")
+        print(f"    {model['tier']:12} {Path(model['path']).name}{note}")
+    if any(m.get("misnamed") for m in needs):
+        print()
+        print("  A tier above is not the one in the filename. The tensor")
+        print("  types are what the loader reads, so those are what is")
+        print("  reported -- the name is just a label someone typed.")
     if needs:
         first = needs[0]["path"]
         print()
@@ -106,6 +115,9 @@ def _human_scan(rows: list[dict]) -> None:
         mark = "needs hnxrun" if row["extension"] else "stock llama.cpp"
         print(f"  {row['tier']:12} {mark:16} "
               f"{row['bytes'] / 1e6:8.1f} MB  {row['path']}")
+        if row.get("misnamed"):
+            print(f"  {'':12} {'':16} {'':>8}     "
+                  f"^ filename says {row['named_tier']}")
 
 
 def _human_install_model(result: dict) -> None:
@@ -303,12 +315,21 @@ def _dispatch(args, parser) -> int:
                 file=sys.stderr,
             )
         print(f"hyprslug-headers: loading {args.model}", file=sys.stderr)
-        try:
+
+        def announce(model) -> None:
+            # Printed from inside serve(), after the model is loaded and
+            # the port is bound. It used to print before the load, which
+            # meant a failed load left the endpoint on screen next to the
+            # traceback that said it was never listening.
+            where = getattr(model.model, "device", "cpu")
+            print(f"hyprslug-headers: loaded on {where}", file=sys.stderr)
             print(f"hyprslug-headers: http://{args.host}:{args.port}/v1  "
                   f"(ctrl-c to stop)", file=sys.stderr)
+
+        try:
             serve(args.model, host=args.host, port=args.port,
                   cache_bytes=args.cache_bytes, name=args.name,
-                  device=args.device)
+                  device=args.device, on_ready=announce)
         except ServerError as exc:
             print(f"hyprslug-headers: {exc}", file=sys.stderr)
             return 1

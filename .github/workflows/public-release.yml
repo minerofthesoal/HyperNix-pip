@@ -44,6 +44,10 @@ on:
         description: "Tag + GitHub Release but skip PyPI / TestPyPI publishing."
         type: boolean
         default: false
+      allow_downgrade:
+        description: "Publish a version LOWER than the one already in the tree. Only for undoing a bad release -- normally leave off."
+        type: boolean
+        default: false
       skip_integration:
         description: "Skip BOTH live-server integration jobs (API + iPhone simulator). They are the gate that proves a real server accepts a real key before anything publishes — only for a runner outage, never to get past a red test."
         type: boolean
@@ -127,6 +131,56 @@ jobs:
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install -e ".[dev]"
+
+      - name: Refuse a version that goes backwards
+        # This workflow writes whatever version it is handed, so a
+        # dispatch naming an older one silently downgrades main. It has
+        # happened: v0.72.3.post2 was dispatched against a tree already
+        # at 0.72.3.post4 and rewrote all three version strings to the
+        # older number, leaving main claiming a release that predates the
+        # code in it. Nothing downstream can detect that -- the built
+        # wheel is internally consistent, it is just wrong about which
+        # release it is.
+        if: ${{ !inputs.allow_downgrade }}
+        run: |
+          python - <<'GUARD'
+          import re, sys
+          from pathlib import Path
+          from packaging.version import Version, InvalidVersion
+
+          requested = "${{ inputs.version }}"
+          pep440 = requested.replace("postr", "post")
+          if re.fullmatch(r"\d+\.\d+\.\d+-\d+", pep440):
+              base, build = pep440.rsplit("-", 1)
+              pep440 = f"{base}.post{build}"
+
+          current = re.search(
+              r'^version = "([^"]+)"', Path("pyproject.toml").read_text(), re.M
+          )
+          if current is None:
+              sys.exit("::error::no version line in pyproject.toml")
+
+          try:
+              new, old = Version(pep440), Version(current.group(1))
+          except InvalidVersion as exc:
+              sys.exit(f"::error::{exc}")
+
+          if new > old:
+              print(f"{old} -> {new}")
+          elif new == old:
+              sys.exit(
+                  f"::error::version {new} is already what the tree says. "
+                  f"Re-releasing the same number publishes different code "
+                  f"under one version. Use a .postN suffix."
+              )
+          else:
+              sys.exit(
+                  f"::error::version {new} is OLDER than the tree's {old}. "
+                  f"Publishing it would make main claim a release that "
+                  f"predates its own code. If you really mean to roll back, "
+                  f"re-run with allow_downgrade."
+              )
+          GUARD
 
       - name: Bump versions in source
         run: |

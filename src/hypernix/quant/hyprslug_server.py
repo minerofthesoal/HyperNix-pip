@@ -76,6 +76,9 @@ class HyprslugModel:
             self.model = hnxrun.load_model(
                 self.path, cache_bytes=cache_bytes, device=device
             )
+        except hnxrun.HnxEnvironmentError as exc:
+            # Not the model's fault, so not reported against its name.
+            raise ServerError(str(exc)) from exc
         except hnxrun.HnxRunError as exc:
             raise ServerError(f"{self.path}: {exc}") from exc
         self.name = name or self.path.stem
@@ -315,12 +318,22 @@ def build_server(model: HyprslugModel, *, host: str = "127.0.0.1",
 
 
 def serve(path: str | Path, *, host: str = "127.0.0.1", port: int = 1234,
-          cache_bytes: int = 0, name: str = "", device: str = "auto") -> None:
-    """Load *path* and serve it until interrupted."""
+          cache_bytes: int = 0, name: str = "", device: str = "auto",
+          on_ready=None) -> None:
+    """Load *path* and serve it until interrupted.
+
+    ``on_ready`` is called once -- after the model is loaded *and* the
+    port is bound, so a caller can announce the endpoint at the moment it
+    starts answering. Announcing before this point is a promise the
+    process may never keep: a sub-bit load takes a while and can fail, and
+    the bind can be refused by whatever is already on 1234.
+    """
     model = HyprslugModel(
         path, cache_bytes=cache_bytes, name=name, device=device
     )
     server = build_server(model, host=host, port=port)
+    if on_ready is not None:
+        on_ready(model)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

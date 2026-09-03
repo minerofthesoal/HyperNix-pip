@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "HnxRunError",
+    "HnxEnvironmentError",
     "ModelConfig",
     "LoadedModel",
     "PackedWeight",
@@ -66,6 +67,17 @@ __all__ = [
 
 class HnxRunError(RuntimeError):
     """The model could not be loaded or run, with a reason worth reading."""
+
+
+class HnxEnvironmentError(HnxRunError):
+    """This *machine* cannot run it -- torch is missing or the device is not.
+
+    A subclass rather than a sibling so every existing ``except
+    HnxRunError`` still catches it, but callers that report a failure
+    against a filename can tell the two apart. "model.gguf: PyTorch is
+    installed but cannot load libcusparseLt.so.0" blames a file for a
+    broken install, and sends the reader to re-download the model.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -824,15 +836,19 @@ def load_model(
     :func:`hypernix.models.hnxdevice.select`.
     """
     import numpy as np
-    import torch
 
     from ..quant.gguf import GGMLType, GGUFError, GGUFFile
-    from .hnxdevice import DeviceError, select
+    from .hnxdevice import DeviceError, import_torch, select
 
+    # Before anything else, and through import_torch rather than a bare
+    # `import torch`: a broken CUDA install fails here with a linker
+    # error naming a shared object, and this is the one place that can
+    # turn that into a sentence about torch.
     try:
+        torch = import_torch()
         resolved = select(str(device))
     except DeviceError as exc:
-        raise HnxRunError(str(exc)) from exc
+        raise HnxEnvironmentError(str(exc)) from exc
     device = resolved.torch_device
 
     model_path = Path(path)

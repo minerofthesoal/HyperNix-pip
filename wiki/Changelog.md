@@ -20,6 +20,67 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3.post5 — three things found by running the commands on a real machine
+
+Reported from an actual install, not from the suite. None was a subtle
+failure of the thing under test; all three were the code being
+confidently wrong *around* a correct result.
+
+𖢥 **A traceback where a sentence belonged.** `hyprslug-headers serve` on
+a box whose torch was a CUDA build missing an NVIDIA runtime wheel ended
+with
+
+```
+ImportError: libcusparseLt.so.0: cannot open shared object file
+```
+
+and eleven frames of stack, from a command that was about to load a
+GGUF. Nothing in that says what to do, and the file it names is one
+nobody installs on purpose. `hnxdevice.import_torch()` now turns it into
+a statement of the situation — torch is installed, one of the NVIDIA
+runtime wheels a CUDA build depends on is not — with both ways out: the
+CPU build (smaller, no such dependencies, and what a machine serving a
+0.5-bit model usually wants) or the specific `nvidia-*` package that
+carries the missing library. Every lazy `import torch` on the load path
+goes through it.
+
+🛡️ **`hypernix devices` said "torch is not installed" on a machine that
+had it.** The probes caught `ImportError` and assumed absence. Sending
+someone to install what they already have is worse than saying nothing;
+they now distinguish a missing module from a failed link and report
+which.
+
+🐛 **The runtime error was reported against the model's filename.**
+`model.gguf: PyTorch is installed but cannot load libcusparseLt.so.0`
+reads as a broken download. `HnxEnvironmentError` (a subclass, so every
+existing `except HnxRunError` still catches it) separates "this machine
+cannot" from "this model cannot", and the server prefixes only the
+second with the path.
+
+𖢥 **`serve` announced its endpoint before the model loaded.** The
+`http://127.0.0.1:1234/v1 (ctrl-c to stop)` line was printed above the
+`serve()` call, so a failed load left a URL on screen that nothing was
+ever listening on, directly above the traceback saying so. `serve()` now
+takes an `on_ready` hook called after the model is loaded *and* the port
+is bound, and the CLI announces from there.
+
+🛡️ **A tier that contradicted its filename was reported without
+remark.** `install` printed `IQ0.5_XXXL   Qwen3.8-2B-IQ0.9_L.gguf`. Both
+halves are honest — the tensors are type 202, the name is a label
+someone typed — but side by side with no comment they leave the reader
+to notice that the model they believe is 0.9-bit is half-bit. `scan`
+now carries `named_tier` and `misnamed`, and both reports say so.
+
+𖢥 **The release workflow published a version older than the tree.**
+`v0.72.3.post2` was dispatched against a tree already at `0.72.3.post4`
+and rewrote all three version strings backwards, so main claimed a
+release predating its own code and an installed copy could not be
+identified from its version. The workflow writes whatever version it is
+handed; it now refuses one that is not greater than the tree's, with
+`allow_downgrade` for a deliberate rollback. Checked against the
+dispatch that caused this, a same-number re-release, an ordinary bump,
+a prerelease, and the documented `0.70.6-2` rebuild form.
+
 ## 0.72.3.post4 — the accelerator path, actually on an accelerator
 
 𖢥 **`--hnx-device auto` was broken on every accelerator, and the whole

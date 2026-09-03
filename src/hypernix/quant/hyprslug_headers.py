@@ -548,6 +548,30 @@ def lmstudio_roots() -> list[Path]:
     return [c for c in candidates if c.is_dir()]
 
 
+#: Tier names as they appear in filenames, longest first so IQ0.5_XXXL
+#: is recognised before a shorter name that is a prefix of it.
+_TIER_NAMES_IN_FILENAMES = (
+    "IQ0.25_UXL", "IQ0.5_XXXL", "IQ0.75_M", "IQ0.9_L",
+    "INT1", "INT4", "FP2",
+)
+
+
+def tier_in_name(path: str | Path) -> str:
+    """The tier a filename *claims*, or "" if it names none.
+
+    Names are not evidence -- the tensors are -- but a name that
+    contradicts them is worth saying out loud. A file called
+    ``…-IQ0.9_L.gguf`` whose tensors are type 202 is an IQ0.5_XXXL model,
+    and someone reading a report that lists the real tier beside the
+    filename has to notice the disagreement themselves.
+    """
+    stem = Path(path).name.replace("-", "_").replace(" ", "_").upper()
+    for tier in _TIER_NAMES_IN_FILENAMES:
+        if tier.replace(".", "").replace("_", "") in stem.replace(".", "").replace("_", ""):
+            return tier
+    return ""
+
+
 def scan(root: str | Path) -> list[dict[str, Any]]:
     """Every GGUF under *root*, classified by whether llama.cpp can read it.
 
@@ -566,6 +590,7 @@ def scan(root: str | Path) -> list[dict[str, Any]]:
             entry.update(readable=False, error=str(exc))
             found.append(entry)
             continue
+        claimed = tier_in_name(candidate)
         entry.update(
             tier=header.tier or "upstream",
             family=header.family,
@@ -573,6 +598,10 @@ def scan(root: str | Path) -> list[dict[str, Any]]:
             stock_llama_cpp=not header.is_extension,
             bits_per_weight=header.bits_per_weight,
             fallback=header.fallback,
+            named_tier=claimed,
+            # The tensors are the truth; the filename is a label someone
+            # typed. Reporting the mismatch beats reporting either alone.
+            misnamed=bool(claimed and header.tier and claimed != header.tier),
         )
         found.append(entry)
     return found
