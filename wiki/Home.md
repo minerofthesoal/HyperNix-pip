@@ -34,6 +34,9 @@ reachable if you already knew the filename. Fixed.)
 | [Imatrix](Imatrix.md) | Measure an importance matrix from activations, and read anyone else's — both llama.cpp's binary format and JSON. |
 | [Dflash2](Dflash2.md) | A draft model carried inside the model it drafts for. Speculative decoding from one file, with the same tokens out. |
 | [HnxRun](HnxRun.md) | The runtime for the models llama.cpp cannot read — loads and runs a sub-bit GGUF, so a 0.5-bit quantisation has somewhere to go. |
+| [Devices](Devices.md) | CUDA (including the sm_61 / GTX 1080 trap), ROCm, Metal, Intel, Vulkan and CPU — what runs where, and which torch wheel. |
+| [LowBit](LowBit.md) | Every GGML type at 200 and above: `IQ0.25_UXL`, `INT1`, `FP2`, `INT4` — the two families, and what each rate really costs. |
+| [HyprSlug-Headers](HyprSlug-Headers.md) | `hypernix hyprslug-headers` — self-describing headers, the compat export, and the server that lets LM Studio reach a sub-bit model without converting it. |
 | [PipelineMechanics](PipelineMechanics.md) | The small support modules gluing download → convert → quantize together. |
 
 **Training core**
@@ -74,6 +77,7 @@ reachable if you already knew the filename. Fixed.)
 | [EspressoMaker](EspressoMaker.md) | Prompt-battery evaluation tiers (Ristretto/SingleShot/DoubleShot/Lungo). |
 | [Fridges](Fridges.md) | `old_fridge` (memory housekeeping), `mediocre_fridge` (judge-data synthesis), `new_fridge` (graphing). |
 | [Dashboards](Dashboards.md) | The three live btop++-style terminal training dashboards (`tvtop`/`cctvtop`/`tvtop++`). |
+| [TvTopPro](TvTopPro.md) | `tvtoppro` — tvtop++'s stats under a btop++ presentation, with themes. Not built on cctvtop. |
 | [HyperLog](HyperLog.md) | Premium training TUI logger, compatible with tvtop. |
 
 **Audio**

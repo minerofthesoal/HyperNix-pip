@@ -35,7 +35,7 @@ def fake_tailscale(tmp_path) -> Path:
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "tailscale"
-    stub.write_text("#!/bin/sh\necho 100.64.1.23\n")
+    stub.write_text("#!/bin/sh\necho 100.64.1.23\n", encoding="utf-8")
     stub.chmod(0o755)
     return bindir
 
@@ -64,7 +64,8 @@ def no_fastapi(tmp_path_factory) -> Path:
         "if target:\n"
         '    with open(target, "w") as handle:\n'
         '        handle.write(os.environ.get("T1_TOKEN_SECRET", ""))\n'
-        'raise ImportError("stubbed out so the example script stops before exec")\n'
+        'raise ImportError("stubbed out so the example script stops before exec")\n',
+        encoding="utf-8",
     )
     return stub
 
@@ -101,12 +102,12 @@ def run_script(
     result = subprocess.run(
         [BASH, "-x", str(script)],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         timeout=90,
         env=environ,
     )
     result.resolved_secret = (  # type: ignore[attr-defined]
-        report.read_text() if report.exists() else None
+        report.read_text(encoding="utf-8") if report.exists() else None
     )
     return result
 
@@ -135,7 +136,7 @@ class TestShape:
         result = subprocess.run(
             ["shellcheck", "--severity=warning", str(script)],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
@@ -190,7 +191,7 @@ class TestTheErrorMessageIsPasteable:
             f"the generate command lost its quoting:\n{block}"
         )
         check = subprocess.run(
-            [BASH, "-n", "-c", block], capture_output=True, text=True
+            [BASH, "-n", "-c", block], capture_output=True, text=True, encoding="utf-8"
         )
         assert check.returncode == 0, (
             f"the suggested commands do not parse:\n{block}\n{check.stderr}"
@@ -224,7 +225,7 @@ class TestSecretResolution:
     def _write_env(home: Path, value: str) -> None:
         cfg = home / ".hypernix" / "t1api"
         cfg.mkdir(parents=True, exist_ok=True)
-        (cfg / ".env").write_text(f"T1_TOKEN_SECRET={value}\n")
+        (cfg / ".env").write_text(f"T1_TOKEN_SECRET={value}\n", encoding="utf-8")
 
     def test_tailscale_uses_the_installers_env(self, tmp_path, fake_tailscale, no_fastapi):
         """The bug behind the bug.

@@ -205,8 +205,21 @@ def read_config(metadata: dict, tensors: dict) -> ModelConfig:
 #: Ceiling on the transient buffer a packed matmul unpacks into.
 CHUNK_BYTES = 8 << 20
 
-#: HNX sub-bit GGML type -> the packing name subbit.py knows it by.
-_SUB_BIT_PACKINGS = {200: "sign_scale_l", 201: "pair_code_m", 202: "quad_code_xxxl"}
+#: HNX sign-and-scale GGML type -> the packing name subbit.py knows it
+#: by. These are the ones the folded matmul applies to, because they are
+#: the ones with dropped signs to reconstruct.
+_SUB_BIT_PACKINGS = {
+    200: "sign_scale_l",
+    201: "pair_code_m",
+    202: "quad_code_xxxl",
+    203: "quarter_code_uxl",
+    204: "int1_binary",
+}
+
+#: HNX fixed-codebook GGML type -> the codec name lowbit.py knows it by.
+#: These carry magnitude, so there is nothing to fold: every weight has
+#: its own code and the matmul is the ordinary one.
+_LOW_BIT_CODECS = {205: "INT4", 206: "FP2"}
 
 
 def _dequantize(raw: bytes, ggml_type: int, elements: int):
@@ -234,9 +247,13 @@ def _dequantize(raw: bytes, ggml_type: int, elements: int):
         return llamaquants.dequantize_array(raw, kind)[:elements]
     if kind in _SUB_BIT_PACKINGS:
         return subbit_dequantize(raw, _SUB_BIT_PACKINGS[kind])[:elements]
+    if kind in _LOW_BIT_CODECS:
+        from ..quant.lowbit import dequantize_array as lowbit_dequantize
+
+        return lowbit_dequantize(raw, _LOW_BIT_CODECS[kind])[:elements]
     raise HnxRunError(
         f"GGML type {kind} is one this runtime cannot decode. It reads F32, F16, "
-        f"BF16, the llama.cpp block types, and the HyperNix sub-bit types."
+        f"BF16, the llama.cpp block types, and the HyperNix extension types."
     )
 
 
@@ -248,6 +265,11 @@ def _block_geometry(ggml_type: int) -> tuple[int, int]:
     kind = int(ggml_type)
     if kind in _SUB_BIT_PACKINGS:
         return BLOCK_SIZE, packed_block_bytes(_SUB_BIT_PACKINGS[kind])
+    if kind in _LOW_BIT_CODECS:
+        from ..quant.lowbit import BLOCK_SIZE as LOW_BLOCK
+        from ..quant.lowbit import packed_block_bytes as low_block_bytes
+
+        return LOW_BLOCK, low_block_bytes(_LOW_BIT_CODECS[kind])
     fmt = llamaquants.BY_TYPE.get(kind)
     if fmt is None:
         raise HnxRunError(f"GGML type {kind} has no block geometry here.")
@@ -296,12 +318,15 @@ class PackedWeight:
     """
 
     __slots__ = ("raw", "ggml_type", "shape", "device", "_block", "_block_bytes",
-                 "_rows_per_group", "_group_bytes", "_pinned", "_packing")
+                 "_rows_per_group", "_group_bytes", "_pinned", "_packing",
+                 "_device_packed", "_decode_here")
 
-    def __init__(self, raw: bytes, ggml_type: int, shape: tuple[int, ...], device: str):
+    def __init__(self, raw: bytes, ggml_type: int, shape: tuple[int, ...],
+                 device: str, *, decode_on_device: bool | None = None):
         from math import gcd
 
         self._pinned = None
+        self._device_packed = None
         self.raw = raw
         self.ggml_type = int(ggml_type)
         self.shape = tuple(int(d) for d in shape)
@@ -320,6 +345,7 @@ class PackedWeight:
             self._rows_per_group * columns // self._block
         ) * self._block_bytes
         self._packing = self._folding_packing(columns)
+        self._decode_here = decode_on_device
 
     def _folding_packing(self, columns: int) -> str | None:
         """The packing name if this weight can take the folded matmul.
@@ -339,11 +365,70 @@ class PackedWeight:
         return name if columns % PACKINGS[name].group == 0 else None
 
     @property
+    def on_accelerator(self) -> bool:
+        """Whether this weight lives somewhere that is not the CPU."""
+        return not str(self.device).startswith("cpu")
+
+    def _decodes_on_device(self) -> bool:
+        """Whether the packed bytes can be decoded where they sit.
+
+        Only the HyperNix extension types can. The llama.cpp block types
+        still decode through numpy and upload the result, which is the
+        arrangement this exists to avoid -- but ``hypernix generate``
+        routes an upstream quant to llama.cpp anyway, so the slow path is
+        one nobody takes to run a model.
+        """
+        from .hnxtorch import supports
+
+        if not supports(self.ggml_type):
+            return False
+        if self._decode_here is not None:
+            # Forced on or off. On is how the accelerator path gets
+            # tested on a machine with no accelerator: it is the same
+            # code CUDA runs, and asserting it against the numpy decoder
+            # is the only check of it that does not need a GPU present.
+            return bool(self._decode_here)
+        return self.on_accelerator
+
+    def packed_on_device(self):
+        """The packed bytes as a uint8 tensor on this weight's device.
+
+        Uploaded once and kept. This is the whole reason a sub-bit model
+        is worth putting on a GPU: the packed form is the small one, so
+        PCIe carries 0.9 bits per weight at load rather than 32 bits per
+        weight per forward pass.
+        """
+        if self._device_packed is None:
+            from .hnxtorch import to_device_bytes
+
+            self._device_packed = to_device_bytes(self.raw, self.device)
+        return self._device_packed
+
+    @property
     def nbytes(self) -> int:
         """What this weight costs in memory, pinned or not."""
         if self._pinned is not None:
             return self._pinned.numel() * self._pinned.element_size()
         return len(self.raw)
+
+    @property
+    def device_bytes(self) -> int:
+        """What this weight occupies in the device's own memory.
+
+        Reported separately from :attr:`nbytes` rather than folded into
+        it: the host copy is still held, and a single number covering
+        both would be a memory figure that matches neither the RAM the
+        process uses nor the VRAM the card reports.
+
+        Non-zero on CPU only when the torch decoder has been forced on,
+        which is a testing mode -- there it is a real second allocation
+        bought for nothing, and saying zero would hide it.
+        """
+        if self._pinned is not None and self.on_accelerator:
+            return self._pinned.numel() * self._pinned.element_size()
+        if self._device_packed is None:
+            return 0
+        return self._device_packed.numel()
 
     @property
     def dense_bytes(self) -> int:
@@ -384,7 +469,14 @@ class PackedWeight:
         """Rows from whole groups ``[first_group, last_group)``, as float32."""
         import torch
 
-        chunk = self.raw[first_group * self._group_bytes:last_group * self._group_bytes]
+        start = first_group * self._group_bytes
+        stop = last_group * self._group_bytes
+        if self._decodes_on_device():
+            from .hnxtorch import decode
+
+            flat = decode(self.packed_on_device()[start:stop], self.ggml_type)
+            return flat.reshape(-1, self.columns)
+        chunk = self.raw[start:stop]
         count = (last_group - first_group) * self._rows_per_group * self.columns
         # No .copy(): every decoder returns a freshly allocated array, so
         # torch can take it as is. Copying here doubled the traffic of the
@@ -448,11 +540,18 @@ class PackedWeight:
 
         first = start // self._rows_per_group
         last = -(-stop // self._rows_per_group)  # ceiling division
-        chunk = self.raw[first * self._group_bytes:last * self._group_bytes]
-        signs = stored_signs(chunk, self._packing)
-        decoded = torch.from_numpy(
-            signs.reshape((last - first) * self._rows_per_group, -1)
-        ).to(self.device)
+        rows = (last - first) * self._rows_per_group
+        window = slice(first * self._group_bytes, last * self._group_bytes)
+        if self._decodes_on_device():
+            from .hnxtorch import stored_signs as device_stored_signs
+
+            decoded = device_stored_signs(
+                self.packed_on_device()[window], self._packing
+            ).reshape(rows, -1)
+        else:
+            decoded = torch.from_numpy(
+                stored_signs(self.raw[window], self._packing).reshape(rows, -1)
+            ).to(self.device)
         offset = start - first * self._rows_per_group
         return decoded[offset:offset + (stop - start)]
 
@@ -568,6 +667,26 @@ class LoadedModel:
     tokenizer: Any = None
     #: Bytes on disk, for comparison with what the load actually cost.
     file_bytes: int = 0
+    #: Where the weights are. "cpu", "cuda:0", "mps", ...
+    device: str = "cpu"
+
+    @property
+    def device_bytes(self) -> int:
+        """What this model occupies on an accelerator.
+
+        Separate from :attr:`resident_bytes`, which counts host memory.
+        On a GPU the packed bytes are held in both places -- the file's
+        copy on the host and the uploaded copy on the card -- and one
+        number covering both would match neither what the process uses
+        nor what nvidia-smi reports.
+        """
+        total = 0
+        for weight in self.tensors.values():
+            if isinstance(weight, PackedWeight):
+                total += weight.device_bytes
+            elif hasattr(weight, "device") and str(weight.device) != "cpu":
+                total += weight.numel() * weight.element_size()
+        return total
 
     @property
     def sub_bit(self) -> bool:
@@ -622,6 +741,11 @@ class LoadedModel:
             f"{self.packed_in_memory}/{len(self.tensors)} tensors still packed"
             + (f", {self.pinned_in_memory} pinned" if self.pinned_in_memory else ""),
         ]
+        if str(self.device) != "cpu":
+            lines.append(
+                f"  device   : {self.device}, {self.device_bytes / 1e6:.2f} MB "
+                f"resident there (packed)"
+            )
         if self.file_bytes:
             lines.append(
                 f"  on disk  : {self.file_bytes / 1e6:.2f} MB "
@@ -688,11 +812,28 @@ def load_model(
     to unpack, and one with no room to spare keeps every byte packed.
     :attr:`LoadedModel.resident_bits_per_weight` reports where that
     landed rather than leaving it to be guessed.
+
+    ``device`` takes ``"auto"``, ``"cpu"``, ``"cuda"``, ``"cuda:1"``,
+    ``"mps"``, ``"xpu"``, or a :class:`~hypernix.models.hnxdevice.Device`.
+    On an accelerator the *packed* bytes are uploaded once and decoded
+    there, which is the arrangement worth having: the packed form is the
+    small one, so a 7B at ``IQ0.9_L`` puts about 800 MB on the card
+    instead of the 28 GB its float16 weights would need. A named device
+    that cannot run raises with the reason and the remedy rather than
+    quietly falling back to the CPU — see
+    :func:`hypernix.models.hnxdevice.select`.
     """
     import numpy as np
     import torch
 
     from ..quant.gguf import GGMLType, GGUFError, GGUFFile
+    from .hnxdevice import DeviceError, select
+
+    try:
+        resolved = select(str(device))
+    except DeviceError as exc:
+        raise HnxRunError(str(exc)) from exc
+    device = resolved.torch_device
 
     model_path = Path(path)
     if not model_path.exists():
@@ -768,6 +909,7 @@ def load_model(
         packed_as=packed,
         tokenizer=tokenizer_from_metadata(gguf_file.metadata),
         file_bytes=model_path.stat().st_size,
+        device=device,
     )
 
 
@@ -818,7 +960,19 @@ def _rope(x, positions, theta: float, rope_dims: int):
     rotated = x[..., :dims]
     passthrough = x[..., dims:]
 
-    inverse = 1.0 / (theta ** (torch.arange(0, dims, 2, dtype=torch.float32) / dims))
+    # device=x.device, not the default. Without it this table is built on
+    # the CPU and multiplied by positions that live wherever the model
+    # does, which is fine on a CPU run and a hard error on every
+    # accelerator -- the whole forward pass dies with "found at least two
+    # devices". Nothing here reads a device from a global, so the tensor
+    # being rotated is the only authority on where the arithmetic goes.
+    inverse = 1.0 / (
+        theta
+        ** (
+            torch.arange(0, dims, 2, dtype=torch.float32, device=x.device)
+            / dims
+        )
+    )
     angles = positions.to(torch.float32)[:, None] * inverse[None, :]
     cos = torch.cos(angles)[None, :, :]
     sin = torch.sin(angles)[None, :, :]
@@ -994,7 +1148,15 @@ def generate_tokens(
                 cut = torch.topk(scaled, int(top_k)).values[-1]
                 scaled = scaled.masked_fill(scaled < cut, float("-inf"))
             probabilities = torch.softmax(scaled, dim=-1)
-            token = int(torch.multinomial(probabilities, 1, generator=generator))
+            # The draw happens on the CPU whatever the model runs on. The
+            # generator above is a CPU one, and torch refuses a generator
+            # whose device differs from the tensor's, so a device-resident
+            # probability vector would raise here rather than sample. It
+            # also means a seed picks the same sequence of draws on every
+            # backend, which a per-device generator would not.
+            token = int(
+                torch.multinomial(probabilities.cpu(), 1, generator=generator)
+            )
         produced.append(token)
         if token in stops:
             break

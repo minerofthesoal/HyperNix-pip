@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-VERSION="0.72.3"
+VERSION="0.72.3.post3"
 
 CONFIG_DIR="${T1_CONFIG_DIR:-$HOME/.hypernix/t1api}"
 ENV_FILE="$CONFIG_DIR/.env"
@@ -364,12 +364,29 @@ cmd_key() {
 }
 
 cmd_autostart() {
-  local action="${1:-on}"
+  local action="on" write_only=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --write-only) write_only=1 ;;
+      on|off|disable|status) action="$1" ;;
+      *) die "Unknown argument for autostart: $1 (on | off | status | --write-only)" ;;
+    esac
+    shift
+  done
   local unit_dir="$HOME/.config/systemd/user"
   local unit="$unit_dir/hypernix-t1.service"
 
   command -v systemctl >/dev/null 2>&1 || die \
     "systemd not found. On a non-systemd machine, add \`hypernix-t1 start\` to your session startup."
+
+  # systemctl being on PATH is not the same as there being a user
+  # session to talk to. In a container, over plain ssh without lingering,
+  # and on WSL, `systemctl --user` fails with "Failed to connect to bus:
+  # No medium found" -- which says nothing about what to do, and is the
+  # error this command produced before the check.
+  if [ "$write_only" = "0" ] && ! systemctl --user show-environment >/dev/null 2>&1; then
+    die "systemd is installed but there is no user session to register with (\`systemctl --user\` cannot reach a bus). This is normal in a container, over plain ssh, and on WSL. Either run \`sudo loginctl enable-linger $(id -un)\` and log in again, add \`hypernix-t1 start\` to your session startup, or pass --write-only to install the unit for a session that does not exist yet."
+  fi
 
   case "$action" in
     off|disable)
@@ -413,6 +430,11 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 UNIT
+  if [ "$write_only" = "1" ]; then
+    ok "Unit written to $unit (not enabled)."
+    dim "     Enable it from a real session: systemctl --user enable --now hypernix-t1.service"
+    return 0
+  fi
   systemctl --user daemon-reload
   systemctl --user enable --now hypernix-t1.service
   ok "Autostart on (systemd user service)."
@@ -466,7 +488,7 @@ hypernix-t1 — manage a T1 API server
   configure             Edit the configuration in \$EDITOR
   test                  Health, status, and a real end-to-end probe
   key ...               Run gkey against this server's key store
-  autostart [on|off|status]
+  autostart [on|off|status] [--write-only]
                         Start at login via a systemd user service
   remove                Stop, disable, and delete the config (keeps keys)
 

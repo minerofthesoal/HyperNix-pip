@@ -212,13 +212,14 @@ def load_gguf(
     n_gpu_layers: int = -1,
     quiet: bool = True,
     cache_bytes: int = 0,
+    device: str = "auto",
 ) -> Any:
     """Load a local GGUF through :mod:`hypernix.models.multilama`.
 
-    ``cache_bytes`` only reaches the sub-bit runtime, which is the only
-    one that holds weights packed and can therefore trade memory back for
-    speed. llama.cpp has its own answer to that question and this does not
-    second-guess it.
+    ``cache_bytes`` and ``device`` only reach the sub-bit runtime, which
+    is the only one this package executes itself. llama.cpp has its own
+    answers to both and this does not second-guess them -- ``n_gpu_layers``
+    is how that side is told where to run.
     """
     model_path = Path(path)
     if not model_path.exists():
@@ -232,7 +233,9 @@ def load_gguf(
         from . import hnxrun
 
         try:
-            loaded = hnxrun.load_model(model_path, cache_bytes=cache_bytes)
+            loaded = hnxrun.load_model(
+                model_path, cache_bytes=cache_bytes, device=device
+            )
         except hnxrun.HnxRunError as exc:
             raise GGUFRunError(str(exc)) from exc
         return HnxSession(loaded, model_path)
@@ -265,6 +268,7 @@ def chat_with_gguf(
     backend: str = "vanilla",
     n_ctx: int = 8192,
     cache_bytes: int = 0,
+    device: str = "auto",
 ) -> str:
     """One chat turn against a local GGUF.
 
@@ -273,7 +277,8 @@ def chat_with_gguf(
     ``.chat()`` on it -- both backends return something that speaks it.
     """
     model = load_gguf(
-        path, backend=backend, n_ctx=n_ctx, cache_bytes=cache_bytes
+        path, backend=backend, n_ctx=n_ctx, cache_bytes=cache_bytes,
+        device=device,
     )
     try:
         return model.chat(
@@ -297,6 +302,7 @@ def generate_with_gguf(
     backend: str = "vanilla",
     n_ctx: int = 8192,
     cache_bytes: int = 0,
+    device: str = "auto",
 ) -> str:
     """Continue *prompt* with a local GGUF.
 
@@ -311,4 +317,5 @@ def generate_with_gguf(
         backend=backend,
         n_ctx=n_ctx,
         cache_bytes=cache_bytes,
+        device=device,
     )

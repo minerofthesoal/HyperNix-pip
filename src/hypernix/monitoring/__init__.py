@@ -23,6 +23,7 @@ __all__ = [
     "tv",
     "tvtop",
     "tvtop_plus_plus",
+    "tvtoppro",
 ]
 
 

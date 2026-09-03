@@ -92,7 +92,15 @@ install-t1.sh — interactive installer and setup for the HyperNix T1 API.
                         (port, allowlist, prices) are still asked, unless
                         --non-interactive is also given. Does not start the
                         server at the end — that stays an explicit choice.
+  --host ADDR           Bind address, answering the "Bind to" question up
+                        front. 127.0.0.1 keeps it on loopback; 0.0.0.0
+                        exposes it to every network this machine is on.
+  --port N              Port, answering the "Port" question up front.
+  --force               Overwrite an existing .env instead of stopping.
   --help                This.
+
+`hypernix-t1 create` forwards its own --host/--port/--force here, so the
+two commands accept the same flags whether or not this script is present.
 
 Environment:
   T1_CONFIG_DIR         Same as --config-dir.
@@ -109,6 +117,9 @@ while [ $# -gt 0 ]; do
     --non-interactive) INTERACTIVE=0; ASSUME_YES=1 ;;
     --dry-run)         DRY_RUN=1 ;;
     --yes|-y)          ASSUME_YES=1 ;;
+    --host)            shift; [ $# -gt 0 ] || die "--host needs an address"; FORCED_HOST="$1" ;;
+    --port)            shift; [ $# -gt 0 ] || die "--port needs a number"; FORCED_PORT="$1" ;;
+    --force)           FORCE_OVERWRITE=1 ;;
     --config-dir)      shift; [ $# -gt 0 ] || die "--config-dir needs a path"; CONFIG_DIR="$1" ;;
     --install)         shift; [ $# -gt 0 ] || die "--install needs a mode"; INSTALL_MODE="$1" ;;
     --python)          shift; [ $# -gt 0 ] || die "--python needs a path"; PYTHON_OVERRIDE="$1" ;;
@@ -455,6 +466,11 @@ CIDREOF
 SERVER_NAME=""
 BIND_HOST=""
 BIND_PORT=""
+#: Set by --host/--port, which answer the bind questions up front. Empty
+#: means "ask", which is what an interactive run wants.
+FORCED_HOST="${FORCED_HOST:-}"
+FORCED_PORT="${FORCED_PORT:-}"
+FORCE_OVERWRITE="${FORCE_OVERWRITE:-0}"
 PUBLIC_URL=""
 ENVIRONMENT="development"
 KEY_POLICY="both"          # t1 | t2 | both
@@ -511,6 +527,14 @@ q_network() {
   local ts_label="Tailscale only"
   [ -n "${DETECTED_TS:-}" ] && ts_label="Tailscale (${DETECTED_TS})"
 
+  # --host and --port answer these two before they are asked. The
+  # prompts are skipped rather than pre-filled, because a prompt that
+  # shows an answer and then accepts a different one is how an
+  # unattended run ends up bound to an address nobody chose.
+  if [ -n "$FORCED_HOST" ]; then
+    BIND_HOST="$FORCED_HOST"
+    dim "     Bind to — $BIND_HOST (--host)"
+  else
   dim "     Which addresses should the server accept connections on?"
   ask_choice "Bind to" 1 \
     "Loopback only — 127.0.0.1 (safest; reach it over an SSH tunnel)" \
@@ -523,9 +547,15 @@ q_network() {
     3) BIND_HOST="0.0.0.0" ;;
     4) BIND_HOST="0.0.0.0"; [ -n "${DETECTED_TS:-}" ] && PUBLIC_URL="http://${DETECTED_TS}" ;;
   esac
+  fi
 
-  ask "Port" "8000" "The T1 API listens here. HyperLink advertises this port to clients."
-  BIND_PORT="$ANSWER"
+  if [ -n "$FORCED_PORT" ]; then
+    BIND_PORT="$FORCED_PORT"
+    dim "     Port — $BIND_PORT (--port)"
+  else
+    ask "Port" "8000" "The T1 API listens here. HyperLink advertises this port to clients."
+    BIND_PORT="$ANSWER"
+  fi
   case "$BIND_PORT" in
     ''|*[!0-9]*) warn "Port must be a number; using 8000."; BIND_PORT=8000 ;;
   esac
@@ -854,6 +884,15 @@ rate_rules_json() {
 }
 
 write_env() {
+  # An existing .env is somebody's working server. Overwriting it
+  # regenerates the token secret, which invalidates every key already
+  # minted against it -- a failure that shows up later as "the server
+  # rejects my keys" rather than here as "the file was replaced".
+  # `hypernix-t1 create` refuses the same way, and forwards --force here
+  # so the two commands agree.
+  if [ -f "$CONFIG_DIR/.env" ] && [ "$FORCE_OVERWRITE" != "1" ]; then
+    die "$CONFIG_DIR/.env already exists. Edit it with \`hypernix-t1 configure\`, or pass --force to replace it (which invalidates existing keys)."
+  fi
   head2 "Writing the configuration"
 
   if [ "$DRY_RUN" = "0" ]; then
@@ -927,6 +966,19 @@ T1_KEYMASTER_DIR=$CONFIG_DIR/keymaster
 T1_DEFAULT_PLAN=$DEFAULT_PLAN
 
 # --- Network ---------------------------------------------------------------
+# Where uvicorn binds. start-t1.sh passes these on the command line and
+# 'hypernix-t1 start' reads them from here, so both start the server in
+# the same place. They used to live only in start-t1.sh, which meant
+# 'hypernix-t1 start' fell back to its own 127.0.0.1:8000 default and
+# every later status, logs, key and test pointed at an address nothing
+# was listening on.
+#
+# Single quotes, not backticks: this heredoc is unquoted so that
+# $BIND_HOST expands, which means a backtick here is command
+# substitution and would run the command while writing this file.
+T1_HOST=$BIND_HOST
+T1_PORT=$BIND_PORT
+
 # The port advertised to HyperLink clients. Keep it matching whatever
 # uvicorn is actually bound to — it cannot be inferred behind a proxy.
 T1_HYPERLINK_PORT=$BIND_PORT

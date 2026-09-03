@@ -144,6 +144,12 @@ _EXTENSION_WARNING = (
     "llama.cpp will refuse the resulting GGUF; it needs a HyperNix-aware loader."
 )
 
+_QUARTER_WARNING = (
+    "At a quarter of a bit roughly two signs in five are wrong and there is no "
+    "magnitude at all. Treat this as a measurement of how far the packing goes, "
+    "not as a model to deploy."
+)
+
 TIERS: dict[str, Tier] = {
     t.name: t
     for t in (
@@ -168,6 +174,32 @@ TIERS: dict[str, Tier] = {
              "and an experiment, not a deployment target.",
              packing="hypernix-sub1-xxxl", needs_imatrix=True,
              honest_warning=_SUB_BIT_WARNING + " " + _EXTENSION_WARNING),
+        Tier("IQ0.25_UXL", 0.25, False,
+             "A quarter of a bit. Three signs kept of every sixteen, the other "
+             "thirteen repeating the third — so about 59% of signs survive, "
+             "against the 50% a coin gets.",
+             packing="hypernix-sub1-uxl", needs_imatrix=True,
+             honest_warning=_QUARTER_WARNING + " " + _EXTENSION_WARNING),
+        # The fixed-codebook family. Named for the width of one weight,
+        # the way Q4_0 is, so the rate is the name plus the FP16 block
+        # scale -- stated here rather than left to a file size.
+        Tier("INT1", 1.0625, False,
+             "One bit per weight and a block scale: every sign kept, no "
+             "magnitude. A binary net, and the k == g end of the sub-bit family.",
+             packing="hypernix-int1",
+             honest_warning=_SUB_BIT_WARNING + " " + _EXTENSION_WARNING),
+        Tier("FP2", 2.0625, False,
+             "Two-bit float: sign and exponent, levels ±1 and ±2, no zero. "
+             "Block scale searched, because the obvious fit made it lose to INT1.",
+             packing="hypernix-fp2",
+             honest_warning=_EXTENSION_WARNING),
+        Tier("INT4", 4.0625, False,
+             "Signed 4-bit over a fixed codebook with a searched block scale. "
+             "No k-quant machinery — Q4_K_M is better at this rate and any "
+             "llama.cpp can read it; this is for when the codebook has to be "
+             "exactly the integers.",
+             packing="hypernix-int4",
+             honest_warning=_EXTENSION_WARNING),
     )
 }
 
@@ -178,6 +210,13 @@ _TIER_ALIASES = {
     "iq0.9_l": "IQ0.9_L", "iq0.9l": "IQ0.9_L", "iq09l": "IQ0.9_L",
     "iq0.75_m": "IQ0.75_M", "iq0.75m": "IQ0.75_M", "iq075m": "IQ0.75_M",
     "iq0.5_xxxl": "IQ0.5_XXXL", "iq0.5xxxl": "IQ0.5_XXXL", "iq05xxxl": "IQ0.5_XXXL",
+    # The user-facing spelling of this one is IQ-0.25UXL as often as
+    # IQ0.25_UXL, so both resolve. get_tier() also strips underscores,
+    # which covers the rest of the permutations.
+    "iq0.25_uxl": "IQ0.25_UXL", "iq0.25uxl": "IQ0.25_UXL",
+    "iq025uxl": "IQ0.25_UXL", "iq.0.25uxl": "IQ0.25_UXL",
+    "int1": "INT1", "int4": "INT4", "fp2": "FP2",
+    "i1": "INT1", "i4": "INT4", "f2": "FP2",
 }
 
 

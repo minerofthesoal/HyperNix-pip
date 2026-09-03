@@ -47,6 +47,8 @@ from typing import Any
 from . import llamaquants
 from .gguf import GGMLType, GGUFError, GGUFFile, GGUFTensor, GGUFWriter
 from .imatrix import expand_for_tensor
+from .lowbit import CODECS, LowBitError
+from .lowbit import quantize_array as lowbit_quantize
 from .subbit import BLOCK_SIZE, PACKINGS, SubBitError, quantize_tensor
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ __all__ = [
     "resolve_recipe",
     "tier_for_packing",
     "ALIASES",
+    "RECIPE_ALIASES",
 ]
 
 #: The names this tool answers to. doomslug is the original; the longer
@@ -74,9 +77,17 @@ class HyprslugError(Exception):
 
 #: Steamroller tier -> (GGML type id, subbit packing name).
 TIER_TYPES: dict[str, tuple[int, str]] = {
+    # Sign-and-scale, from hypernix.quant.subbit. Ordered widest first.
+    "INT1": (int(GGMLType.HNX_INT1), "int1_binary"),
     "IQ0.9_L": (int(GGMLType.HNX_IQ0_9), "sign_scale_l"),
     "IQ0.75_M": (int(GGMLType.HNX_IQ0_75), "pair_code_m"),
     "IQ0.5_XXXL": (int(GGMLType.HNX_IQ0_5), "quad_code_xxxl"),
+    "IQ0.25_UXL": (int(GGMLType.HNX_IQ0_25), "quarter_code_uxl"),
+    # Fixed codebook, from hypernix.quant.lowbit. The packing name is the
+    # codec name; :func:`_encoder_for` tells the two families apart by
+    # looking the name up rather than by parsing it.
+    "INT4": (int(GGMLType.HNX_INT4), "INT4"),
+    "FP2": (int(GGMLType.HNX_FP2), "FP2"),
 }
 
 
@@ -194,8 +205,43 @@ _UNQUANTIZED = {
 }
 
 
+#: HyperNix extension GGML type -> the codec that decodes it. Built from
+#: :data:`TIER_TYPES` so a tier added there is readable here without a
+#: second table to keep in step.
+def _extension_packing(ggml_type: int) -> str:
+    return next(
+        (packing for _tier, (kind, packing) in TIER_TYPES.items()
+         if kind == int(ggml_type)),
+        "",
+    )
+
+
 def _readable(ggml_type: int) -> bool:
-    return int(ggml_type) in _UNQUANTIZED or llamaquants.is_supported(int(ggml_type))
+    """Whether hyprslug can turn this type back into floats.
+
+    The HyperNix extension types belong here as much as the upstream
+    ones. Leaving them out meant a sub-bit GGUF was not a valid *source*:
+    :func:`_should_quantize` declined every tensor with "source type 200
+    is one hyprslug cannot read" and the run copied them verbatim --
+    reporting success while producing a file that still carried type 200.
+    Every caller trying to convert a sub-bit model to something stock
+    llama.cpp reads got back a file that stock llama.cpp still refuses.
+    """
+    kind = int(ggml_type)
+    return (
+        kind in _UNQUANTIZED
+        or llamaquants.is_supported(kind)
+        or bool(_extension_packing(kind))
+    )
+
+
+def _bits_per_weight(packing: str) -> float:
+    """The rate a packing writes, whichever family it belongs to."""
+    if packing in PACKINGS:
+        return PACKINGS[packing].bits_per_weight
+    if packing in CODECS:
+        return CODECS[packing].bits_per_weight
+    raise HyprslugError(f"No packing named {packing!r}")
 
 
 def tier_for_packing(packing: str) -> str:
@@ -206,12 +252,31 @@ def tier_for_packing(packing: str) -> str:
     raise HyprslugError(f"No tier uses packing {packing!r}")
 
 
+#: Spellings that name a recipe without resembling it.
+#:
+#: ``Q4M`` is the one people actually type, and squashing separators does
+#: not get there from ``Q4_K_M`` -- the ``K`` is missing, not the
+#: underscore. Left unmapped it falls through to "unknown target", which
+#: is a confusing way to reject the most common request there is.
+RECIPE_ALIASES: dict[str, str] = {
+    "Q4M": "Q4_K_M",
+    "Q3M": "Q3_K_M",
+    "Q5M": "Q5_K_M",
+    "Q4S": "Q4_K_S",
+    "Q3S": "Q3_K_S",
+    "Q5S": "Q5_K_S",
+    "Q2S": "Q2_K_S",
+    "Q3L": "Q3_K_L",
+}
+
+
 def resolve_recipe(tier: str) -> Recipe | None:
     """The :class:`Recipe` for *tier*, or ``None`` if it is a sub-bit tier.
 
     Case- and separator-insensitive, because ``q4_k_m``, ``Q4_K_M`` and
     ``q4km`` are all the same request and refusing two of them helps
-    nobody.
+    nobody. :data:`RECIPE_ALIASES` covers the spellings that drop a
+    letter rather than a separator.
     """
     key = (tier or "").strip().upper().replace("-", "_")
     if key in RECIPES:
@@ -220,7 +285,8 @@ def resolve_recipe(tier: str) -> Recipe | None:
     for name, recipe in RECIPES.items():
         if name.replace("_", "") == squashed:
             return recipe
-    return None
+    aliased = RECIPE_ALIASES.get(squashed)
+    return RECIPES[aliased] if aliased else None
 
 
 def all_targets() -> list[str]:
@@ -237,9 +303,25 @@ def _decode_floats(data: bytes, ggml_type: int) -> list[float]:
             # unavoidable and it is not silent: the report says the source
             # was already quantised.
             return [float(v) for v in llamaquants.dequantize_array(data, int(ggml_type))]
+        packing = _extension_packing(ggml_type)
+        if packing:
+            # A HyperNix extension source. Going *up* from one of these
+            # recovers nothing the packing threw away -- a 0.9-bit tensor
+            # re-encoded as Q4_K_M is a Q4_K_M copy of a 0.9-bit model,
+            # not a recovered one -- but it is what makes the file
+            # readable by a stock loader at all, and the report's
+            # requantized_from field says where it came from.
+            if packing in CODECS:
+                from .lowbit import dequantize_array as _low_dequantize
+
+                return [float(v) for v in _low_dequantize(data, packing)]
+            from .subbit import dequantize_array as _sub_dequantize
+
+            return [float(v) for v in _sub_dequantize(data, packing)]
         raise HyprslugError(
-            f"hyprslug reads F32, F16, BF16 and the llama.cpp block types; this "
-            f"tensor is type {ggml_type}, which is none of them."
+            f"hyprslug reads F32, F16, BF16, the llama.cpp block types and the "
+            f"HyperNix extension types; this tensor is type {ggml_type}, which "
+            f"is none of them."
         )
     fmt, width = spec
     count = len(data) // width
@@ -406,7 +488,7 @@ def quantize_gguf(
                 f"Unknown target {tier!r}. hyprslug writes: {', '.join(all_targets())}"
             )
         ggml_type, packing = TIER_TYPES[tier]
-        if packing not in PACKINGS:
+        if packing not in PACKINGS and packing not in CODECS:
             raise HyprslugError(
                 f"Tier {tier} names packing {packing!r}, which does not exist."
             )
@@ -448,7 +530,7 @@ def quantize_gguf(
         writer.set_metadata("hypernix.sub_bit", True)
         writer.set_metadata(
             "general.file_type_description",
-            f"HyperNix {tier} ({PACKINGS[packing].bits_per_weight:.3f} bpw)",
+            f"HyperNix {tier} ({_bits_per_weight(packing):.3f} bpw)",
         )
     else:
         writer.set_metadata("hypernix.sub_bit", False)
@@ -533,8 +615,14 @@ def quantize_gguf(
             importance = expanded
         if fmt == "sub-bit":
             try:
+                if packing in CODECS:
+                    # A fixed codebook carries its own magnitude, so an
+                    # imatrix has nothing to decide here -- there is no
+                    # scale to steer and no sign to drop. Passing one
+                    # would be accepting an argument and ignoring it.
+                    return lowbit_quantize(values, packing)
                 return quantize_tensor(values, packing, importance)
-            except SubBitError as exc:
+            except (SubBitError, LowBitError) as exc:
                 raise HyprslugError(f"{declared.name}: {exc}") from exc
         try:
             return llamaquants.quantize_array(values, fmt, importance)

@@ -20,9 +20,53 @@ from .hyprslug import (
     HyprslugError,
     quantize_gguf,
 )
+from .lowbit import CODECS
 from .subbit import PACKINGS
 
 __all__ = ["main", "cli_main"]
+
+
+def _describe_tier(tier: str, type_id: int, packing: str) -> dict:
+    """One extension tier, whichever family its packing belongs to.
+
+    There are two now: sign-and-scale packings from
+    :mod:`hypernix.quant.subbit`, which are described by how many signs
+    of each group survive, and fixed codebooks from
+    :mod:`hypernix.quant.lowbit`, which have no dropped signs to report
+    and are described by their levels instead. Reaching into ``PACKINGS``
+    for both is what this replaced, and it raised ``KeyError: 'INT4'``
+    from inside a ``--json`` branch -- an unhandled crash on a listing
+    command, which is the one thing a listing command must not do.
+    """
+    common = {
+        "name": tier,
+        "ggml_type": type_id,
+        "packing": packing,
+        "upstream": False,
+        "summary": "HyperNix extension type; stock llama.cpp refuses it by name.",
+    }
+    if packing in PACKINGS:
+        spec = PACKINGS[packing]
+        return {
+            **common,
+            "family": "sign-and-scale",
+            "bits_per_weight": spec.bits_per_weight,
+            "signs_kept": spec.kept,
+            "group": spec.group,
+            "shape": f"{spec.kept} of every {spec.group} signs kept",
+        }
+    codec = CODECS[packing]
+    return {
+        **common,
+        "family": "fixed-codebook",
+        "bits_per_weight": codec.bits_per_weight,
+        "code_bits": codec.code_bits,
+        "levels": list(codec.levels),
+        "shape": (
+            f"{codec.code_bits}-bit codes over "
+            f"{len(codec.levels)} fixed levels"
+        ),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,18 +129,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 ],
                 "sub_bit_tiers": [
-                    {
-                        "name": tier,
-                        "ggml_type": type_id,
-                        "packing": packing,
-                        "bits_per_weight": PACKINGS[packing].bits_per_weight,
-                        "signs_kept": PACKINGS[packing].kept,
-                        "group": PACKINGS[packing].group,
-                        "upstream": False,
-                        "summary": (
-                            "HyperNix extension type; stock llama.cpp refuses it by name."
-                        ),
-                    }
+                    _describe_tier(tier, type_id, packing)
                     for tier, (type_id, packing) in TIER_TYPES.items()
                 ],
             }, indent=2))
@@ -110,12 +143,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {name:8} {recipe.bits_per_weight:5.2f} bits/weight  "
                   f"{recipe.summary}{note}")
         print()
-        print("HyperNix sub-bit tiers (stock llama.cpp refuses these by name):")
+        print("HyperNix extension tiers (stock llama.cpp refuses these by name):")
         for tier, (type_id, packing) in TIER_TYPES.items():
-            spec = PACKINGS[packing]
+            described = _describe_tier(tier, type_id, packing)
             print(
-                f"  {tier:12} {spec.bits_per_weight:5.3f} bits/weight  "
-                f"type {type_id}  {spec.kept} of every {spec.group} signs kept"
+                f"  {tier:12} {described['bits_per_weight']:5.3f} bits/weight  "
+                f"type {type_id}  {described['shape']}"
             )
         return 0
 

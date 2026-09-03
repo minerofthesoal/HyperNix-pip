@@ -20,7 +20,261 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
-## 0.72.3 pt 4 — the sub-bit models actually run
+## 0.72.3.post4 — the accelerator path, actually on an accelerator
+
+𖢥 **`--hnx-device auto` was broken on every accelerator, and the whole
+local suite passed.** `_rope` built its inverse-frequency table with
+`torch.arange(...)` and no `device=`. On a CPU run that is correct by
+accident, because the default device *is* the CPU; anywhere else the
+table lands on the host, the positions land on the card, and the first
+forward pass ends with *"Expected all tensors to be on the same device,
+but found at least two devices, mps:0 and cpu!"*.
+
+Not an MPS quirk. CUDA and XPU would have failed identically on the first
+token — `auto` is the default, so this was the default path. The macOS CI
+runners are the only machines in the matrix with a device, so they were
+the only jobs that could see it: twelve failures there, green on Linux
+and Windows, green locally, on the same commit.
+
+𖢥 **Seeded sampling raised instead of sampling, off the CPU.**
+`generate_tokens` seeds a `torch.Generator(device="cpu")` and
+`torch.multinomial` refuses a generator whose device differs from the
+tensor's. The probability vector is now moved to the CPU rather than the
+generator to the device — which also means a seed picks the same draws on
+every backend, where a per-device generator would not.
+
+🔧 **A placement bug is invisible on a one-device machine**, so no number
+of ordinary tests could have caught either. `tests/test_hnx_device_placement.py`
+runs the rotation against `device="meta"` — tensors that allocate nothing
+but still carry a device identity torch enforces — which turns "would
+break on MPS" into an assertion that fails on a CPU-only box. Beside it,
+an audit parses the runtime modules and requires every `torch` tensor
+factory to pass `device=` (and every `from_numpy` to be followed by a
+`.to(...)`), because that is the class the one line belonged to. Four of
+the eleven fail on the pre-fix source; the rope one was the only naive
+factory left in either module.
+
+𖢥 **Every Windows test job was red on a locale, not a bug in the code
+under test.** `install-t1.sh` carries 476 non-ASCII bytes — em dashes,
+tick marks — and prints them. `Path.read_text()` and
+`subprocess.run(text=True)` both decode with
+`locale.getpreferredencoding()`, which is UTF-8 on Linux and macOS and
+**cp1252** on Windows, so twelve tests that drive the shell scripts
+raised *"'charmap' codec can't decode byte 0x8f in position 2607"* there
+and passed everywhere else. Every read, write and capture in the four
+shell-script test modules now names `encoding="utf-8"`, and a source-level
+audit keeps it that way — a locale is not observable from inside a
+passing test, so that is the only place the property lives.
+
+The same shape as the device bug above: an implicit default that happens
+to be correct on the machine the tests were written on. Noted while
+fixing it, not fixed here: `src/` still has a dozen bare `read_text()`
+calls on JSON and config files, which is the same latent issue for
+Windows *users* rather than for CI. That is a separate change.
+
+🐛 **A heredoc in `install-t1.sh` ran commands while writing `.env`.**
+Codacy's shellcheck reported two backticks as "use `$(...)` instead of
+legacy backticks", which read like a style nit and was not: the `.env`
+heredoc is unquoted so it can expand `$BIND_HOST`, so a backtick in its
+body is command substitution. Two comment lines describing where the
+server listens each *ran* `hypernix-t1 start` while the config was being
+written. Fixed to single quotes, with a note in the file saying why a
+backtick cannot appear there, and two regression tests — a heredoc parser
+that tells `<<'EOF'` from `<<EOF`, and an end-to-end check with a
+marker-touching shim named `hypernix-t1` on `PATH`.
+
+🐛 **`test_a_machine_with_no_user_bus_says_what_to_do` failed on every
+runner.** It inferred "took the no-bus branch" from a non-zero exit code.
+Runners have a working user bus *and* still exit non-zero, because the
+test redirects `HOME` and systemd cannot see a unit written there — a
+third case the guard did not have. It now probes `systemctl --user
+show-environment` directly, which is the condition it actually cares
+about: skips on a runner, asserts in a container.
+
+## 0.72.3.post3 — CUDA, ROCm, Metal, Intel; and the Vulkan answer
+
+✨ **The sub-bit runtime runs on accelerators, and the packed bytes stay
+packed there.** `hypernix.models.hnxtorch` is a torch rewrite of both
+decoders in ops every backend supports — shifts, masks, gathers — so the
+same code runs on CUDA, ROCm, MPS and XPU. It is asserted *bit-identical*
+to the numpy decoders, not close: integer unpacking followed by one
+multiply has no rounding to hide behind.
+
+*(The decoders were bit-identical, and were tested as such. The forward
+pass around them had never run on an accelerator in CI when this shipped
+— see `post4` for what that hid.)*
+
+The arrangement is the point. The obvious port — decode with numpy, then
+`.to("cuda")` — is the worst one available: it pushes **expanded
+float32** across PCIe every forward pass, 34× the bytes a 0.9-bit tensor
+occupies, every token, to save nothing. The packed form is the small one,
+so it is uploaded once and decoded on the card. A 7B at `IQ0.9_L` puts
+about 800 MB on the GPU instead of the 28 GB a host-side decode would
+move per pass — and instead of the 14 GB its float16 weights would need,
+which is what lets it fit on a card that could not hold them.
+
+✨ **`hypernix devices`**, and the sm_61 trap it exists for. A GTX
+1060/1070/1080, Titan Xp or P40 is compute capability 6.1, and recent
+torch wheels build for sm_75 and up. `torch.cuda.is_available()` returns
+**True** on those cards; the driver is fine, memory reports correctly,
+and the first kernel launch fails with *"no kernel image is available for
+execution on the device"* — which reads like a broken driver and is
+actually a wheel that was never built for the card. The probe compares
+the device's capability against `torch.cuda.get_arch_list()` and names
+the wheel to install (`cu118` for Pascal and Maxwell). Unusable backends
+are listed *with the reason*, because "CUDA is not available" and "CUDA
+is available and has no kernels for your card" are different problems
+with different fixes.
+
+🛡️ **Half precision is not automatic.** GP102/GP104 run FP16 at 1/64 of
+their FP32 rate. A rule as reasonable-looking as "half on CUDA, float on
+CPU" finds it and makes a GTX 1080 dramatically slower while appearing to
+optimise it, so `default_dtype()` returns float32 below `sm_70` and the
+device listing says why.
+
+🛡️ **Vulkan is answered, not faked.** PyTorch's Vulkan backend is not in
+any released wheel and implements vision ops rather than a transformer;
+reporting it as available because an import succeeded would be a lie with
+a long debugging tail. `--device vulkan` refuses and gives the route that
+does work — llama.cpp's Vulkan runtime, which is what LM Studio uses on
+AMD, Intel and older NVIDIA cards, reached by converting the model with
+`hyprslug-headers wrap`.
+
+✨ **`hyprslug-headers install-model`** puts a loadable copy where LM
+Studio and Bionic look — `<root>/<publisher>/<name>/<name>.gguf`, the
+layout both scan. What lands there is a wrap, because a sub-bit GGUF is
+not something their llama.cpp can open, and the command says so:
+"installed into LM Studio" is exactly the phrase under which someone
+would assume the 0.9-bit file itself now works there. An already-upstream
+GGUF is copied unchanged rather than re-quantised.
+
+✨ `--hnx-device` on `generate` and `chat`, `--device` on
+`hyprslug-headers serve`. `auto` falls back to the CPU, which cannot be
+absent; a *named* device that is present but unusable raises with the
+reason and the remedy rather than being silently downgraded, because
+someone who typed `--device cuda` wants to know why they did not get it.
+
+📚 New wiki page: [Devices](Devices.md).
+
+## 0.72.3.post2 — new quant types, hyprslug-headers, tvtoppro
+
+✨ **Five more quant types**, in two families. `IQ0.25_UXL` and `INT1`
+extend the sign-and-scale machinery and needed no new arithmetic: `INT1`
+is its `k == g` case — every sign kept, only the magnitude lost — and
+`IQ0.25_UXL` is the far end, three signs of every sixteen in 8 bytes per
+256 weights, which is **0.25 bits per weight exactly**. About 59% of
+signs survive there, against the 50% a coin gets, and the tier says so.
+
+`INT4` and `FP2` are new, in `hypernix.quant.lowbit`: a fixed codebook,
+one FP16 block scale, a code per weight. `FP2`'s four levels are ±1 and
+±2 — one sign bit and one exponent bit, no zero, because a 2-bit type
+*with* a zero needs five levels and three bits. The rate is the name plus
+the scale (`INT4` is 4.062 bpw, not 4), which is llama.cpp's own
+convention — `Q4_0` is 4.5 — and is stated rather than left to a file
+size. Full table in [LowBit](LowBit.md).
+
+𖢥 **The FP2 scale search, which was not the original plan.** The first
+draft fitted the scale to each block's peak, the way `Q4_0` does.
+Measured on Gaussian weights that gave FP2 a relative error of 0.944 —
+*worse than one bit*, which scores 0.599 at half the size. With four
+levels and the scale pinned to a 3.5σ outlier, the levels land at 1.75σ
+and 3.5σ and almost everything rounds to the larger of two numbers that
+are both too big. A 2-bit format that loses to a 1-bit format is not a
+format. A 17-step search fixes it: FP2 0.944 → 0.396, INT4 0.113 → 0.104,
+and it is cheap because the codebook is fixed — nearest-level is a
+`searchsorted` against midpoints, not an argmin over a broadcast.
+
+🐛 **`Q4M` resolves to `Q4_K_M`.** Squashing separators does not get there
+— the missing character is the `K`, not an underscore — so it fell
+through to "unknown target", which is a confusing way to reject the most
+common request there is. `Q3L`, `Q5M`, `Q4S` and friends too.
+
+✨ **`hypernix hyprslug-headers`** — `install`, `status`, `scan`, `show`,
+`stamp`, `wrap`, `serve`. Three mechanisms, and the help leads with which
+is which, because no header makes a stock llama.cpp read a 0.5-bit
+tensor: the type id at 200 is how the loader notices, but the missing
+dequantisation kernel is why it stops, and a header claiming a type
+llama.cpp knows would load and produce noise. `stamp` writes the block
+geometry into the file's own metadata so any loader can be taught to read
+it; `wrap` re-encodes to a stock type, verified against the reference
+`gguf` reader; `serve` keeps the tier and puts hnxrun behind
+`/v1/chat/completions` so LM Studio and Bionic can reach a 0.9-bit model
+without converting it. Standard-library `http.server`, no FastAPI.
+[HyprSlug-Headers](HyprSlug-Headers.md).
+
+𖢥 **`wrap` reported success on a file it had not converted.** hyprslug's
+`_readable()` did not list the extension types, so `_should_quantize`
+declined every tensor with "source type 200 is one hyprslug cannot read"
+and copied it verbatim — producing a `Q2_K`-labelled file still full of
+type-200 tensors, refused by exactly the loader the command exists to
+satisfy. hyprslug now reads the extension types as a source, which also
+makes plain requantisation *from* a sub-bit model work, and `wrap`
+re-reads its own output and deletes it rather than shipping one that
+still carries an extension type.
+
+𖢥 **`stamp` corrupted `general.alignment`.** Copying metadata key by key
+with `set_metadata` re-infers a GGUF type per value, and nothing about
+the number `32` says UINT32 rather than INT32. The reference reader
+rejected the result with "Bad type for general.alignment field" — a file
+this package could still read and nothing else could.
+
+✨ **`tvtoppro`** — tvtop++'s stats under a btop++ presentation, with
+themes. Not built on cctvtop: `TVTopPlusPlus` is a stat source held as an
+attribute, and everything drawn is new. Braille graphs at two samples per
+cell across and four levels down, meters whose every *cell* takes its
+colour from its own position along the ramp, titles in the box border,
+and btop's own `.theme` files loading unchanged — including the `#XX`
+greyscale shorthand, which read as a truncated hex triplet turns every
+neutral in a real theme dark red. Seven themes built in and exported to
+`examples/tvtoppro/`. [TvTopPro](TvTopPro.md).
+
+🐛 **tvtoppro rows are truncated as well as padded.** At 60 columns the
+"no nvidia-smi here" line is longer than its box, and an over-long row
+does not wrap tidily — it pushes the right border onto the next line and
+every box below it looks broken. Caught by asserting every row of a frame
+is exactly the requested width, at four widths under all seven themes,
+measured with Rich rather than counted: the rows carry colour tags that
+print as nothing and braille that prints as one cell each, so `len()` is
+wrong in both directions.
+
+𖢥 **`hypernix-t1 create --host/--port` failed from a checkout.** They are
+in `hypernix-t1 --help`, but from a checkout `create` execs
+`install-t1.sh`, which had never heard of any of them and died with
+"Unknown option: --port" — so the documented interface failed on exactly
+the machine a developer is sitting at. The installer takes them now.
+
+𖢥 **`hypernix-t1 start` started the server somewhere else.**
+`install-t1.sh` put the bind address only into `start-t1.sh`, so
+`hypernix-t1 start` found no `T1_HOST` or `T1_PORT`, fell back to its own
+`127.0.0.1:8000` default, and started uvicorn on a different port from
+the one the installer had configured — after which `status`, `logs`,
+`key` and `test` all pointed at an address nothing was listening on. The
+installer writes both keys now, so both entry points agree.
+
+🛡️ **`install-t1.sh` refuses to clobber an existing `.env`.** Overwriting
+it regenerates the token secret, which invalidates every key already
+minted against it — a failure that surfaces later as "the server rejects
+my keys" rather than there as "the file was replaced". `create_minimal`
+already refused; `--force` overrides both.
+
+🛡️ **`hypernix-t1 autostart` explains a missing user bus.** `systemctl`
+being on PATH is not the same as there being a session to talk to; in a
+container, over plain ssh and on WSL it failed with systemd's bare
+"Failed to connect to bus: No medium found". It now names `enable-linger`
+and the `--write-only` flag, which installs the unit for a session that
+does not exist yet — and which lets the ExecStart-is-absolute test
+actually run instead of skipping everywhere CI does.
+
+📚 Example configs under `examples/tvtoppro/` and
+`examples/hyprslug-headers/`, and three new wiki pages: LowBit,
+HyprSlug-Headers, TvTopPro.
+
+## 0.72.3.post1 ("pt 4") — the sub-bit models actually run
+
+*Released as `0.72.3.post1`. The heading said only "pt 4", so anyone
+looking up what the released version shipped found nothing under that
+name — the release commit bumps the version files and does not write
+here.*
 
 ✨ **HnxRun: a runtime for the files nothing else will open.** The IQ0.x
 tiers had been real quantisations since pt 2 — genuinely 0.56 bits per

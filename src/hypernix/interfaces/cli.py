@@ -25,6 +25,7 @@ Back-compat: invoking ``hypernix`` with flags and no subcommand runs
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Iterable
@@ -54,6 +55,11 @@ _ALIAS: dict[str, str] = {
     "q6_k": "q6_k",
     "q4km": "q4_k_m",
     "q4_k_m": "q4_k_m",
+    # 0.72.3.post2: q4m is what people type for the mix. It is not a
+    # block format of its own -- Q4_K is the format, _M is the policy
+    # that widens attn_v/ffn_down and keeps the head at Q6_K.
+    "q4m": "q4_k_m",
+    "q4_m": "q4_k_m",
     "q5km": "q5_k_m",
     "q5_k_m": "q5_k_m",
 }
@@ -69,6 +75,8 @@ _SUBCOMMANDS = {
     "upload",
     "doctor",
     "fetch-llama-quantize",
+    "devices",
+    "hyprslug-headers",
     "train",
     "generate",
     "oven",
@@ -456,6 +464,36 @@ def _run_quantize(raw: list[str]) -> int:
     return 0
 
 
+def _run_devices(raw: list[str]) -> int:
+    """`hypernix devices` — what can run a sub-bit model here, and why not.
+
+    Worth its own command because the interesting answer is usually a
+    refusal. "CUDA is not available" and "CUDA is available and this
+    wheel has no kernels for your card" are different problems with
+    different fixes, and the second one is invisible until the first
+    kernel launch.
+    """
+    from hypernix.models.hnxdevice import describe, probe, select
+
+    p = argparse.ArgumentParser(
+        prog="hypernix devices",
+        description="List the accelerators this runtime can and cannot use.",
+    )
+    p.add_argument("--json", dest="as_json", action="store_true")
+    ns = p.parse_args(raw)
+
+    found = probe()
+    if ns.as_json:
+        chosen = select("auto")
+        print(json.dumps({
+            "devices": [d.to_dict() for d in found],
+            "auto": chosen.name,
+        }, indent=2))
+        return 0
+    print(describe(found))
+    return 0
+
+
 def _run_verify(raw: list[str]) -> int:
     """Read-validate a GGUF file by parsing its header with the `gguf` library."""
     p = argparse.ArgumentParser(prog="hypernix verify")
@@ -806,6 +844,14 @@ def _parse_size(text: str) -> int:
     return int(value * _SIZE_SUFFIXES[suffix])
 
 
+_DEVICE_HELP = (
+    "Where to run a sub-bit model: auto, cpu, cuda, cuda:1, mps, xpu. "
+    "`auto` takes the first that works and falls back to CPU; a named one "
+    "that cannot run says why and what to install rather than silently "
+    "using the CPU. `hypernix devices` lists them. Vulkan goes through "
+    "llama.cpp, not this runtime — see `hypernix devices`."
+)
+
 #: Shared by `generate` and `chat`, because a flag that means one thing
 #: on one command and is missing on the other is worse than no flag.
 _CACHE_BYTES_HELP = (
@@ -851,6 +897,8 @@ def _run_chat(raw: list[str]) -> int:
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--cache-bytes", dest="cache_bytes", type=_parse_size,
                    default=0, help=_CACHE_BYTES_HELP)
+    p.add_argument("--hnx-device", dest="hnx_device", default="auto",
+                   help=_DEVICE_HELP)
 
     ns = p.parse_args(raw)
 
@@ -864,7 +912,8 @@ def _run_chat(raw: list[str]) -> int:
     if ns.model_dir and is_gguf(ns.model_dir):
         try:
             gguf_model = load_gguf(
-                ns.model_dir, quiet=ns.quiet, cache_bytes=ns.cache_bytes
+                ns.model_dir, quiet=ns.quiet, cache_bytes=ns.cache_bytes,
+                device=ns.hnx_device,
             )
         except GGUFRunError as exc:
             print(f"hypernix chat: {exc}", file=sys.stderr)
@@ -938,6 +987,8 @@ def _run_generate(raw: list[str]) -> int:
                    choices=["float32", "float16", "bfloat16"])
     p.add_argument("--cache-bytes", dest="cache_bytes", type=_parse_size,
                    default=0, help=_CACHE_BYTES_HELP)
+    p.add_argument("--hnx-device", dest="hnx_device", default="auto",
+                   help=_DEVICE_HELP)
     ns = p.parse_args(raw)
 
     # A .gguf is not a snapshot directory, and generate_text would fail
@@ -953,6 +1004,7 @@ def _run_generate(raw: list[str]) -> int:
                 max_new_tokens=ns.max_new_tokens,
                 temperature=ns.temperature,
                 cache_bytes=ns.cache_bytes,
+                device=ns.hnx_device,
             ))
         except GGUFRunError as exc:
             print(f"hypernix generate: {exc}", file=sys.stderr)
@@ -1036,6 +1088,12 @@ def main(argv: list[str] | None = None) -> int:
         return path_main(rest)
     if cmd == "fetch-llama-quantize":
         return _run_fetch_llama_quantize(rest)
+    if cmd == "devices":
+        return _run_devices(rest)
+    if cmd == "hyprslug-headers":
+        from hypernix.quant.hyprslug_headers_cli import main as _headers_main
+
+        return _headers_main(rest)
     if cmd == "train":
         return _run_train(rest)
     if cmd == "generate":

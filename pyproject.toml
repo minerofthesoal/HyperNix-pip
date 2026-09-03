@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypernix"
-version = "0.72.3.post1"
+version = "0.72.3.post4"
 description = "Download and quantize the HyperNix PyTorch model to GGUF (fp32/fp16/Q8_0/Q6_K/Q4_K_M)."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "HOL-1.0" }
@@ -122,6 +122,10 @@ tvtop-old = "hypernix.monitoring.tvtop_plus_plus:cli_main"
 tvtop-older = "hypernix.monitoring.tv:cli_main"
 tvtop-plus-plus = "hypernix.monitoring.tvtop_plus_plus:cli_main"
 tvtoppp = "hypernix.monitoring.tvtop_plus_plus:cli_main"
+# 0.72.3.post2: tvtop++'s stats, btop++'s presentation, themes. Not
+# built on cctvtop -- it takes TVTopPlusPlus as a stat source only.
+tvtoppro = "hypernix.monitoring.tvtoppro:cli_main"
+tvtop-pro = "hypernix.monitoring.tvtoppro:cli_main"
 eth = "hypernix.system.ethanol:cli_main"
 # v0.71.5b3: ups had no entry point at all — a complete module that
 # nothing could run.
@@ -144,6 +148,11 @@ doomslug = "hypernix.quant.hyprslug_cli:cli_main"
 doomslugthedestroyer = "hypernix.quant.hyprslug_cli:cli_main"
 dstd = "hypernix.quant.hyprslug_cli:cli_main"
 hnx-imatrix = "hypernix.quant.imatrix_cli:cli_main"
+# 0.72.3.post2: self-describing headers, the compat export, and the
+# OpenAI-compatible server that lets LM Studio reach a sub-bit model
+# without converting it.
+hyprslug-headers = "hypernix.quant.hyprslug_headers_cli:cli_main"
+hnx-headers = "hypernix.quant.hyprslug_headers_cli:cli_main"
 # 0.72.3 pt3: the embedded draft model, for speculative decoding.
 dflash2 = "hypernix.quant.dflash2_cli:cli_main"
 # v0.71.5b1: HyperNix T1 API's official client TUI/CLI. Zero-extra-deps

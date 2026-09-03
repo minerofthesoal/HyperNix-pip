@@ -138,12 +138,37 @@ class TestHyprslugListTiers:
         """Deliberately above anything upstream allocates, and the
         number is the reason a stock loader refuses the file by name."""
         ids = {t["name"]: t["ggml_type"] for t in listing["sub_bit_tiers"]}
-        assert ids == {"IQ0.9_L": 200, "IQ0.75_M": 201, "IQ0.5_XXXL": 202}
+        assert ids == {
+            "IQ0.9_L": 200, "IQ0.75_M": 201, "IQ0.5_XXXL": 202,
+            "IQ0.25_UXL": 203, "INT1": 204, "INT4": 205, "FP2": 206,
+        }
+        assert all(i >= 200 for i in ids.values())
 
     def test_the_bit_rates_are_the_real_ones(self, listing):
+        from hypernix.quant.lowbit import CODECS
         from hypernix.quant.subbit import PACKINGS
 
         for tier in listing["sub_bit_tiers"]:
-            assert tier["bits_per_weight"] == pytest.approx(
-                PACKINGS[tier["packing"]].bits_per_weight
+            packing = tier["packing"]
+            expected = (
+                PACKINGS[packing].bits_per_weight
+                if packing in PACKINGS
+                else CODECS[packing].bits_per_weight
             )
+            assert tier["bits_per_weight"] == pytest.approx(expected)
+
+    def test_each_tier_says_which_family_it_belongs_to(self, listing):
+        """There are two now, and they are described by different facts:
+        a sign-and-scale packing by how many signs survive, a fixed
+        codebook by its levels. A consumer that assumed one shape for
+        both crashed on ``KeyError: 'INT4'`` inside this very branch."""
+        by_family = {}
+        for tier in listing["sub_bit_tiers"]:
+            by_family.setdefault(tier["family"], []).append(tier["name"])
+        assert set(by_family) == {"sign-and-scale", "fixed-codebook"}
+        assert set(by_family["fixed-codebook"]) == {"INT4", "FP2"}
+        for tier in listing["sub_bit_tiers"]:
+            if tier["family"] == "sign-and-scale":
+                assert "signs_kept" in tier and "group" in tier
+            else:
+                assert "levels" in tier and "code_bits" in tier
