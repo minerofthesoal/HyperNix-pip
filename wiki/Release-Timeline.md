@@ -518,3 +518,21 @@ timeline
         : 2569171 - wake-up- train a wake word, then listen for it
 ```
 
+## Release v0.72.3.post2 (2026-09-03)
+
+```mermaid
+timeline
+    title Release v0.72.3.post2 Commits
+    0.72.3.post2
+        : 403fe0c - Compare interpreter paths by which one, not by which spelling
+        : abc01a9 - 0.72.3.post4 — two bugs that were invisible on the machine that wrote them
+        : 7a6e68d - Fix a heredoc that ran commands, and a test that only passed here
+        : 9c49726 - Run the sub-bit runtime on CUDA, ROCm, Metal and Intel
+        : 75693da - 0.72.3.post2 — hypernix-t1 fixes, example configs, wikis
+        : 29962c9 - tvtoppro- tvtop++'s numbers, btop++'s presentation
+        : afb85f8 - Five new quant types, and hyprslug-headers
+        : ca23e01 - Update package-ecosystem in dependabot.yml
+        : 0184183 - Update package-ecosystem in dependabot.yml
+        : cbe800a - Add Dependabot configuration file
+```
+
