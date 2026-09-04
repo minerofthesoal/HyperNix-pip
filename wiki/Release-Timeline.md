@@ -547,3 +547,12 @@ timeline
         : 5037556 - 0.72.3.post5 — what running the shipped commands on a real box found
 ```
 
+## Release v0.72.3.post8 (2026-09-04)
+
+```mermaid
+timeline
+    title Release v0.72.3.post8 Commits
+    0.72.3.post8
+        : b57e28c - 0.72.3.post7 — 'it is installed already', and it was
+```
+
