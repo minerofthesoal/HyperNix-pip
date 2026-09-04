@@ -1,4 +1,4 @@
-# Changelog
+## Changelog
 
 Full per-release notes for `hypernix`. The top-level `wiki/Home.md`
 keeps a running "recent highlights" list; this page is the canonical
@@ -9,6 +9,7 @@ next release header.
 
 ## Legend
 
+- 🧪 new tests 
 - ✨ new feature
 - 🐛 minor bug fix
 - 🛡️ UX / error-message polish
