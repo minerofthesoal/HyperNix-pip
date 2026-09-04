@@ -511,3 +511,122 @@ class TestItIsActuallyInstalled:
         manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
         assert "include install-t1.sh" in manifest
         assert "recursive-include bin *" in manifest
+
+
+class TestTheInstallAdviceNamesTheInterpreter:
+    """"It is installed already" — and it was, for a different python.
+
+    ``python_bin`` prefers the private venv install-t1.sh creates. The
+    old message said only::
+
+        hypernix[t1api] is not installed for <venv>/bin/python.
+        Run: pip install 'hypernix[t1api]'
+
+    A bare ``pip`` in the operator's shell installs into whatever their
+    shell resolves, which is not that venv. So the instruction can be
+    followed correctly, report success, and leave the check failing --
+    any number of times. That is a loop with nothing on screen to
+    explain it.
+    """
+
+    def _stub(self, tmp_path, *, has_hypernix: bool, has_extra: bool):
+        """A fake interpreter with a chosen import outcome."""
+        config = tmp_path / "t1api"
+        (config / "venv" / "bin").mkdir(parents=True)
+        python = config / "venv" / "bin" / "python"
+        python.write_text(
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            f"  *\"import hypernix.t1api\"*) exit {0 if has_extra else 1} ;;\n"
+            f"  *\"import hypernix\"*) exit {0 if has_hypernix else 1} ;;\n"
+            "esac\nexit 0\n",
+            encoding="utf-8",
+        )
+        python.chmod(0o755)
+        return config, python
+
+    def _start(self, config, **env):
+        import os
+
+        environment = {**os.environ, "T1_CONFIG_DIR": str(config), "NO_COLOR": "1", **env}
+        environment.pop("PYTHONPATH", None)
+        return subprocess.run(
+            [BASH, str(SCRIPT), "start"],
+            capture_output=True, text=True, encoding="utf-8",
+            timeout=60, env=environment,
+        )
+
+    def test_the_pip_command_names_the_interpreter_it_checked(self, tmp_path):
+        config, python = self._stub(tmp_path, has_hypernix=False, has_extra=False)
+
+        result = self._start(config)
+        output = result.stdout + result.stderr
+
+        assert f"{python} -m pip install" in output
+
+    def test_a_bare_pip_is_no_longer_suggested(self, tmp_path):
+        """The whole defect: `pip install` with no interpreter on it."""
+        config, _python = self._stub(tmp_path, has_hypernix=False, has_extra=False)
+
+        result = self._start(config)
+        output = result.stdout + result.stderr
+
+        assert "Run: pip install" not in output
+
+    def test_a_missing_extra_is_not_reported_as_a_missing_package(self, tmp_path):
+        """Different problems, different fixes. Installing the wrong one
+        of the two fixes nothing."""
+        config, _python = self._stub(tmp_path, has_hypernix=True, has_extra=False)
+
+        result = self._start(config)
+        output = result.stdout + result.stderr
+
+        assert "the [t1api] extra is not" in output
+        assert "hypernix is not installed" not in output
+
+    def test_a_missing_package_says_so(self, tmp_path):
+        config, _python = self._stub(tmp_path, has_hypernix=False, has_extra=False)
+
+        result = self._start(config)
+        output = result.stdout + result.stderr
+
+        assert "hypernix is not installed" in output
+
+    def test_it_points_at_the_other_interpreter_when_there_is_one(self, tmp_path):
+        """The line that explains "but it IS installed"."""
+        import os
+
+        config, _python = self._stub(tmp_path, has_hypernix=False, has_extra=False)
+        elsewhere = tmp_path / "bin"
+        elsewhere.mkdir()
+        (elsewhere / "python3").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (elsewhere / "python3").chmod(0o755)
+
+        result = self._start(
+            config, PATH=os.pathsep.join([str(elsewhere), os.environ["PATH"]])
+        )
+        output = result.stdout + result.stderr
+
+        assert "It *is* installed for" in output
+        assert str(elsewhere / "python3") in output
+
+    def test_it_offers_deleting_the_venv_as_the_other_way_out(self, tmp_path):
+        import os
+
+        config, _python = self._stub(tmp_path, has_hypernix=False, has_extra=False)
+        elsewhere = tmp_path / "bin"
+        elsewhere.mkdir()
+        (elsewhere / "python3").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (elsewhere / "python3").chmod(0o755)
+
+        result = self._start(
+            config, PATH=os.pathsep.join([str(elsewhere), os.environ["PATH"]])
+        )
+
+        assert "venv" in (result.stdout + result.stderr)
+
+    def test_it_still_fails(self, tmp_path):
+        """A better message is not a reason to start a server that cannot run."""
+        config, _python = self._stub(tmp_path, has_hypernix=False, has_extra=False)
+
+        assert self._start(config).returncode != 0

@@ -20,6 +20,43 @@ next release header.
 - 𖢥 major bug fix
 - ꩜ restore to older version of item
 - ❗ unfixed known bug
+## 0.72.3.post7 — "it is installed already", and it was
+
+𖢥 **`hypernix-t1 start` told people to run a command that could not
+work.** `python_bin` prefers the private venv `install-t1.sh` creates,
+so the check runs against `~/.hypernix/t1api/venv/bin/python`. The
+message was:
+
+```
+✗ hypernix[t1api] is not installed for ~/.hypernix/t1api/venv/bin/python.
+  Run: pip install 'hypernix[t1api]'
+```
+
+A bare `pip` in the operator's shell installs into whatever *their*
+shell resolves — not that venv. So the instruction can be followed
+correctly, report a successful install, and leave the check failing,
+any number of times, with nothing on screen explaining the
+disagreement. The interpreter was named in the diagnosis and left out
+of the remedy, which is the one place it mattered.
+
+The remedy now carries it:
+
+```
+  ~/.hypernix/t1api/venv/bin/python -m pip install 'hypernix[t1api]'
+```
+
+and when the package *is* importable somewhere else, that is said by
+name — because "it is installed already" is a true statement about a
+different interpreter, and nothing on screen used to acknowledge it.
+Deleting the venv, so `hypernix-t1` falls back to your own interpreter,
+is offered as the other way out.
+
+🛡️ **A missing package and a missing extra no longer wear the same
+message.** They need different fixes, and installing the wrong one of
+the two fixes nothing. `hypernix` importable without `hypernix.t1api`
+now says the `[t1api]` extra is what is absent, and that the server
+needs the fastapi and uvicorn it pulls in.
+
 ## 0.72.3.post6 — `hypernix-t1 index`, and three more from the field
 
 ✨ **`hypernix-t1 index` builds the model registry from the models.** The

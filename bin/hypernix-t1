@@ -84,8 +84,50 @@ python_bin() {
 require_installed() {
   local py; py="$(python_bin)"
   [ -n "$py" ] || die "No python3 found."
-  "$py" -c "import hypernix.t1api" >/dev/null 2>&1 || die \
-    "hypernix[t1api] is not installed for $py. Run: pip install 'hypernix[t1api]'"
+  "$py" -c "import hypernix.t1api" >/dev/null 2>&1 && return 0
+
+  # Past here the import failed, and the useful part is *why*. The old
+  # message said "Run: pip install 'hypernix[t1api]'" with no
+  # interpreter on it. When $py is the private venv -- which it is
+  # whenever install-t1.sh made one -- a bare `pip` in the operator's
+  # shell installs somewhere else entirely, the check fails again, and
+  # the advice repeats. Someone can follow that instruction correctly
+  # any number of times without it ever working.
+  local pip_cmd="$py -m pip install 'hypernix[t1api]'"
+
+  # Two different failures wear the same message. Tell them apart:
+  # the package missing needs an install, the extra missing needs the
+  # extra, and installing the wrong one of those fixes nothing.
+  if "$py" -c "import hypernix" >/dev/null 2>&1; then
+    printf 'hypernix is installed for %s, but the [t1api] extra is not.\n' "$py" >&2
+    printf 'The API server needs fastapi and uvicorn, which that extra pulls in.\n\n' >&2
+    printf '  %s\n' "$pip_cmd" >&2
+  else
+    printf 'hypernix is not installed for %s.\n\n' "$py" >&2
+    printf '  %s\n' "$pip_cmd" >&2
+  fi
+
+  # If it is importable somewhere else, say so by name. "It is installed
+  # already" is a true statement about a different interpreter, and
+  # without this line there is nothing on screen that explains the
+  # disagreement.
+  local other found=""
+  for other in python3 python; do
+    local path; path="$(command -v "$other" 2>/dev/null || true)"
+    [ -n "$path" ] || continue
+    [ "$path" != "$py" ] || continue
+    if "$path" -c "import hypernix.t1api" >/dev/null 2>&1; then
+      found="$path"
+      break
+    fi
+  done
+  if [ -n "$found" ]; then
+    printf '\nIt *is* installed for %s — but this server runs on\n' "$found" >&2
+    printf '%s, so that copy is not the one it can import.\n' "$py" >&2
+    printf 'Install into the line above, or delete %s/venv\n' "$CONFIG_DIR" >&2
+    printf 'to make hypernix-t1 fall back to your own interpreter.\n' >&2
+  fi
+  exit 1
 }
 
 # ---------------------------------------------------------------------------
